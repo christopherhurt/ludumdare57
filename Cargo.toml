@@ -1,0 +1,9 @@
+[package]
+name = "hurtengine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cgmath = "0.18"
+vulkanalia = { version = "=0.26.0", features = ["libloading", "window"] }
+winit = "0.30"
