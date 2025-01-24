@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 pub mod components;
 
 const MAX_ENTITY_COUNT: usize = 5;
@@ -56,11 +58,59 @@ impl<T: Component> ComponentArray<T> {
 
 impl<T: Component> Default for ComponentArray<T> {
     fn default() -> Self {
-        ComponentArray {
+        Self {
             components: std::iter::repeat_with(|| None).take(MAX_ENTITY_COUNT).collect::<Vec<_>>(),
             entity_to_index: vec![usize::MAX; MAX_ENTITY_COUNT],
             index_to_entity: vec![usize::MAX; MAX_ENTITY_COUNT],
             size: 0,
         }
+    }
+}
+
+pub type EntitySignature = u16;
+
+#[derive(Debug)]
+pub struct EntityManager {
+    entity_counter: usize,
+    usable_entities: VecDeque<usize>,
+    signatures: Vec<u16>,
+}
+
+impl EntityManager {
+    pub fn new() -> Self {
+        Self {
+            entity_counter: 0,
+            usable_entities: VecDeque::new(),
+            signatures: vec![0; MAX_ENTITY_COUNT],
+        }
+    }
+
+    pub fn create_entity(&mut self) -> usize {
+        assert!(self.entity_counter < MAX_ENTITY_COUNT, "Exceeded max entity count of {}", MAX_ENTITY_COUNT);
+
+        self.usable_entities.pop_front().unwrap_or_else(|| {
+            let new_entity = self.entity_counter;
+            self.entity_counter += 1;
+            new_entity
+        })
+    }
+
+    pub fn destroy_entity(&mut self, entity: usize) {
+        assert!(entity < self.entity_counter, "Tried to destroy invalid entity {}", entity);
+
+        self.signatures[entity] = 0;
+        self.usable_entities.push_back(entity);
+    }
+
+    pub fn set_signature(&mut self, entity: usize, signature: EntitySignature) {
+        assert!(entity < MAX_ENTITY_COUNT, "Tried to set signature for invalid entity {}", entity);
+
+        self.signatures[entity] = signature;
+    }
+
+    pub fn has_matching_signature(&self, entity: usize, signature: EntitySignature) -> bool {
+        assert!(entity < MAX_ENTITY_COUNT, "Tried to get signature for invalid entity {}", entity);
+
+        self.signatures[entity] & signature == signature
     }
 }
