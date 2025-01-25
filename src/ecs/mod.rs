@@ -1,116 +1,265 @@
-use std::collections::VecDeque;
+use anyhow::{anyhow, Result};
+use std::any::{Any, TypeId};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-pub mod components;
+/////////////////////////////////////////////////////////////////////////////
+/// Public
+/////////////////////////////////////////////////////////////////////////////
 
-const MAX_ENTITY_COUNT: usize = 5;
+pub type Entity = usize;
+pub type Signature = u32;
 
-pub trait Component: Clone {}
+pub trait Component: Clone + std::fmt::Debug + Sized + 'static {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+} // TODO: need + 'static?
+pub trait System {}
 
-#[derive(Debug)]
-pub struct ComponentArray<T: Component> {
-    components: Vec<Option<T>>,
-    entity_to_index: Vec<usize>,
-    index_to_entity: Vec<usize>,
-    size: usize,
+#[derive(Debug, Default)]
+pub struct ECS {
+    entity_manager: EntityManager,
+    component_types_to_arrays: HashMap<TypeId, ComponentArray<dyn Component>>,
+    // system_to_entities: HashMap<TypeId>,
 }
 
-impl<T: Component> ComponentArray<T> {
+impl ECS {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn insert(&mut self, entity: usize, component: T) {
-        assert!(entity < MAX_ENTITY_COUNT, "Tried to insert invalid entity {}", entity);
-
-        let index = self.size;
-
-        self.index_to_entity[index] = entity;
-        self.entity_to_index[entity] = index;
-        self.components[index] = Some(component);
-
-        self.size += 1;
+    pub fn create_entity(&mut self) -> Entity {
+        self.entity_manager.create_entity()
     }
 
-    pub fn remove(&mut self, entity: usize) {
-        assert!(entity < MAX_ENTITY_COUNT && self.entity_to_index[entity] < MAX_ENTITY_COUNT, "Tried to remove invalid entity {}", entity);
-
-        let index = self.entity_to_index[entity];
-        let moved_entity = self.index_to_entity[self.size - 1];
-
-        self.index_to_entity[index] = moved_entity;
-        self.entity_to_index[moved_entity] = index;
-
-        self.index_to_entity[self.size - 1] = usize::MAX;
-        self.entity_to_index[entity] = usize::MAX;
-
-        self.components[index] = self.components[self.size - 1].clone();
-        self.components[self.size - 1] = None;
-
-        self.size -= 1;
+    pub fn destroy_entity(&mut self, entity: Entity) -> Result<()> {
+        self.entity_manager.destroy_entity(entity)?;
+        // TODO
+        self.component_types_to_arrays.values().for_each(|b| {
+            b.downcast_ref::<ComponentArray<_>>().unwrap_or_else(|| panic!("")).remove_component(entity);
+        });
+        Ok(())
+        // TODO
     }
 
-    pub fn get(&self, entity: usize) -> &T {
-        assert!(entity < MAX_ENTITY_COUNT && self.entity_to_index[entity] < MAX_ENTITY_COUNT, "Tried to get invalid entity {}", entity);
+    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) -> Result<()> {
+        // TODO
+    }
 
-        self.components[self.entity_to_index[entity]].as_ref().unwrap()
+    pub fn remove_component<T: Component>(&mut self, entity: Entity) -> Result<()> {
+        // TODO
+    }
+
+    pub fn get_component<T: Component>(&self, entity: Entity) -> Result<&T> {
+        // TODO
+    }
+
+    pub fn get_mut_component<T: Component>(&mut self, entity: Entity) -> Result<&mut T> {
+        // TODO
+    }
+
+    pub fn get_system_entities<S: System>(&self) -> Result<()> { // TODO return type?
+        // TODO
+    }
+
+    pub fn register_component<T: Component>(&mut self) -> Result<Signature> {
+        // TODO
+    }
+
+    pub fn register_system<S: System>(&mut self, signatures: Vec<Signature>) -> Result<()> {
+        // TODO
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+/// Common
+/////////////////////////////////////////////////////////////////////////////
+
+const INITIAL_CAPACITY: usize = 1_024;
+
+/////////////////////////////////////////////////////////////////////////////
+/// EntityManager
+/////////////////////////////////////////////////////////////////////////////
+
+const DEFAULT_SIGNATURE: Signature = 0;
+
+#[derive(Debug)]
+struct EntityManager {
+    entity_counter: Entity,
+    usable_entities: VecDeque<Entity>,
+    signatures: Vec<Signature>,
+    entity_destroyed: Vec<bool>,
+}
+
+impl EntityManager {
+    fn new() -> Self {
+        Default::default()
+    }
+
+    fn create_entity(&mut self) -> Entity {
+        let new_entity = self.usable_entities.pop_front().unwrap_or_else(|| {
+            let new_entity = self.entity_counter;
+            self.entity_counter += 1;
+            new_entity
+        });
+
+        while self.signatures.len() <= new_entity {
+            self.signatures.resize(self.signatures.len() * 2, DEFAULT_SIGNATURE);
+        }
+        while self.entity_destroyed.len() <= new_entity {
+            self.entity_destroyed.resize(self.entity_destroyed.len() * 2, true);
+        }
+
+        self.entity_destroyed[new_entity] = false;
+
+        new_entity
+    }
+
+    fn destroy_entity(&mut self, entity: Entity) -> Result<()> {
+        if self.entity_destroyed[entity] {
+            return Err(anyhow!("Tried to destroy entity {} which doesn't exist", entity));
+        }
+
+        self.signatures[entity] = DEFAULT_SIGNATURE;
+        self.entity_destroyed[entity] = true;
+
+        self.usable_entities.push_back(entity);
+
+        Ok(())
+    }
+
+    fn set_signature(&mut self, entity: Entity, signature: Signature) -> Result<()> {
+        if self.entity_destroyed[entity] {
+            return Err(anyhow!("Tried to set signature for invalid entity {}", entity));
+        }
+
+        self.signatures[entity] = signature;
+
+        Ok(())
+    }
+
+    fn has_matching_signature(&self, entity: Entity, signature: Signature) -> Result<bool> {
+        if self.entity_destroyed[entity] {
+            return Err(anyhow!("Tried to compare signature for invalid entity {}", entity));
+        }
+
+        Ok(self.signatures[entity] & signature == signature)
+    }
+}
+
+impl Default for EntityManager {
+    fn default() -> Self {
+        Self {
+            entity_counter: 0,
+            usable_entities: VecDeque::new(),
+            signatures: vec![DEFAULT_SIGNATURE; INITIAL_CAPACITY],
+            entity_destroyed: vec![true; INITIAL_CAPACITY],
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////
+/// ComponentArray
+/////////////////////////////////////////////////////////////////////////////
+
+const INVALID_INDEX: usize = usize::MAX;
+
+#[derive(Debug)]
+struct ComponentArray<T: Component> {
+    entity_to_index: Vec<usize>,
+    index_to_entity: Vec<Entity>,
+    components: Vec<T>,
+}
+
+impl<T: Component> ComponentArray<T> {
+    fn new() -> Self {
+        Default::default()
+    }
+
+    fn insert_component(&mut self, entity: Entity, component: T) -> Result<()> {
+        if entity < self.entity_to_index.len() && self.entity_to_index[entity] != INVALID_INDEX {
+            return Err(anyhow!("Tried to attach component which already exists for entity {}", entity));
+        }
+
+        while entity >= self.entity_to_index.len() {
+            self.entity_to_index.resize(self.entity_to_index.len() * 2, INVALID_INDEX);
+        }
+
+        self.entity_to_index[entity] = self.index_to_entity.len();
+
+        self.index_to_entity.push(entity);
+        self.components.push(component);
+
+        Ok(())
+    }
+
+    fn remove_component(&mut self, entity: Entity) -> Result<()> {
+        if entity >= self.entity_to_index.len() || self.entity_to_index[entity] == INVALID_INDEX {
+            return Err(anyhow!("Tried to remove component which doesn't exist for entity {}", entity));
+        }
+
+        let dst_index = self.entity_to_index[entity];
+
+        self.entity_to_index[self.index_to_entity[self.index_to_entity.len() - 1]] = dst_index;
+        self.index_to_entity[dst_index] = self.index_to_entity[self.index_to_entity.len() - 1];
+        self.components[dst_index] = self.components[self.components.len() - 1].clone();
+
+        self.entity_to_index[entity] = INVALID_INDEX;
+        self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity array is empty"));
+        self.components.pop().unwrap_or_else(|| panic!("Internal error: components array is empty"));
+
+        Ok(())
+    }
+
+    fn get_component(&self, entity: Entity) -> Result<&T> {
+        if entity >= self.entity_to_index.len() || self.entity_to_index[entity] == INVALID_INDEX {
+            return Err(anyhow!("Tried to get component for invalid entity {}", entity));
+        }
+
+        Ok(&self.components[self.entity_to_index[entity]])
+    }
+
+    fn get_mut_component(&mut self, entity: Entity) -> Result<&mut T> {
+        if entity >= self.entity_to_index.len() || self.entity_to_index[entity] == INVALID_INDEX {
+            return Err(anyhow!("Tried to get mutable component for invalid entity {}", entity));
+        }
+
+        Ok(&mut self.components[self.entity_to_index[entity]])
     }
 }
 
 impl<T: Component> Default for ComponentArray<T> {
     fn default() -> Self {
         Self {
-            components: std::iter::repeat_with(|| None).take(MAX_ENTITY_COUNT).collect::<Vec<_>>(),
-            entity_to_index: vec![usize::MAX; MAX_ENTITY_COUNT],
-            index_to_entity: vec![usize::MAX; MAX_ENTITY_COUNT],
-            size: 0,
+            entity_to_index: vec![INVALID_INDEX; INITIAL_CAPACITY],
+            index_to_entity: Vec::with_capacity(INITIAL_CAPACITY),
+            components: Vec::with_capacity(INITIAL_CAPACITY),
         }
     }
 }
 
-pub type EntitySignature = u16;
+/////////////////////////////////////////////////////////////////////////////
+/// SystemManager
+/////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub struct EntityManager {
-    entity_counter: usize,
-    usable_entities: VecDeque<usize>,
-    signatures: Vec<u16>,
+struct SystemManager {
+    system_type_id: TypeId,
+    signatures: Vec<Signature>,
+    entities: HashSet<Entity>,
 }
 
-impl EntityManager {
-    pub fn new() -> Self {
+impl SystemManager {
+    fn new(system_type_id: TypeId, signatures: Vec<Signature>) -> Self {
         Self {
-            entity_counter: 0,
-            usable_entities: VecDeque::new(),
-            signatures: vec![0; MAX_ENTITY_COUNT],
+            system_type_id,
+            signatures,
+            entities: HashSet::with_capacity(INITIAL_CAPACITY),
         }
     }
 
-    pub fn create_entity(&mut self) -> usize {
-        assert!(self.entity_counter < MAX_ENTITY_COUNT, "Exceeded max entity count of {}", MAX_ENTITY_COUNT);
-
-        self.usable_entities.pop_front().unwrap_or_else(|| {
-            let new_entity = self.entity_counter;
-            self.entity_counter += 1;
-            new_entity
-        })
-    }
-
-    pub fn destroy_entity(&mut self, entity: usize) {
-        assert!(entity < self.entity_counter, "Tried to destroy invalid entity {}", entity);
-
-        self.signatures[entity] = 0;
-        self.usable_entities.push_back(entity);
-    }
-
-    pub fn set_signature(&mut self, entity: usize, signature: EntitySignature) {
-        assert!(entity < MAX_ENTITY_COUNT, "Tried to set signature for invalid entity {}", entity);
-
-        self.signatures[entity] = signature;
-    }
-
-    pub fn has_matching_signature(&self, entity: usize, signature: EntitySignature) -> bool {
-        assert!(entity < MAX_ENTITY_COUNT, "Tried to get signature for invalid entity {}", entity);
-
-        self.signatures[entity] & signature == signature
+    fn entity_signature_updated(&mut self, entity: Entity, signature: Signature) {
+        // TODO
+        // if self.signatures.iter().any(|s| )
     }
 }
