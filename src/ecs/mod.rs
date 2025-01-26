@@ -9,18 +9,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub type Entity = usize;
 pub type Signature = u32;
 
-pub trait Component: Clone + std::fmt::Debug + Sized + 'static {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-} // TODO: need + 'static?
-pub trait System {}
+pub trait Component {}
+pub trait System {} // TODO: update to system core struct or system entities or something? prob define handlers and stuff in this trait, like OnUpdate(), OnEntityAdded(), and what not...
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ECS {
     entity_manager: EntityManager,
-    component_types_to_arrays: HashMap<TypeId, ComponentArray<dyn Component>>,
-    // system_to_entities: HashMap<TypeId>,
+    component_types_to_arrays: HashMap<TypeId, ComponentArray<Box<dyn Component>>>,
 }
 
 impl ECS {
@@ -28,6 +23,8 @@ impl ECS {
         Default::default()
     }
 
+    // TODO: what can/should we inline in this file??
+    // #[inline]
     pub fn create_entity(&mut self) -> Entity {
         self.entity_manager.create_entity()
     }
@@ -35,14 +32,15 @@ impl ECS {
     pub fn destroy_entity(&mut self, entity: Entity) -> Result<()> {
         self.entity_manager.destroy_entity(entity)?;
         // TODO
-        self.component_types_to_arrays.values().for_each(|b| {
-            b.downcast_ref::<ComponentArray<_>>().unwrap_or_else(|| panic!("")).remove_component(entity);
+        self.component_types_to_arrays.values_mut().for_each(|comp_arr| {
+            comp_arr.remove_component(entity);
         });
         Ok(())
         // TODO
     }
 
     pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) -> Result<()> {
+        self.component_types_to_arrays.get(TypeId<T>::of())
         // TODO
     }
 
@@ -83,7 +81,6 @@ const INITIAL_CAPACITY: usize = 1_024;
 
 const DEFAULT_SIGNATURE: Signature = 0;
 
-#[derive(Debug)]
 struct EntityManager {
     entity_counter: Entity,
     usable_entities: VecDeque<Entity>,
@@ -164,19 +161,18 @@ impl Default for EntityManager {
 
 const INVALID_INDEX: usize = usize::MAX;
 
-#[derive(Debug)]
-struct ComponentArray<T: Component> {
+struct ComponentArray<T> {
     entity_to_index: Vec<usize>,
     index_to_entity: Vec<Entity>,
-    components: Vec<T>,
+    components: Vec<Box<T>>,
 }
 
-impl<T: Component> ComponentArray<T> {
+impl<T> ComponentArray<T> {
     fn new() -> Self {
         Default::default()
     }
 
-    fn insert_component(&mut self, entity: Entity, component: T) -> Result<()> {
+    fn insert_component(&mut self, entity: Entity, component: Box<T>) -> Result<()> {
         if entity < self.entity_to_index.len() && self.entity_to_index[entity] != INVALID_INDEX {
             return Err(anyhow!("Tried to attach component which already exists for entity {}", entity));
         }
@@ -199,14 +195,14 @@ impl<T: Component> ComponentArray<T> {
         }
 
         let dst_index = self.entity_to_index[entity];
-
-        self.entity_to_index[self.index_to_entity[self.index_to_entity.len() - 1]] = dst_index;
-        self.index_to_entity[dst_index] = self.index_to_entity[self.index_to_entity.len() - 1];
-        self.components[dst_index] = self.components[self.components.len() - 1].clone();
-
         self.entity_to_index[entity] = INVALID_INDEX;
-        self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity array is empty"));
-        self.components.pop().unwrap_or_else(|| panic!("Internal error: components array is empty"));
+
+        let moved_entity = self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity array is empty"));
+        self.index_to_entity[dst_index] = moved_entity;
+        self.entity_to_index[moved_entity] = dst_index;
+
+        let moved_component = self.components.pop().unwrap_or_else(|| panic!("Internal error: components array is empty"));
+        self.components[dst_index] = moved_component;
 
         Ok(())
     }
@@ -224,11 +220,11 @@ impl<T: Component> ComponentArray<T> {
             return Err(anyhow!("Tried to get mutable component for invalid entity {}", entity));
         }
 
-        Ok(&mut self.components[self.entity_to_index[entity]])
+        Ok(&mut self.components[self.entity_to_index[entity]]) // TODO: update this? Use Rc instead? how does this compile?? lol
     }
 }
 
-impl<T: Component> Default for ComponentArray<T> {
+impl<T> Default for ComponentArray<T> {
     fn default() -> Self {
         Self {
             entity_to_index: vec![INVALID_INDEX; INITIAL_CAPACITY],
@@ -242,7 +238,6 @@ impl<T: Component> Default for ComponentArray<T> {
 /// SystemManager
 /////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
 struct SystemManager {
     system_type_id: TypeId,
     signatures: Vec<Signature>,
