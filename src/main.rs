@@ -1,31 +1,19 @@
+use cgmath::vec3;
+use core::transform::Transform;
+use ecs::ECS;
+
+mod core;
 mod ecs;
 
-use cgmath::vec3;
-
-use crate::ecs::ComponentArray;
-use crate::ecs::components::transform::Transform;
-
 fn main() {
-    let mut comp_arr = ComponentArray::<Transform>::new();
+    let mut ecs = ECS::new();
 
-    comp_arr.insert(0, create_transform(0.0));
-    comp_arr.insert(1, create_transform(1.0));
-    comp_arr.insert(2, create_transform(2.0));
-    comp_arr.insert(3, create_transform(3.0));
+    let transform_bit = ecs.register_component::<Transform>().unwrap_or_else(|_| panic!("Failed to register Transform component"));
 
-    comp_arr.remove(0);
-    comp_arr.remove(2);
-
-    println!("comp_arr: {:?}", comp_arr);
-
-    println!("entity 1: {:?}", comp_arr.get(1));
-    println!("entity 3: {:?}", comp_arr.get(3));
-}
-
-fn create_transform(val: f32) -> Transform {
-    Transform {
-        pos: vec3(val, val, val),
-        rot: vec3(val, val, val),
-        scale: vec3(val, val, val),
-    }
+    // TODO
+    let transform = Transform {
+        pos: vec3(0.0, 0.0, 0.0),
+        rot: vec3(0.0, 0.0, 0.0),
+        scl: vec3(0.0, 0.0, 0.0),
+    };
 }
