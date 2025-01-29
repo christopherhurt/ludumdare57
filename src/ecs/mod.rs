@@ -48,12 +48,12 @@ impl ECS {
         Ok(())
     }
 
-    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) -> Result<()> {
+    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: Box<T>) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&TypeId::of::<T>()).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("Cannot attach component which isn't registered")))?;
         let mut entity_signature = self.entity_manager.get_signature(entity)?;
 
-        comp_arr.insert_component(entity, Box::new(component))?;
+        comp_arr.insert_component(entity, component)?;
 
         entity_signature |= comp_arr.component_signature;
         self.entity_manager.set_signature(entity, entity_signature).unwrap_or_else(|_|
