@@ -5,6 +5,5 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-cgmath = "0.18"
 vulkanalia = { version = "=0.26.0", features = ["libloading", "window"] }
 winit = "0.30"

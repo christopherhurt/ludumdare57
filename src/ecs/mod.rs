@@ -9,14 +9,14 @@ use std::collections::hash_set::Iter;
 
 pub type Entity = usize;
 pub type Signature = u32;
+pub type SystemId = u8;
 
 pub trait Component: 'static {}
-pub trait System: 'static {}
 
 pub struct ECS {
     entity_manager: EntityManager,
     component_types_to_arrays: HashMap<TypeId, ComponentArray<Box<dyn Any>>>,
-    system_types_to_managers: HashMap<TypeId, SystemManager>,
+    system_ids_to_managers: HashMap<SystemId, SystemManager>,
     component_registration_bit: Signature,
 }
 
@@ -31,7 +31,7 @@ impl ECS {
             panic!("Internal error: Failed to get signature for newly created entity {}", new_entity);
         });
 
-        self.system_types_to_managers.values_mut().for_each(|s| s.handle_entity_updated(new_entity, new_entity_signature));
+        self.system_ids_to_managers.values_mut().for_each(|s| s.handle_entity_updated(new_entity, new_entity_signature));
 
         new_entity
     }
@@ -43,7 +43,7 @@ impl ECS {
                 panic!("Internal error: Remove component failed for entity {} which should exist", entity);
             });
         });
-        self.system_types_to_managers.values_mut().for_each(|s: &mut SystemManager| s.handle_entity_removed(entity));
+        self.system_ids_to_managers.values_mut().for_each(|s: &mut SystemManager| s.handle_entity_removed(entity));
 
         Ok(())
     }
@@ -59,7 +59,7 @@ impl ECS {
         self.entity_manager.set_signature(entity, entity_signature).unwrap_or_else(|_|
             panic!("Internal error: Failed to set signature for entity {} which should exist", entity));
 
-        self.system_types_to_managers.values_mut().for_each(|m| m.handle_entity_updated(entity, entity_signature));
+        self.system_ids_to_managers.values_mut().for_each(|m| m.handle_entity_updated(entity, entity_signature));
 
         Ok(())
     }
@@ -75,7 +75,7 @@ impl ECS {
         self.entity_manager.set_signature(entity, entity_signature).unwrap_or_else(|_|
             panic!("Internal error: Failed to set signature for entity {} which should exist", entity));
 
-        self.system_types_to_managers.values_mut().for_each(|m| m.handle_entity_updated(entity, entity_signature));
+        self.system_ids_to_managers.values_mut().for_each(|m| m.handle_entity_updated(entity, entity_signature));
 
         Ok(())
     }
@@ -100,8 +100,8 @@ impl ECS {
         }
     }
 
-    pub fn get_system_entities<S: System>(&self) -> Result<Iter<Entity>> {
-        let system = self.system_types_to_managers.get(&TypeId::of::<S>()).map(|s| Ok(s))
+    pub fn get_system_entities(&self, system_id: SystemId) -> Result<Iter<Entity>> {
+        let system = self.system_ids_to_managers.get(&system_id).map(|s| Ok(s))
             .unwrap_or(Err(anyhow!("Cannot get entities for system which isn't registered")))?;
 
         Ok(system.entities.iter())
@@ -125,10 +125,8 @@ impl ECS {
         Ok(component_signature)
     }
 
-    pub fn register_system<S: System>(&mut self, signatures: HashSet<Signature>) -> Result<()> {
-        let type_id = TypeId::of::<S>();
-
-        if self.system_types_to_managers.contains_key(&type_id) {
+    pub fn register_system(&mut self, system_id: SystemId, signatures: HashSet<Signature>) -> Result<()> {
+        if self.system_ids_to_managers.contains_key(&system_id) {
             return Err(anyhow!("System is already registered"));
         }
 
@@ -139,7 +137,7 @@ impl ECS {
             system_manager.handle_entity_updated(entity, entity_signature);
         });
 
-        self.system_types_to_managers.insert(type_id, system_manager);
+        self.system_ids_to_managers.insert(system_id, system_manager);
 
         Ok(())
     }
@@ -150,7 +148,7 @@ impl Default for ECS {
         Self {
             entity_manager: EntityManager::default(),
             component_types_to_arrays: HashMap::default(),
-            system_types_to_managers: HashMap::default(),
+            system_ids_to_managers: HashMap::default(),
             component_registration_bit: 1,
         }
     }
