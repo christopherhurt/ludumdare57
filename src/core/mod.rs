@@ -1,4 +1,5 @@
-use crate::ecs::{Component, ECS, Entity, SystemId};
+use std::rc::Rc;
+
 use crate::math::{vec2, vec3, Vec2, Vec3, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 /////////////////////////////////////////////////////////////////////////////
@@ -35,6 +36,22 @@ pub mod color {
 /////////////////////////////////////////////////////////////////////////////
 /// Scene
 /////////////////////////////////////////////////////////////////////////////
+
+// Event
+
+pub struct Event {
+    pub evt_type: EventType,
+}
+
+pub enum EventType {
+    Update,
+}
+
+// Signal
+
+pub struct Signal {
+    pub name: str,
+}
 
 // Camera
 
@@ -87,28 +104,43 @@ impl Default for Viewport2D {
 // Scene
 
 pub struct Scene {
-    pub ecs: ECS,
+    pub root_nodes: Vec<Node>,
     pub viewports: Vec<Viewport2D>,
 }
 
 impl Scene {
-    pub fn new(ecs: ECS, viewports: Vec<Viewport2D>) -> Self {
-        Self { ecs, viewports }
+    pub fn new(root_nodes: Vec<Node>, viewports: Vec<Viewport2D>) -> Self {
+        Self { root_nodes, viewports }
     }
 }
 
 impl Default for Scene {
     fn default() -> Self {
         Self {
-            ecs: ECS::default(),
+            root_nodes: Vec::with_capacity(256),
             viewports: vec![Viewport2D::default()],
         }
     }
 }
 
 /////////////////////////////////////////////////////////////////////////////
-/// Components
+/// Node
 /////////////////////////////////////////////////////////////////////////////
+
+// Node
+
+pub struct Node {
+    pub id: u32,
+    pub tags: Box<[&'static str]>,
+    pub children: Vec<Node>,
+
+    pub transform: Option<Transform>,
+    pub mesh: Option<Rc<Mesh>>,
+    pub color_material: Option<Rc<ColorMaterial>>,
+
+    pub handle_event: Option<fn(&Scene, &Event)>,
+    pub handle_signal: Option<fn(&Scene, &Signal)>,
+}
 
 // Transform
 
@@ -124,8 +156,6 @@ impl Transform {
     }
 }
 
-impl Component for Transform {}
-
 impl Default for Transform {
     fn default() -> Self {
         Self {
@@ -136,13 +166,11 @@ impl Default for Transform {
     }
 }
 
-// Behavior
+// Mesh
 
-pub struct Behavior<F: Fn(&Scene, Entity)> {
-    pub on_update: F,
+pub struct Mesh {
+    pub id: u32,
 }
-
-impl<F: Fn(&Scene, Entity) + 'static> Component for Behavior<F> {}
 
 // ColorMaterial
 
@@ -150,30 +178,10 @@ pub struct ColorMaterial {
     pub color: color::Color,
 }
 
-impl Component for ColorMaterial {}
-
 impl Default for ColorMaterial {
     fn default() -> Self {
         Self {
             color: color::RED,
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////////////////
-/// Systems
-/////////////////////////////////////////////////////////////////////////////
-
-pub enum System {
-    Behavior,
-    Render,
-}
-
-impl System {
-    pub fn get_id(&self) -> SystemId {
-        match self {
-            System::Behavior => 0,
-            System::Render => 1,
         }
     }
 }
