@@ -3,6 +3,34 @@ use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::collections::hash_set::Iter;
 
+/*
+This approach is kind of terrible. Some lessons learned:
+- All of this is kind of pointless using a Box<> type in the component array.
+Box allocates an individual block on memory on the heap, for which the locality
+to other component Box's is unknown. ECS IS ALL ABOUT LOCALITY. We should instead
+allocate one big vec from the heap and store ALL the components on it.
+- The iteration order is important. We should be iterating through the components
+in the ComponentArray IN ORDER for ideal locality. We don't want to iterate over
+the actual entities, because that may load components from all different locations
+in the component array into cache with each iteration.
+- We don't need to put every "component" in the ECS. A good candidate might be a
+mesh/material pair, because we might be able to iterate in order to render them
+at render time. A bad candidate might be a RigidBody, which is probably iterated
+over in a tree-like structure.
+- We can use a scene graph with an ECS, but they should be treated as totally
+separate structures. If we want decent locality in the ECS when iterating through
+a scene graph, we could do something like level-order iteration (root node level 0,
+then level 1 nodes, level 2, etc...), which guarantees parent nodes are updated
+before child nodes. Though ECS isn't always a great option when using a scene graph
+because of this clunkyness in how they might interact.
+- ECS might not be a great option for Rust in general. It has a lot of rules like
+having to know the size of the component type at compile time, making storage of
+generic components a design challenge.
+- To reiterate: ECS IS ALL ABOUT MEMORY LOCALITY. The focus should be iterating
+over component arrays IN ORDER. It doesn't need to be applied for all components,
+but just components where it makes sense.
+*/
+
 /////////////////////////////////////////////////////////////////////////////
 /// Public
 /////////////////////////////////////////////////////////////////////////////
