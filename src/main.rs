@@ -1,63 +1,39 @@
-use core::{Behavior, ColorMaterial, Scene, System, Transform, Viewport2D};
-use drivers::vulkan::{VulkanRenderer, VulkanWindow};
-use ecs::ECS;
-use renderer::{Renderer, Window};
+use core::{Event, Node, Scene, Viewport2D};
+use drivers::vulkan_render_engine::VulkanRenderEngine;
+use render_engine::{RenderEngine, RenderEngineProperties, Window, WindowProperties};
 
 mod core;
 mod drivers;
-mod ecs;
 mod math;
-mod renderer;
+mod render_engine;
 
 fn main() {
-    let ecs = init_ecs();
-    let scene = init_scene(ecs);
-    let renderer = VulkanRenderer::<VulkanWindow>::get_instance();
+    let render_engine_properties = RenderEngineProperties {
+        debug_enabled: true,
+        window_properties: WindowProperties {
+            width: 800,
+            height: 600,
+            title: "My Cool Game".to_string(),
+        },
+    };
 
-    run_game_loop(&scene, &renderer);
+    let mut render_engine = VulkanRenderEngine::new(&render_engine_properties)
+        .unwrap_or_else(|_| panic!("Failed to init VulkanRenderEngine"));
+    let mut scene = init_scene();
+
+    run_game_loop(&mut render_engine, &mut scene);
 }
 
-fn init_ecs() -> ECS {
-    let mut ecs = ECS::new();
+fn init_scene() -> Scene<'static> {
+    let node_0 = Node::default();
 
-    let transform_bit = ecs.register_component::<Transform>().unwrap_or_else(|_| panic!("Failed to register Transform component"));
-    // TODO fix type issue
-    let behavior_bit = ecs.register_component::<Behavior<_>>().unwrap_or_else(|_| panic!("Failed to register Behavior component"));
-    let color_material_bit = ecs.register_component::<ColorMaterial>().unwrap_or_else(|_| panic!("Failed to register ColorMaterial component"));
-
-    // TODO
-
-    ecs
+    Scene::new(vec![node_0], vec![Viewport2D::default()])
 }
 
-fn init_scene(ecs: ECS) -> Scene {
-    let scene = Scene::new(ecs, vec![Viewport2D::default()]);
+fn run_game_loop(render_engine: &mut VulkanRenderEngine, scene: &mut Scene) {
+    while !render_engine.get_window().is_closing() {
+        scene.fire_event(&Event::Update);
 
-    // TODO: populate scene
-
-    scene
-}
-
-fn run_game_loop<W: Window, R: Renderer<W>>(scene: &Scene, renderer: &R) {
-    while !renderer.get_window().should_close() {
-        // Behavior system
-        let behavior_entities = scene.ecs.get_system_entities(System::Behavior.get_id())
-            .unwrap_or_else(|_| panic!("Failed to get entities for the Behavior system"));
-
-        behavior_entities.for_each(|e| {
-            // TODO fix
-            let behavior = scene.ecs.get_component::<Behavior>(*e)
-                .unwrap_or_else(|_| panic!("Failed to get Behavior component for entity {}", e));
-
-            behavior.on_update(scene, e);
-        });
-
-        // Render system
-        let render_entities = scene.ecs.get_system_entities(System::Render.get_id())
-            .unwrap_or_else(|_| panic!("Failed to get entities for the Render system"));
-
-        render_entities.for_each(|e| {
-            // TODO
-        });
+        render_engine.sync_data(scene);
     }
 }

@@ -1,10 +1,15 @@
+use anyhow::Result;
+use std::collections::HashMap;
 use std::rc::Rc;
+use uuid::Uuid;
 
 use crate::math::{vec2, vec3, Vec2, Vec3, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 /////////////////////////////////////////////////////////////////////////////
 /// Common
 /////////////////////////////////////////////////////////////////////////////
+
+const DEFAULT_NODE_CAPACITY: usize = 64;
 
 // Color
 
@@ -39,11 +44,7 @@ pub mod color {
 
 // Event
 
-pub struct Event {
-    pub evt_type: EventType,
-}
-
-pub enum EventType {
+pub enum Event {
     Update,
 }
 
@@ -104,20 +105,62 @@ impl Default for Viewport2D {
 // Scene
 
 pub struct Scene {
-    pub root_nodes: Vec<Node>,
-    pub viewports: Vec<Viewport2D>,
+    root_nodes: Vec<Node>,
+    viewports: Vec<Viewport2D>,
 }
 
 impl Scene {
     pub fn new(root_nodes: Vec<Node>, viewports: Vec<Viewport2D>) -> Self {
         Self { root_nodes, viewports }
     }
+
+    pub fn add_root_node(&mut self, node: Node) {
+        self.root_nodes.push(node);
+    }
+
+    pub fn remove_node(id: Uuid) -> Result<()> {
+        todo!() // TODO
+    }
+
+    pub fn get_node(&self, id: Uuid) -> Result<&Node> {
+        todo!() // TODO
+    }
+
+    pub fn get_mut_node(&mut self, id: Uuid) -> Result<&mut Node> {
+        todo!() // TODO
+    }
+
+    pub fn get_nodes_by_tag(&mut self, tag: &String) -> Vec<&Node> {
+        // TODO
+    }
+
+    pub fn fire_event(&mut self, evt: &Event) {
+        // TODO
+        self.root_nodes.iter().for_each(|n| self.handle_event(evt, n));
+    }
+
+    fn handle_event(&mut self, evt: &Event, node: &Node) {
+        match node.handle_event {
+            Some(f) => f(self, evt),
+            _ => {},
+        }
+
+        // TODO iter over children
+    }
+
+    pub fn fire_signal(&mut self, signal: &Signal, tags: &[&str]) {
+        // TODO
+    }
+
+    fn handle_signal(&mut self, signal: &Signal, tags: &[&str], node: &Node) {
+        // TODO
+    }
 }
 
 impl Default for Scene {
     fn default() -> Self {
         Self {
-            root_nodes: Vec::with_capacity(256),
+            root_nodes: Vec::with_capacity(DEFAULT_NODE_CAPACITY),
             viewports: vec![Viewport2D::default()],
         }
     }
@@ -130,16 +173,70 @@ impl Default for Scene {
 // Node
 
 pub struct Node {
-    pub id: u32,
-    pub tags: Box<[&'static str]>,
-    pub children: Vec<Node>,
+    uuid: Uuid,
+    tags: Box<[String]>,
+    children: Vec<Node>,
+
+    handle_event: Option<fn(&mut Scene, &Event)>,
+    handle_signal: Option<fn(&mut Scene, &Signal)>,
 
     pub transform: Option<Transform>,
     pub mesh: Option<Rc<Mesh>>,
     pub color_material: Option<Rc<ColorMaterial>>,
+}
 
-    pub handle_event: Option<fn(&Scene, &Event)>,
-    pub handle_signal: Option<fn(&Scene, &Signal)>,
+impl Node {
+    pub fn new(
+        tags: Option<Box<[String]>>,
+        children: Option<Vec<Node>>,
+        handle_event: Option<fn(&mut Scene, &Event)>,
+        handle_signal: Option<fn(&mut Scene, &Signal)>,
+        transform: Option<Transform>,
+        mesh: Option<Rc<Mesh>>,
+        color_material: Option<Rc<ColorMaterial>>,
+    ) -> Self {
+        Self {
+            uuid: Uuid::new_v4(),
+            tags: tags.unwrap_or(Box::new([])).into(),
+            children: children.unwrap_or(Vec::with_capacity(DEFAULT_NODE_CAPACITY)),
+            handle_event,
+            handle_signal,
+            transform,
+            mesh,
+            color_material,
+        }
+    }
+
+    pub fn get_id(&self) -> Uuid {
+        self.uuid
+    }
+
+    pub fn get_tags(&self) -> &[String] {
+        self.tags.as_ref()
+    }
+
+    pub fn get_children(&self) -> &Vec<Node> {
+        &self.children
+    }
+
+    pub fn get_children_mut(&mut self) -> &mut Vec<Node> {
+        &mut self.children
+    }
+}
+
+impl Default for Node {
+    fn default() -> Self {
+        Self {
+            uuid: Uuid::new_v4(),
+            tags: Box::new([String::default(); 0]),
+            children: Vec::with_capacity(DEFAULT_NODE_CAPACITY),
+            handle_event: None,
+            handle_signal: None,
+            transform: None,
+            mesh: None,
+            color_material: None,
+        }
+    }
 }
 
 // Transform
