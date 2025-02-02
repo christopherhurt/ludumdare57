@@ -1,15 +1,16 @@
 use anyhow::Result;
 use std::rc::Rc;
+use strum_macros::EnumIter;
 
 use crate::core::{Mesh, Scene};
 use crate::math::Vec3;
 
-pub struct RenderEngineProperties {
+pub struct RenderEngineInitProperties {
     pub debug_enabled: bool,
-    pub window_properties: WindowProperties,
+    pub window_properties: WindowInitProperties,
 }
 
-pub struct WindowProperties {
+pub struct WindowInitProperties {
     pub width: u32,
     pub height: u32,
     pub title: String,
@@ -34,11 +35,36 @@ pub trait Device {
     fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Rc<Mesh>>;
 }
 
+#[derive(Debug, Clone, Copy, EnumIter, Eq, Hash, PartialEq)]
 pub enum VirtualKey {
-    W,
+    Unknown,
     A,
-    S,
+    B,
+    C,
     D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Space,
     Up,
     Left,
     Down,

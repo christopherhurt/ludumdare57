@@ -244,7 +244,7 @@ impl Default for Transform {
 // Mesh
 
 pub struct Mesh {
-    pub id: u32,
+    pub id: usize,
 }
 
 // ColorMaterial

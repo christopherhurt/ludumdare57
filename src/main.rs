@@ -1,6 +1,6 @@
 use core::{Node, Scene, Viewport2D};
 use drivers::vulkan_render_engine::VulkanRenderEngine;
-use render_engine::{RenderEngine, RenderEngineProperties, Window, WindowProperties};
+use render_engine::{RenderEngine, RenderEngineInitProperties, Window, WindowInitProperties};
 
 pub mod core;
 pub mod drivers;
@@ -8,16 +8,18 @@ pub mod math;
 pub mod render_engine;
 
 fn main() {
-    let render_engine_properties = RenderEngineProperties {
+    pretty_env_logger::init();
+
+    let render_engine_properties = RenderEngineInitProperties {
         debug_enabled: true,
-        window_properties: WindowProperties {
+        window_properties: WindowInitProperties {
             width: 800,
             height: 600,
             title: "My Cool Game".to_string(),
         },
     };
 
-    let mut render_engine = VulkanRenderEngine::new(&render_engine_properties)
+    let mut render_engine = VulkanRenderEngine::new(render_engine_properties)
         .unwrap_or_else(|_| panic!("Failed to init VulkanRenderEngine"));
     let mut scene = init_scene();
 
