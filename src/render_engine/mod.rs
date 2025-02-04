@@ -22,6 +22,7 @@ pub trait RenderEngine<W: Window, D: Device> {
     fn get_window_mut(&mut self) -> &mut W;
     fn get_device(&self) -> &D;
     fn get_device_mut(&mut self) -> &mut D;
+    fn join_render_thread(&mut self) -> Result<()>;
 }
 
 pub trait Window {

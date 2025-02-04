@@ -41,4 +41,6 @@ fn run_game_loop(render_engine: &mut VulkanRenderEngine, scene: &mut Scene) {
 
         render_engine.sync_data(scene).unwrap_or_else(|_| panic!("Failed to sync data with render engine"));
     }
+
+    render_engine.join_render_thread().unwrap();
 }

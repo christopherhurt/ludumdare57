@@ -1,7 +1,10 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use winit::event::ElementState;
+use core::panic;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::thread;
+use std::thread::JoinHandle;
 use strum::IntoEnumIterator;
 use vulkanalia::Version;
 use vulkanalia::vk;
@@ -20,12 +23,11 @@ const REQUIRED_DEVICE_EXTENSION_NAMES: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAI
 const MAX_FRAMES_IN_FLIGHT: usize = 3;
 
 pub struct VulkanRenderEngine {
-    application: VulkanApplication,
+    render_thread_join_handle: Option<JoinHandle<()>>,
 }
 
 struct VulkanApplication {
     init_properties: RenderEngineInitProperties,
-    event_loop: EventLoop<()>,
     is_minimized: bool,
     is_closing: bool,
     keys_down: HashMap<VirtualKey, bool>,
@@ -34,9 +36,15 @@ struct VulkanApplication {
 
 impl VulkanRenderEngine {
     pub fn new(init_properties: RenderEngineInitProperties) -> Result<Self> {
+        let join_handle = thread::spawn(|| {
+            let event_loop = EventLoop::new().unwrap();
+            let mut application = VulkanApplication::new(init_properties).unwrap();
+            event_loop.run_app(&mut application).unwrap();
+        });
+
         Ok(
             Self {
-                application: VulkanApplication::new(init_properties)?,
+                render_thread_join_handle: Some(join_handle),
             }
         )
     }
@@ -61,6 +69,14 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
 
     fn get_device_mut(&mut self) -> &mut VulkanRenderEngine {
         self
+    }
+
+    fn join_render_thread(&mut self) -> Result<()> {
+        if let Some(join_handle) = self.render_thread_join_handle.take() {
+            join_handle.join().map_err(|_| anyhow!("Failed to join render thread!"))
+        } else {
+            Err(anyhow!("Already joined the render thread"))
+        }
     }
 }
 
@@ -96,8 +112,6 @@ impl Drop for VulkanRenderEngine {
 
 impl VulkanApplication {
     fn new(init_properties: RenderEngineInitProperties) -> Result<Self> {
-        let event_loop = EventLoop::new()?;
-
         let mut keys_down = HashMap::new();
         VirtualKey::iter().for_each(|vk| {
             if vk != VirtualKey::Unknown {
@@ -108,7 +122,6 @@ impl VulkanApplication {
         Ok(
             Self {
                 init_properties,
-                event_loop,
                 is_minimized: false,
                 is_closing: false,
                 keys_down,
@@ -124,7 +137,8 @@ impl VulkanApplication {
 
 impl ApplicationHandler for VulkanApplication {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        todo!() // TODO
+        // TODO: create window, graphics context here on first event
+        todo!()
     }
 
     fn window_event(
