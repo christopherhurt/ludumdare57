@@ -443,6 +443,7 @@ name = "hurtengine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "pretty_env_logger",
  "strum",
  "strum_macros",
