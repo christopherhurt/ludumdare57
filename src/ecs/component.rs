@@ -1,4 +1,6 @@
 use anyhow::{anyhow, Result};
+use std::any::TypeId;
+use std::collections::HashMap;
 
 use crate::ecs::Signature;
 use crate::ecs::entity::Entity;
@@ -73,5 +75,49 @@ impl<T: Component> ComponentArray<T> {
         }
 
         Ok(&mut self.components[self.entity_to_index[entity.0]])
+    }
+}
+
+struct ComponentManager {
+    component_types_to_arrays: HashMap<TypeId, ComponentArray<dyn Component>>,
+}
+
+impl ComponentManager {
+    pub(in crate::ecs) fn attach_component<T: Component>(&mut self, entity: Entity, component: Box<T>) -> Result<()> {
+        let comp_arr = self.component_types_to_arrays.get_mut(&TypeId::of::<T>()).map(|c| Ok(c))
+            .unwrap_or(Err(anyhow!("No such component has been registered")))?;
+
+        comp_arr.insert_component(entity, component)?;
+
+        Ok(())
+    }
+
+    pub(in crate::ecs) fn detach_component<T: Component>(&mut self, entity: Entity) -> Result<()> {
+        let comp_arr = self.component_types_to_arrays.get_mut(&TypeId::of::<T>()).map(|c| Ok(c))
+            .unwrap_or(Err(anyhow!("No such component has been registered")))?;
+
+        comp_arr.remove_component(entity)?;
+
+        Ok(())
+    }
+
+    pub fn get_component<T: Component>(&self, entity: Entity) -> Result<&T> {
+        match self.component_types_to_arrays.get(&TypeId::of::<T>()) {
+            Some(comp_arr) => {
+                comp_arr.get_component(entity).map(|b| b.downcast_ref::<T>().unwrap_or_else(||
+                    panic!("Internal error: component_types_to_arrays contains a mismatching key and value")))
+            },
+            None => Err(anyhow!("No such component has been registered")),
+        }
+    }
+
+    pub fn get_mut_component<T: Component>(&mut self, entity: Entity) -> Result<&mut T> {
+        match self.component_types_to_arrays.get_mut(&TypeId::of::<T>()) {
+            Some(comp_arr) => {
+                comp_arr.get_mut_component(entity).map(|b| b.downcast_mut::<T>().unwrap_or_else(||
+                    panic!("Internal error: component_types_to_arrays contains a mismatching key and value")))
+            },
+            None => Err(anyhow!("No such component has been registered")),
+        }
     }
 }
