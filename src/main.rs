@@ -4,6 +4,7 @@ use render_engine::{RenderEngine, RenderEngineInitProperties, Window, WindowInit
 
 pub mod core;
 pub mod drivers;
+pub mod ecs;
 pub mod math;
 pub mod render_engine;
 
