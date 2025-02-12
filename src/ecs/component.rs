@@ -15,6 +15,7 @@ pub struct ComponentArray {
 }
 
 const INVALID_COMPONENT_INDEX: usize = usize::MAX;
+const INITIAL_BYTES_PER_CAPACITY: usize = 16;
 
 impl ComponentArray {
     pub(in crate::ecs) fn new(component_signature: Signature, initial_capacity: usize) -> Self {
@@ -22,7 +23,7 @@ impl ComponentArray {
             component_signature,
             entity_to_index: vec![INVALID_COMPONENT_INDEX; initial_capacity],
             index_to_entity: Vec::with_capacity(initial_capacity),
-            components: Vec::with_capacity(initial_capacity * size_of::<T>()),
+            components: Vec::with_capacity(initial_capacity * INITIAL_BYTES_PER_CAPACITY),
         }
     }
 
@@ -109,10 +110,23 @@ impl ComponentArray {
 }
 
 pub struct ComponentManager {
+    component_types_to_signatures: HashMap<TypeId, Signature>,
     component_types_to_arrays: HashMap<TypeId, ComponentArray>,
 }
 
 impl ComponentManager {
+    pub(in crate::ecs) fn new(component_types_to_signatures: HashMap<TypeId, Signature>, initial_capacity: usize) -> Self {
+        let component_types_to_arrays = component_types_to_signatures
+            .iter()
+            .map(|(type_id, signature)| (*type_id, ComponentArray::new(*signature, initial_capacity)))
+            .collect();
+
+        Self {
+            component_types_to_signatures,
+            component_types_to_arrays,
+        }
+    }
+
     pub(in crate::ecs) fn attach_component<T: Component>(&mut self, entity: Entity, component: T) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&TypeId::of::<T>()).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
@@ -129,6 +143,13 @@ impl ComponentManager {
         comp_arr.remove_component::<T>(entity)?;
 
         Ok(())
+    }
+
+    pub(in crate::ecs) fn get_signature<T: Component>(&self) -> Result<Signature> {
+        let signature = self.component_types_to_signatures.get(&TypeId::of::<T>()).map(|s| Ok(s))
+            .unwrap_or(Err(anyhow!("No such component has been registered")))?;
+
+        Ok(*signature)
     }
 
     pub fn get_component<T: Component>(&self, entity: Entity) -> Result<&T> {

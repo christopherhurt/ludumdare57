@@ -10,14 +10,16 @@ pub type System = fn(entites: &Iter<Entity>, components: &ComponentManager, comm
 pub(in crate::ecs) struct SystemManager {
     system: System,
     system_signatures: HashSet<Signature>,
+    precedence: i16,
     entities: HashSet<Entity>,
 }
 
 impl SystemManager {
-    pub(in crate::ecs) fn new(system: System, system_signatures: HashSet<Signature>, initial_capacity: usize) -> Self {
+    pub(in crate::ecs) fn new(system: System, system_signatures: HashSet<Signature>, precedence: i16, initial_capacity: usize) -> Self {
         Self {
             system,
             system_signatures,
+            precedence,
             entities: HashSet::with_capacity(initial_capacity),
         }
     }
