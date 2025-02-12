@@ -1,9 +1,11 @@
 use std::collections::HashSet;
+use std::collections::hash_set::Iter;
 
-use crate::ecs::Signature;
+use crate::ecs::{ECSCommands, Signature};
+use crate::ecs::component::ComponentManager;
 use crate::ecs::entity::Entity;
 
-type System = fn(); // TODO: component manager, entity iterator, entity commands
+pub type System = fn(entites: &Iter<Entity>, components: &ComponentManager, commands: &ECSCommands);
 
 pub(in crate::ecs) struct SystemManager {
     system: System,
