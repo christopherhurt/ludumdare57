@@ -8,7 +8,6 @@ use crate::ecs::entity::Entity;
 pub trait Component: Sized + 'static {}
 
 pub struct ComponentArray {
-    component_signature: Signature,
     entity_to_index: Vec<usize>,
     index_to_entity: Vec<Entity>,
     components: Vec<u8>,
@@ -18,9 +17,8 @@ const INVALID_COMPONENT_INDEX: usize = usize::MAX;
 const INITIAL_BYTES_PER_CAPACITY: usize = 16;
 
 impl ComponentArray {
-    pub(in crate::ecs) fn new(component_signature: Signature, initial_capacity: usize) -> Self {
+    pub(in crate::ecs) fn new(initial_capacity: usize) -> Self {
         Self {
-            component_signature,
             entity_to_index: vec![INVALID_COMPONENT_INDEX; initial_capacity],
             index_to_entity: Vec::with_capacity(initial_capacity),
             components: Vec::with_capacity(initial_capacity * INITIAL_BYTES_PER_CAPACITY),
@@ -110,20 +108,21 @@ impl ComponentArray {
 }
 
 pub struct ComponentManager {
+    component_registration_bit: Signature,
     component_types_to_signatures: HashMap<TypeId, Signature>,
     component_types_to_arrays: HashMap<TypeId, ComponentArray>,
+    pub(in crate::ecs) initial_capacity: usize,
 }
 
-impl ComponentManager {
-    pub(in crate::ecs) fn new(component_types_to_signatures: HashMap<TypeId, Signature>, initial_capacity: usize) -> Self {
-        let component_types_to_arrays = component_types_to_signatures
-            .iter()
-            .map(|(type_id, signature)| (*type_id, ComponentArray::new(*signature, initial_capacity)))
-            .collect();
+const DEFAULT_INITIAL_COMPONENT_CAPACITY: usize = 64;
 
+impl ComponentManager {
+    pub(in crate::ecs) fn new(initial_capacity: usize) -> Self {
         Self {
-            component_types_to_signatures,
-            component_types_to_arrays,
+            component_registration_bit: 1,
+            component_types_to_signatures: HashMap::with_capacity(DEFAULT_INITIAL_COMPONENT_CAPACITY),
+            component_types_to_arrays: HashMap::with_capacity(DEFAULT_INITIAL_COMPONENT_CAPACITY),
+            initial_capacity,
         }
     }
 
@@ -150,6 +149,26 @@ impl ComponentManager {
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
         Ok(*signature)
+    }
+
+    pub(in crate::ecs) fn register_component<T: Component>(&mut self) -> Result<Signature> {
+        let type_id = TypeId::of::<T>();
+
+        if self.component_types_to_arrays.contains_key(&type_id) {
+            return Err(anyhow!("The component is already registered"));
+        }
+
+        if self.component_registration_bit == 0 {
+            return Err(anyhow!("The maximum number of components has already been registered"));
+        }
+
+        let component_signature = self.component_registration_bit;
+        self.component_registration_bit <<= 1;
+
+        self.component_types_to_arrays.insert(type_id, ComponentArray::new(self.initial_capacity));
+        self.component_types_to_signatures.insert(type_id, component_signature);
+
+        Ok(component_signature)
     }
 
     pub fn get_component<T: Component>(&self, entity: Entity) -> Result<&T> {
