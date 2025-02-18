@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::any::TypeId;
 use std::collections::{HashSet, VecDeque};
 use std::default::Default;
 
@@ -11,6 +12,8 @@ pub mod component;
 pub mod system;
 
 pub(in crate::ecs) type Signature = u64;
+
+pub(in crate::ecs) const DEFAULT_ENTITY_SIGNATURE: Signature = 0;
 
 pub struct SystemSignature(Signature);
 
@@ -32,9 +35,9 @@ pub struct ECSCommands {
     provisional_entity_counter: usize,
     to_create: VecDeque<ProvisionalEntity>,
     to_destroy: VecDeque<Entity>,
-    to_attach: VecDeque<(Entity, dyn Component)>, // TODO: u8?
-    to_attach_provisional: VecDeque<(ProvisionalEntity, dyn Component)>, // TODO: u8?
-    to_detach: VecDeque<(Entity, dyn Component)>, // TODO: u8?
+    to_attach: VecDeque<(Entity, TypeId, Box<[u8]>)>,
+    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Box<[u8]>)>,
+    to_detach: VecDeque<(Entity, TypeId)>,
     to_register: VecDeque<(System, HashSet<SystemSignature>, i16)>,
     to_unregister: VecDeque<System>,
 }
@@ -56,52 +59,60 @@ impl ECSCommands {
         }
     }
 
-    pub fn create_entity(&mut self) -> Result<ProvisionalEntity> {
+    pub fn create_entity(&mut self) -> ProvisionalEntity {
         let entity = ProvisionalEntity(self.provisional_entity_counter);
 
         self.provisional_entity_counter += 1;
 
         self.to_create.push_back(entity);
-
         self.command_order.push_back(CommandType::CreateEntity);
 
-        Ok(entity)
+        entity
     }
 
-    pub fn destroy_entity(&mut self, entity: Entity) -> Result<()> {
+    pub fn destroy_entity(&mut self, entity: Entity) {
         self.to_destroy.push_back(entity);
-
         self.command_order.push_back(CommandType::DestroyEntity);
-
-        Ok(())
     }
 
-    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) -> Result<()> {
-        // TODO
-        Ok(())
+    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) {
+        let raw_comp_data = component_to_boxed_slice(component);
+
+        self.to_attach.push_back((entity, TypeId::of::<T>(), raw_comp_data));
+        self.command_order.push_back(CommandType::AttachComponent);
     }
 
-    // TODO: overload for placeholder entity
+    pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: ProvisionalEntity, component: T) {
+        let raw_comp_data = component_to_boxed_slice(component);
 
-    pub fn detach_component<T: Component>(&mut self, entity: Entity) -> Result<()> {
-        // TODO
-        Ok(())
+        self.to_attach_provisional.push_back((provisional_entity, TypeId::of::<T>(), raw_comp_data));
+        self.command_order.push_back(CommandType::AttachProvisionalComponent);
     }
 
-    pub fn register_system(&mut self, system: System, signatures: HashSet<SystemSignature>, precedence: i16) -> Result<()> {
+    pub fn detach_component<T: Component>(&mut self, entity: Entity) {
+        self.to_detach.push_back((entity, TypeId::of::<T>()));
+        self.command_order.push_back(CommandType::DetachComponent);
+    }
+
+    pub fn register_system(&mut self, system: System, signatures: HashSet<SystemSignature>, precedence: i16) {
         self.to_register.push_back((system, signatures, precedence));
-
         self.command_order.push_back(CommandType::RegisterSystem);
-
-        Ok(())
     }
 
-    pub fn unregister_system(&mut self, system: System) -> Result<()> {
+    pub fn unregister_system(&mut self, system: System) {
         self.to_unregister.push_back(system);
-
         self.command_order.push_back(CommandType::UnregisterSystem);
+    }
+}
 
-        Ok(())
+#[inline]
+fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
+    let comp_size = size_of::<T>();
+
+    unsafe {
+        let ptr = &component as *const T as *const u8;
+        let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
+        Box::from(raw_slice)
     }
 }
 
@@ -124,35 +135,67 @@ impl ECS {
         }
     }
 
-    pub fn create_entity(&mut self) -> Result<ProvisionalEntity> {
+    pub fn create_entity(&mut self) -> ProvisionalEntity {
         self.commands.create_entity()
     }
 
-    pub fn destroy_entity(&mut self, entity: Entity) -> Result<()> {
+    pub fn destroy_entity(&mut self, entity: Entity) {
         self.commands.destroy_entity(entity)
     }
 
-    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) -> Result<()> {
-        // TODO
-        Ok(())
+    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) {
+        self.commands.attach_component(entity, component)
     }
 
-    // TODO: overload for placeholder entity
-
-    pub fn detach_component<T: Component>(&mut self, entity: Entity) -> Result<()> {
-        self.commands.detach_component(entity)
+    pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: ProvisionalEntity, component: T) {
+        self.commands.attach_provisional_component(provisional_entity, component)
     }
 
-    pub fn register_system(&mut self, system: System, signatures: HashSet<SystemSignature>, precedence: i16) -> Result<()> {
+    pub fn detach_component<T: Component>(&mut self, entity: Entity) {
+        self.commands.detach_component::<T>(entity)
+    }
+
+    pub fn register_system(&mut self, system: System, signatures: HashSet<SystemSignature>, precedence: i16) {
         self.commands.register_system(system, signatures, precedence)
     }
 
-    pub fn unregister_system(&mut self, system: System) -> Result<()> {
+    pub fn unregister_system(&mut self, system: System) {
         self.commands.unregister_system(system)
     }
 
-    // TODO
-    // - get system signature (pub) -> overload func for different num of components (up to 4 for now?), constant and inline?????, select the correct function with a macro rule
+    pub fn get_system_signature_0(&self) -> Result<SystemSignature> {
+        Ok(SystemSignature(DEFAULT_ENTITY_SIGNATURE))
+    }
+
+    pub fn get_system_signature_1<A: Component>(&self) -> Result<SystemSignature> {
+        let sig = self.component_manager.get_signature::<A>()?;
+
+        Ok(SystemSignature(sig))
+    }
+
+    pub fn get_system_signature_2<A: Component, B: Component>(&self) -> Result<SystemSignature> {
+        let sig_a = self.component_manager.get_signature::<A>()?;
+        let sig_b = self.component_manager.get_signature::<B>()?;
+
+        Ok(SystemSignature(sig_a | sig_b))
+    }
+
+    pub fn get_system_signature_3<A: Component, B: Component, C: Component>(&self) -> Result<SystemSignature> {
+        let sig_a = self.component_manager.get_signature::<A>()?;
+        let sig_b = self.component_manager.get_signature::<B>()?;
+        let sig_c = self.component_manager.get_signature::<C>()?;
+
+        Ok(SystemSignature(sig_a | sig_b | sig_c))
+    }
+
+    pub fn get_system_signature_4<A: Component, B: Component, C: Component, D: Component>(&self) -> Result<SystemSignature> {
+        let sig_a = self.component_manager.get_signature::<A>()?;
+        let sig_b = self.component_manager.get_signature::<B>()?;
+        let sig_c = self.component_manager.get_signature::<C>()?;
+        let sig_d = self.component_manager.get_signature::<D>()?;
+
+        Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
+    }
 
     pub(in crate) fn execute_systems(&mut self) {
         self.flush_all_commands();
@@ -195,7 +238,7 @@ impl ECSBuilder {
     }
 
     pub fn with_component<T: Component>(&mut self) -> &mut Self {
-        self.component_manager.register_component::<T>(); // TODO: panic on error
+        self.component_manager.register_component::<T>().unwrap_or_else(|e| panic!("{}", e));
 
         self
     }
