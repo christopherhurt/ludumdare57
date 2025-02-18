@@ -134,17 +134,17 @@ impl ComponentManager {
         Ok(())
     }
 
-    pub(in crate::ecs) fn detach_component<T: Component>(&mut self, entity: Entity) -> Result<()> {
-        let comp_arr = self.component_types_to_arrays.get_mut(&TypeId::of::<T>()).map(|c| Ok(c))
+    pub(in crate::ecs) fn detach_component(&mut self, entity: Entity, type_id: TypeId) -> Result<()> {
+        let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
-        comp_arr.remove_component::<T>(entity)?;
+        comp_arr.remove_component(entity)?;
 
         Ok(())
     }
 
-    pub(in crate::ecs) fn get_signature<T: Component>(&self) -> Result<Signature> {
-        let signature = self.component_types_to_signatures.get(&TypeId::of::<T>()).map(|s| Ok(s))
+    pub(in crate::ecs) fn get_signature(&self, type_id: TypeId) -> Result<Signature> {
+        let signature = self.component_types_to_signatures.get(&type_id).map(|s| Ok(s))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
         Ok(*signature)
@@ -182,5 +182,11 @@ impl ComponentManager {
             Some(comp_arr) => comp_arr.get_mut_component(entity),
             None => Err(anyhow!("No such component has been registered")),
         }
+    }
+
+    pub(in crate::ecs) fn handle_entity_removed(&mut self, entity: Entity) {
+        self.component_types_to_arrays.values_mut().for_each(|comp_arr| {
+            comp_arr.remove_component(entity);
+        });
     }
 }

@@ -1,6 +1,6 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::any::TypeId;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
 
 use component::{Component, ComponentManager};
@@ -13,25 +13,27 @@ pub mod system;
 
 pub(in crate::ecs) type Signature = u64;
 
-pub(in crate::ecs) const DEFAULT_ENTITY_SIGNATURE: Signature = 0;
-
 pub struct SystemSignature(Signature);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProvisionalEntity(usize);
 
-enum CommandType {
+enum EntityComponentCommandType {
     CreateEntity,
     DestroyEntity,
     AttachComponent,
     AttachProvisionalComponent,
     DetachComponent,
+}
+
+enum SystemCommandType {
     RegisterSystem,
     UnregisterSystem,
 }
 
 pub struct ECSCommands {
-    command_order: VecDeque<CommandType>,
+    entity_component_command_order: VecDeque<EntityComponentCommandType>,
+    system_command_order: VecDeque<SystemCommandType>,
     provisional_entity_counter: usize,
     to_create: VecDeque<ProvisionalEntity>,
     to_destroy: VecDeque<Entity>,
@@ -47,7 +49,8 @@ const INITIAL_COMMAND_CAPACITY: usize = 16;
 impl ECSCommands {
     fn new() -> Self {
         Self {
-            command_order: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
+            entity_component_command_order: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
+            system_command_order: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
             provisional_entity_counter: 0,
             to_create: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
             to_destroy: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
@@ -65,43 +68,43 @@ impl ECSCommands {
         self.provisional_entity_counter += 1;
 
         self.to_create.push_back(entity);
-        self.command_order.push_back(CommandType::CreateEntity);
+        self.entity_component_command_order.push_back(EntityComponentCommandType::CreateEntity);
 
         entity
     }
 
     pub fn destroy_entity(&mut self, entity: Entity) {
         self.to_destroy.push_back(entity);
-        self.command_order.push_back(CommandType::DestroyEntity);
+        self.entity_component_command_order.push_back(EntityComponentCommandType::DestroyEntity);
     }
 
     pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) {
         let raw_comp_data = component_to_boxed_slice(component);
 
         self.to_attach.push_back((entity, TypeId::of::<T>(), raw_comp_data));
-        self.command_order.push_back(CommandType::AttachComponent);
+        self.entity_component_command_order.push_back(EntityComponentCommandType::AttachComponent);
     }
 
     pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: ProvisionalEntity, component: T) {
         let raw_comp_data = component_to_boxed_slice(component);
 
         self.to_attach_provisional.push_back((provisional_entity, TypeId::of::<T>(), raw_comp_data));
-        self.command_order.push_back(CommandType::AttachProvisionalComponent);
+        self.entity_component_command_order.push_back(EntityComponentCommandType::AttachProvisionalComponent);
     }
 
     pub fn detach_component<T: Component>(&mut self, entity: Entity) {
         self.to_detach.push_back((entity, TypeId::of::<T>()));
-        self.command_order.push_back(CommandType::DetachComponent);
+        self.entity_component_command_order.push_back(EntityComponentCommandType::DetachComponent);
     }
 
     pub fn register_system(&mut self, system: System, signatures: HashSet<SystemSignature>, precedence: i16) {
         self.to_register.push_back((system, signatures, precedence));
-        self.command_order.push_back(CommandType::RegisterSystem);
+        self.system_command_order.push_back(SystemCommandType::RegisterSystem);
     }
 
     pub fn unregister_system(&mut self, system: System) {
         self.to_unregister.push_back(system);
-        self.command_order.push_back(CommandType::UnregisterSystem);
+        self.system_command_order.push_back(SystemCommandType::UnregisterSystem);
     }
 }
 
@@ -119,8 +122,9 @@ fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
 pub struct ECS {
     entity_manager: EntityManager,
     component_manager: ComponentManager,
-    system_managers: Vec<SystemManager>,
+    system_managers: HashMap<System, SystemManager>,
     commands: ECSCommands,
+    initial_entity_capacity: usize,
 }
 
 const INTIIAL_SYSTEM_CAPACITY: usize = 256;
@@ -130,8 +134,9 @@ impl ECS {
         Self {
             entity_manager: EntityManager::new(initial_entity_capacity, max_entity_capacity),
             component_manager,
-            system_managers: Vec::with_capacity(INTIIAL_SYSTEM_CAPACITY),
+            system_managers: HashMap::with_capacity(INTIIAL_SYSTEM_CAPACITY),
             commands: ECSCommands::new(),
+            initial_entity_capacity,
         }
     }
 
@@ -164,59 +169,196 @@ impl ECS {
     }
 
     pub fn get_system_signature_0(&self) -> Result<SystemSignature> {
-        Ok(SystemSignature(DEFAULT_ENTITY_SIGNATURE))
+        Ok(SystemSignature(0))
     }
 
     pub fn get_system_signature_1<A: Component>(&self) -> Result<SystemSignature> {
-        let sig = self.component_manager.get_signature::<A>()?;
+        let sig = self.component_manager.get_signature(TypeId::of::<A>())?;
 
         Ok(SystemSignature(sig))
     }
 
     pub fn get_system_signature_2<A: Component, B: Component>(&self) -> Result<SystemSignature> {
-        let sig_a = self.component_manager.get_signature::<A>()?;
-        let sig_b = self.component_manager.get_signature::<B>()?;
+        let sig_a = self.component_manager.get_signature(TypeId::of::<A>())?;
+        let sig_b = self.component_manager.get_signature(TypeId::of::<B>())?;
 
         Ok(SystemSignature(sig_a | sig_b))
     }
 
     pub fn get_system_signature_3<A: Component, B: Component, C: Component>(&self) -> Result<SystemSignature> {
-        let sig_a = self.component_manager.get_signature::<A>()?;
-        let sig_b = self.component_manager.get_signature::<B>()?;
-        let sig_c = self.component_manager.get_signature::<C>()?;
+        let sig_a = self.component_manager.get_signature(TypeId::of::<A>())?;
+        let sig_b = self.component_manager.get_signature(TypeId::of::<B>())?;
+        let sig_c = self.component_manager.get_signature(TypeId::of::<C>())?;
 
         Ok(SystemSignature(sig_a | sig_b | sig_c))
     }
 
     pub fn get_system_signature_4<A: Component, B: Component, C: Component, D: Component>(&self) -> Result<SystemSignature> {
-        let sig_a = self.component_manager.get_signature::<A>()?;
-        let sig_b = self.component_manager.get_signature::<B>()?;
-        let sig_c = self.component_manager.get_signature::<C>()?;
-        let sig_d = self.component_manager.get_signature::<D>()?;
+        let sig_a = self.component_manager.get_signature(TypeId::of::<A>())?;
+        let sig_b = self.component_manager.get_signature(TypeId::of::<B>())?;
+        let sig_c = self.component_manager.get_signature(TypeId::of::<C>())?;
+        let sig_d = self.component_manager.get_signature(TypeId::of::<D>())?;
 
         Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
     }
 
-    pub(in crate) fn execute_systems(&mut self) {
-        self.flush_all_commands();
+    pub(in crate) fn invoke_systems(&mut self) {
+        // TODO: There's definitely a better way to handle errors here than always panicking... we could maybe add user configurable error handling and then crash the
+        //  application, print a warning, etc. depending on the error. Also, considering using more specific Error types here rather than anyhow. Also, do we want
+        //  to continue flushing remaining commands even when one fails?
 
-        // TODO: flush system commands...before and after?
-        self.flush_entity_component_commands(); // TODO: do between each
+        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, self.initial_entity_capacity)
+            .unwrap_or_else(|e| panic!("{}", e));
 
-        self.flush_all_commands();
+        self.system_managers.values().for_each(|manager| {
+            manager.invoke_system(&mut self.component_manager, &mut self.commands);
+            flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager) // TODO: address this...
+                .unwrap_or_else(|e| panic!("{}", e));
+        });
+
+        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, self.initial_entity_capacity)
+            .unwrap_or_else(|e| panic!("{}", e));
+    }
+}
+
+fn flush_entity_component_commands(
+    commands: &mut ECSCommands,
+    entity_manager: &mut EntityManager,
+    component_manager: &mut ComponentManager,
+    system_managers: &mut HashMap<System, SystemManager>, // TODO??? can I take this arg???
+) -> Result<()> {
+    let mut provisional_entity_map: HashMap<ProvisionalEntity, Entity> = HashMap::with_capacity(commands.to_create.len());
+
+    while let Some(command_type) = commands.entity_component_command_order.pop_front() {
+        match command_type {
+            EntityComponentCommandType::CreateEntity => {
+                let provisional_entity = commands.to_create.pop_front().unwrap_or_else(|| panic!("Internal error: expected a provisional entity to create"));
+
+                let entity = entity_manager.create_entity()?;
+
+                system_managers.values_mut().for_each(|manager| manager.handle_entity_updated(entity, entity_manager.get_signature(entity)?)); // TODO????
+
+                provisional_entity_map.insert(provisional_entity, entity);
+            },
+            EntityComponentCommandType::DestroyEntity => {
+                let entity = commands.to_destroy.pop_front().unwrap_or_else(|| panic!("Internal error: expected an entity to destroy"));
+
+                component_manager.handle_entity_removed(entity);
+                system_manager.handle_entity_removed(entity);
+
+                entity_manager.destroy_entity(entity)?;
+            },
+            EntityComponentCommandType::AttachComponent => {
+                let (entity, type_id, comp_data) = commands.to_attach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+
+                component_manager.attach_component(entity, type_id, comp_data)?;
+
+                let component_signature = component_manager.get_signature(type_id)?;
+                apply_entity_signature_update(entity, component_signature, entity_manager, system_manager)?;
+            },
+            EntityComponentCommandType::AttachProvisionalComponent => {
+                let (provisional_entity, type_id, comp_data) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+
+                let entity = *provisional_entity_map.get(&provisional_entity).unwrap_or_else(|| panic!("Internal error: provisional entity {:?} was not created before attaching a component to it", provisional_entity));
+
+                component_manager.attach_component(entity, type_id, comp_data)?;
+
+                let component_signature = component_manager.get_signature(type_id)?;
+                apply_entity_signature_update(entity, component_signature, entity_manager, system_manager)?;
+            },
+            EntityComponentCommandType::DetachComponent => {
+                let (entity, type_id) = commands.to_detach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to detach"));
+
+                component_manager.detach_component(entity, type_id)?;
+
+                let component_signature = component_manager.get_signature(type_id)?;
+                apply_entity_signature_update(entity, component_signature, entity_manager, system_manager)?;
+            },
+        }
     }
 
-    fn flush_entity_component_commands(&mut self) {
-        // TODO
+    commands.provisional_entity_counter = 0;
 
-        self.commands.provisional_entity_counter = 0;
+    #[cfg(debug_assertions)] {
+        if !commands.to_create.is_empty() {
+            panic!("Internal error: to_create was not drained")
+        }
+        if !commands.to_destroy.is_empty() {
+            panic!("Internal error: to_destroy was not drained")
+        }
+        if !commands.to_attach.is_empty() {
+            panic!("Internal error: to_attach was not drained")
+        }
+        if !commands.to_attach_provisional.is_empty() {
+            panic!("Internal error: to_attach_provisional was not drained")
+        }
+        if !commands.to_detach.is_empty() {
+            panic!("Internal error: to_detach was not drained")
+        }
     }
 
-    fn flush_all_commands(&mut self) {
-        self.flush_entity_component_commands();
+    Ok(())
+}
 
-        // TODO: flush systems commands
+fn apply_entity_signature_update(
+    entity: Entity,
+    component_signature: Signature,
+    entity_manager: &mut EntityManager,
+    system_managers: &mut HashMap<System, SystemManager>,
+) -> Result<()> {
+    let mut entity_signature = entity_manager.get_signature(entity)?;
+    entity_signature |= component_signature;
+
+    entity_manager.set_signature(entity, entity_signature)?;
+    system_managers.values_mut().for_each(|manager| manager.handle_entity_updated(entity, entity_signature));
+
+    Ok(())
+}
+
+fn flush_all_commands(
+    commands: &mut ECSCommands,
+    entity_manager: &mut EntityManager,
+    component_manager: &mut ComponentManager,
+    system_managers: &mut HashMap<System, SystemManager>,
+    initial_entity_capacity: usize,
+) -> Result<()> {
+    flush_entity_component_commands(commands, entity_manager, component_manager, system_managers);
+
+    while let Some(command_type) = commands.system_command_order.pop_front() {
+        match command_type {
+            SystemCommandType::RegisterSystem => {
+                let (system, system_signatures, precedence) = commands.to_register.pop_front().unwrap_or_else(|| panic!("Internal error: expected a system to register"));
+
+                if system_managers.contains_key(&system) {
+                    return Err(anyhow!("System is already registered"));
+                }
+
+                let raw_signatures = system_signatures.iter().map(|sig| sig.0).collect();
+
+                let system_manager = SystemManager::new(system, raw_signatures, precedence, initial_entity_capacity);
+
+                system_managers.insert(system, system_manager);
+            },
+            SystemCommandType::UnregisterSystem => {
+                let system = commands.to_unregister.pop_front().unwrap_or_else(|| panic!("Internal error: expected a system to unregister"));
+
+                if let None = system_managers.remove(&system) {
+                    return Err(anyhow!("System is not registered"));
+                }
+            },
+        }
     }
+
+    #[cfg(debug_assertions)] {
+        if !commands.to_register.is_empty() {
+            panic!("Internal error: to_register was not drained")
+        }
+        if !commands.to_unregister.is_empty() {
+            panic!("Internal error: to_unregister was not drained")
+        }
+    }
+
+    Ok(())
 }
 
 pub struct ECSBuilder {

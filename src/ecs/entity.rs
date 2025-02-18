@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use std::cmp::min;
 use std::collections::VecDeque;
 
-use crate::ecs::{DEFAULT_ENTITY_SIGNATURE, Signature};
+use crate::ecs::Signature;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Entity(pub(in crate::ecs) usize);
@@ -14,6 +14,8 @@ pub(in crate::ecs) struct EntityManager {
     signatures: Vec<Signature>,
     entity_destroyed: Vec<bool>,
 }
+
+const DEFAULT_ENTITY_SIGNATURE: Signature = 0;
 
 impl EntityManager {
     pub(in crate::ecs) fn new(initial_capacity: usize, max_capacity: usize) -> Self {

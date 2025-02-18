@@ -5,7 +5,7 @@ use crate::ecs::{ECSCommands, Signature};
 use crate::ecs::component::ComponentManager;
 use crate::ecs::entity::Entity;
 
-pub type System = fn(entites: &Iter<Entity>, components: &ComponentManager, commands: &ECSCommands);
+pub type System = fn(entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands);
 
 pub(in crate::ecs) struct SystemManager {
     system: System,
@@ -34,6 +34,10 @@ impl SystemManager {
 
     pub(in crate::ecs) fn handle_entity_removed(&mut self, entity: Entity) {
         self.entities.remove(&entity);
+    }
+
+    pub(in crate::ecs) fn invoke_system(&self, components: &mut ComponentManager, commands: &mut ECSCommands) {
+        (self.system)(&self.entities.iter(), components, commands);
     }
 }
 
