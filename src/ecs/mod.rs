@@ -1,5 +1,6 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, Result};
 use std::any::TypeId;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
 
@@ -122,7 +123,7 @@ fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
 pub struct ECS {
     entity_manager: EntityManager,
     component_manager: ComponentManager,
-    system_managers: HashMap<System, SystemManager>,
+    system_managers: HashMap<System, RefCell<SystemManager>>,
     commands: ECSCommands,
     initial_entity_capacity: usize,
 }
@@ -211,9 +212,8 @@ impl ECS {
             .unwrap_or_else(|e| panic!("{}", e));
 
         self.system_managers.values().for_each(|manager| {
-            manager.invoke_system(&mut self.component_manager, &mut self.commands);
-            flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager) // TODO: address this...
-                .unwrap_or_else(|e| panic!("{}", e));
+            manager.borrow_mut().invoke_system(&mut self.component_manager, &mut self.commands);
+            flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &self.system_managers);
         });
 
         flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, self.initial_entity_capacity)
@@ -225,7 +225,7 @@ fn flush_entity_component_commands(
     commands: &mut ECSCommands,
     entity_manager: &mut EntityManager,
     component_manager: &mut ComponentManager,
-    system_managers: &mut HashMap<System, SystemManager>, // TODO??? can I take this arg???
+    system_managers: &HashMap<System, RefCell<SystemManager>>,
 ) -> Result<()> {
     let mut provisional_entity_map: HashMap<ProvisionalEntity, Entity> = HashMap::with_capacity(commands.to_create.len());
 
@@ -236,7 +236,12 @@ fn flush_entity_component_commands(
 
                 let entity = entity_manager.create_entity()?;
 
-                system_managers.values_mut().for_each(|manager| manager.handle_entity_updated(entity, entity_manager.get_signature(entity)?)); // TODO????
+                system_managers.values().map(|manager| {
+                    let updated_signature = entity_manager.get_signature(entity)?;
+                    manager.borrow_mut().handle_entity_updated(entity, updated_signature);
+
+                    Ok::<_, Error>(())
+                }).find(|r| r.is_err()).unwrap_or(Ok(()))?;
 
                 provisional_entity_map.insert(provisional_entity, entity);
             },
@@ -244,7 +249,7 @@ fn flush_entity_component_commands(
                 let entity = commands.to_destroy.pop_front().unwrap_or_else(|| panic!("Internal error: expected an entity to destroy"));
 
                 component_manager.handle_entity_removed(entity);
-                system_manager.handle_entity_removed(entity);
+                system_managers.values().for_each(|manager| manager.borrow_mut().handle_entity_removed(entity));
 
                 entity_manager.destroy_entity(entity)?;
             },
@@ -254,7 +259,7 @@ fn flush_entity_component_commands(
                 component_manager.attach_component(entity, type_id, comp_data)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
-                apply_entity_signature_update(entity, component_signature, entity_manager, system_manager)?;
+                apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
             },
             EntityComponentCommandType::AttachProvisionalComponent => {
                 let (provisional_entity, type_id, comp_data) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
@@ -264,7 +269,7 @@ fn flush_entity_component_commands(
                 component_manager.attach_component(entity, type_id, comp_data)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
-                apply_entity_signature_update(entity, component_signature, entity_manager, system_manager)?;
+                apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
             },
             EntityComponentCommandType::DetachComponent => {
                 let (entity, type_id) = commands.to_detach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to detach"));
@@ -272,7 +277,7 @@ fn flush_entity_component_commands(
                 component_manager.detach_component(entity, type_id)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
-                apply_entity_signature_update(entity, component_signature, entity_manager, system_manager)?;
+                apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
             },
         }
     }
@@ -304,13 +309,13 @@ fn apply_entity_signature_update(
     entity: Entity,
     component_signature: Signature,
     entity_manager: &mut EntityManager,
-    system_managers: &mut HashMap<System, SystemManager>,
+    system_managers: &HashMap<System, RefCell<SystemManager>>,
 ) -> Result<()> {
     let mut entity_signature = entity_manager.get_signature(entity)?;
     entity_signature |= component_signature;
 
     entity_manager.set_signature(entity, entity_signature)?;
-    system_managers.values_mut().for_each(|manager| manager.handle_entity_updated(entity, entity_signature));
+    system_managers.values().for_each(|manager| manager.borrow_mut().handle_entity_updated(entity, entity_signature));
 
     Ok(())
 }
@@ -319,7 +324,7 @@ fn flush_all_commands(
     commands: &mut ECSCommands,
     entity_manager: &mut EntityManager,
     component_manager: &mut ComponentManager,
-    system_managers: &mut HashMap<System, SystemManager>,
+    system_managers: &mut HashMap<System, RefCell<SystemManager>>,
     initial_entity_capacity: usize,
 ) -> Result<()> {
     flush_entity_component_commands(commands, entity_manager, component_manager, system_managers);
@@ -337,7 +342,7 @@ fn flush_all_commands(
 
                 let system_manager = SystemManager::new(system, raw_signatures, precedence, initial_entity_capacity);
 
-                system_managers.insert(system, system_manager);
+                system_managers.insert(system, RefCell::new(system_manager));
             },
             SystemCommandType::UnregisterSystem => {
                 let system = commands.to_unregister.pop_front().unwrap_or_else(|| panic!("Internal error: expected a system to unregister"));
