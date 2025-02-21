@@ -2,6 +2,8 @@
 /// Vec2
 /////////////////////////////////////////////////////////////////////////////
 
+use core::prelude::v1;
+
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct Vec2 {
@@ -17,6 +19,29 @@ pub const fn vec2(x: f32, y: f32) -> Vec2 {
 pub const VEC_2_ZERO: Vec2 = vec2(0.0, 0.0);
 pub const VEC_2_X_AXIS: Vec2 = vec2(1.0, 0.0);
 pub const VEC_2_Y_AXIS: Vec2 = vec2(0.0, 1.0);
+
+impl Vec2 {
+    #[inline]
+    pub const fn add(&self, vec: &Vec2) -> Vec2 {
+        vec2(self.x + vec.x, self.y + vec.y)
+    }
+
+    #[inline]
+    pub const fn sub(&self, vec: &Vec2) -> Vec2 {
+        vec2(self.x - vec.x, self.y - vec.y)
+    }
+
+    #[inline]
+    pub const fn scaled(&self, val: f32) -> Vec2 {
+        vec2(self.x * val, self.y * val)
+    }
+
+    // TODO: normalized
+
+    // TODO: as vec3
+
+    // TODO: as vec4
+}
 
 /////////////////////////////////////////////////////////////////////////////
 /// Vec3
@@ -39,6 +64,50 @@ pub const VEC_3_ZERO: Vec3 = vec3(0.0, 0.0, 0.0);
 pub const VEC_3_X_AXIS: Vec3 = vec3(1.0, 0.0, 0.0);
 pub const VEC_3_Y_AXIS: Vec3 = vec3(0.0, 1.0, 0.0);
 pub const VEC_3_Z_AXIS: Vec3 = vec3(0.0, 0.0, 1.0);
+
+// TODO: look at old 3d engine for functions to impl...
+
+/////////////////////////////////////////////////////////////////////////////
+/// Vec4
+/////////////////////////////////////////////////////////////////////////////
+
+// TODO
+
+/////////////////////////////////////////////////////////////////////////////
+/// Quaternion
+/////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct Quaternion {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
+}
+
+#[inline]
+pub const fn quat(x: f32, y: f32, z: f32, w: f32) -> Quaternion {
+    Quaternion { x, y, z, w }
+}
+
+impl Quaternion {
+    #[inline]
+    pub const fn from_axis_spin(axis: Vec3, spin_deg: f32) -> Self {
+        // TODO
+        Self { x: 0.0, y: 0.0, z: 0.0, w: 0.0 }
+    }
+
+    // TODO: rotate vec3
+
+    // TODO: rotate mat4? to rot matrix? might not be needed if we can just pass a quat to the shader...
+}
+
+/////////////////////////////////////////////////////////////////////////////
+/// Mat3
+/////////////////////////////////////////////////////////////////////////////
+
+// TODO...
 
 /////////////////////////////////////////////////////////////////////////////
 /// Mat4
@@ -86,3 +155,23 @@ pub const MAT_4_IDENTITY: Mat4 = mat4(
     0.0, 0.0, 1.0, 0.0,
     0.0, 0.0, 0.0, 1.0,
 );
+
+impl Mat4 {
+    // TODO: add
+
+    // TODO: sub
+
+    // TODO: scale
+
+    // TODO: mul mat4
+
+    // TODO: mul vec4
+
+    // TODO: transposed
+
+    // TODO: inverse
+
+    // TODO: determinant
+
+    // TODO: from vec4 cols? rows?
+}
