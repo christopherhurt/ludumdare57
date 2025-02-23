@@ -17,7 +17,7 @@ pub struct WindowInitProperties {
 }
 
 pub trait RenderEngine<W: Window, D: Device> {
-    fn sync_data(&mut self, scene: &Scene) -> Result<()>;
+    fn sync_data(&mut self, scene: &Scene) -> Result<()>; // TODO: use a separate struct
     fn get_window(&self) -> &W;
     fn get_window_mut(&mut self) -> &mut W;
     fn get_device(&self) -> &D;

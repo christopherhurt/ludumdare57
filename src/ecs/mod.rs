@@ -30,6 +30,7 @@ enum EntityComponentCommandType {
 enum SystemCommandType {
     RegisterSystem,
     UnregisterSystem,
+    Shutdown,
 }
 
 pub struct ECSCommands {
@@ -43,6 +44,7 @@ pub struct ECSCommands {
     to_detach: VecDeque<(Entity, TypeId)>,
     to_register: VecDeque<(System, HashSet<SystemSignature>, i16)>,
     to_unregister: VecDeque<System>,
+    to_shutdown: bool,
 }
 
 const INITIAL_COMMAND_CAPACITY: usize = 16;
@@ -60,6 +62,7 @@ impl ECSCommands {
             to_detach: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
             to_register: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
             to_unregister: VecDeque::with_capacity(INITIAL_COMMAND_CAPACITY),
+            to_shutdown: false,
         }
     }
 
@@ -107,6 +110,11 @@ impl ECSCommands {
         self.to_unregister.push_back(system);
         self.system_command_order.push_back(SystemCommandType::UnregisterSystem);
     }
+
+    pub fn shutdown(&mut self) {
+        self.to_shutdown = true;
+        self.system_command_order.push_back(SystemCommandType::Shutdown);
+    }
 }
 
 #[inline]
@@ -127,6 +135,7 @@ pub struct ECS {
     system_hashes: HashSet<System>,
     commands: ECSCommands,
     initial_entity_capacity: usize,
+    is_shutdown: bool,
 }
 
 const INTIIAL_SYSTEM_CAPACITY: usize = 256;
@@ -140,6 +149,7 @@ impl ECS {
             system_hashes: HashSet::with_capacity(INTIIAL_SYSTEM_CAPACITY),
             commands: ECSCommands::new(),
             initial_entity_capacity,
+            is_shutdown: false,
         }
     }
 
@@ -148,27 +158,31 @@ impl ECS {
     }
 
     pub fn destroy_entity(&mut self, entity: Entity) {
-        self.commands.destroy_entity(entity)
+        self.commands.destroy_entity(entity);
     }
 
     pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) {
-        self.commands.attach_component(entity, component)
+        self.commands.attach_component(entity, component);
     }
 
     pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: ProvisionalEntity, component: T) {
-        self.commands.attach_provisional_component(provisional_entity, component)
+        self.commands.attach_provisional_component(provisional_entity, component);
     }
 
     pub fn detach_component<T: Component>(&mut self, entity: Entity) {
-        self.commands.detach_component::<T>(entity)
+        self.commands.detach_component::<T>(entity);
     }
 
     pub fn register_system(&mut self, system: System, signatures: HashSet<SystemSignature>, precedence: i16) {
-        self.commands.register_system(system, signatures, precedence)
+        self.commands.register_system(system, signatures, precedence);
     }
 
     pub fn unregister_system(&mut self, system: System) {
-        self.commands.unregister_system(system)
+        self.commands.unregister_system(system);
+    }
+
+    pub fn shutdown(&mut self) {
+        self.commands.shutdown();
     }
 
     pub fn get_system_signature_0(&self) -> Result<SystemSignature> {
@@ -205,21 +219,35 @@ impl ECS {
         Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
     }
 
-    pub(in crate) fn invoke_systems(&mut self) {
+    pub(in crate) fn invoke_systems(&mut self) -> bool {
         // TODO: There's definitely a better way to handle errors here than always panicking... we could maybe add user configurable error handling and then crash the
         //  application, print a warning, etc. depending on the error. Also, considering using more specific Error types here rather than anyhow. Also, do we want
         //  to continue flushing remaining commands even when one fails?
 
-        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity)
+        if self.is_shutdown {
+            return false;
+        }
+
+        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity, &mut self.is_shutdown)
             .unwrap_or_else(|e| panic!("{}", e));
+
+        if self.is_shutdown {
+            return false;
+        }
 
         self.system_managers.iter().for_each(|manager| {
             manager.borrow_mut().invoke_system(&mut self.component_manager, &mut self.commands);
             flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &self.system_managers);
         });
 
-        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity)
+        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity, &mut self.is_shutdown)
             .unwrap_or_else(|e| panic!("{}", e));
+
+        true
+    }
+
+    pub(in crate) fn is_shutdown(&self) -> bool {
+        self.is_shutdown
     }
 }
 
@@ -329,6 +357,7 @@ fn flush_all_commands(
     system_managers: &mut Vec<RefCell<SystemManager>>,
     system_hashes: &mut HashSet<System>,
     initial_entity_capacity: usize,
+    is_shutdown: &mut bool,
 ) -> Result<()> {
     flush_entity_component_commands(commands, entity_manager, component_manager, system_managers);
 
@@ -358,6 +387,9 @@ fn flush_all_commands(
                 }
 
                 system_managers.retain(|m| m.borrow().system != system);
+            },
+            SystemCommandType::Shutdown => {
+                *is_shutdown = true;
             },
         }
     }
