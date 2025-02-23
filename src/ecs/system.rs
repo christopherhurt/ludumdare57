@@ -8,9 +8,9 @@ use crate::ecs::entity::Entity;
 pub type System = fn(entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands);
 
 pub(in crate::ecs) struct SystemManager {
-    system: System,
+    pub(in crate::ecs) system: System,
     system_signatures: HashSet<Signature>,
-    precedence: i16,
+    pub(in crate::ecs) precedence: i16,
     entities: HashSet<Entity>,
 }
 

@@ -123,7 +123,8 @@ fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
 pub struct ECS {
     entity_manager: EntityManager,
     component_manager: ComponentManager,
-    system_managers: HashMap<System, RefCell<SystemManager>>,
+    system_managers: Vec<RefCell<SystemManager>>,
+    system_hashes: HashSet<System>,
     commands: ECSCommands,
     initial_entity_capacity: usize,
 }
@@ -135,7 +136,8 @@ impl ECS {
         Self {
             entity_manager: EntityManager::new(initial_entity_capacity, max_entity_capacity),
             component_manager,
-            system_managers: HashMap::with_capacity(INTIIAL_SYSTEM_CAPACITY),
+            system_managers: Vec::with_capacity(INTIIAL_SYSTEM_CAPACITY),
+            system_hashes: HashSet::with_capacity(INTIIAL_SYSTEM_CAPACITY),
             commands: ECSCommands::new(),
             initial_entity_capacity,
         }
@@ -208,15 +210,15 @@ impl ECS {
         //  application, print a warning, etc. depending on the error. Also, considering using more specific Error types here rather than anyhow. Also, do we want
         //  to continue flushing remaining commands even when one fails?
 
-        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, self.initial_entity_capacity)
+        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity)
             .unwrap_or_else(|e| panic!("{}", e));
 
-        self.system_managers.values().for_each(|manager| {
+        self.system_managers.iter().for_each(|manager| {
             manager.borrow_mut().invoke_system(&mut self.component_manager, &mut self.commands);
             flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &self.system_managers);
         });
 
-        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, self.initial_entity_capacity)
+        flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity)
             .unwrap_or_else(|e| panic!("{}", e));
     }
 }
@@ -225,7 +227,7 @@ fn flush_entity_component_commands(
     commands: &mut ECSCommands,
     entity_manager: &mut EntityManager,
     component_manager: &mut ComponentManager,
-    system_managers: &HashMap<System, RefCell<SystemManager>>,
+    system_managers: &Vec<RefCell<SystemManager>>,
 ) -> Result<()> {
     let mut provisional_entity_map: HashMap<ProvisionalEntity, Entity> = HashMap::with_capacity(commands.to_create.len());
 
@@ -236,7 +238,7 @@ fn flush_entity_component_commands(
 
                 let entity = entity_manager.create_entity()?;
 
-                system_managers.values().map(|manager| {
+                system_managers.iter().map(|manager| {
                     let updated_signature = entity_manager.get_signature(entity)?;
                     manager.borrow_mut().handle_entity_updated(entity, updated_signature);
 
@@ -249,7 +251,7 @@ fn flush_entity_component_commands(
                 let entity = commands.to_destroy.pop_front().unwrap_or_else(|| panic!("Internal error: expected an entity to destroy"));
 
                 component_manager.handle_entity_removed(entity);
-                system_managers.values().for_each(|manager| manager.borrow_mut().handle_entity_removed(entity));
+                system_managers.iter().for_each(|manager| manager.borrow_mut().handle_entity_removed(entity));
 
                 entity_manager.destroy_entity(entity)?;
             },
@@ -309,13 +311,13 @@ fn apply_entity_signature_update(
     entity: Entity,
     component_signature: Signature,
     entity_manager: &mut EntityManager,
-    system_managers: &HashMap<System, RefCell<SystemManager>>,
+    system_managers: &Vec<RefCell<SystemManager>>,
 ) -> Result<()> {
     let mut entity_signature = entity_manager.get_signature(entity)?;
     entity_signature |= component_signature;
 
     entity_manager.set_signature(entity, entity_signature)?;
-    system_managers.values().for_each(|manager| manager.borrow_mut().handle_entity_updated(entity, entity_signature));
+    system_managers.iter().for_each(|manager| manager.borrow_mut().handle_entity_updated(entity, entity_signature));
 
     Ok(())
 }
@@ -324,7 +326,8 @@ fn flush_all_commands(
     commands: &mut ECSCommands,
     entity_manager: &mut EntityManager,
     component_manager: &mut ComponentManager,
-    system_managers: &mut HashMap<System, RefCell<SystemManager>>,
+    system_managers: &mut Vec<RefCell<SystemManager>>,
+    system_hashes: &mut HashSet<System>,
     initial_entity_capacity: usize,
 ) -> Result<()> {
     flush_entity_component_commands(commands, entity_manager, component_manager, system_managers);
@@ -334,7 +337,7 @@ fn flush_all_commands(
             SystemCommandType::RegisterSystem => {
                 let (system, system_signatures, precedence) = commands.to_register.pop_front().unwrap_or_else(|| panic!("Internal error: expected a system to register"));
 
-                if system_managers.contains_key(&system) {
+                if system_hashes.contains(&system) {
                     return Err(anyhow!("System is already registered"));
                 }
 
@@ -342,14 +345,19 @@ fn flush_all_commands(
 
                 let system_manager = SystemManager::new(system, raw_signatures, precedence, initial_entity_capacity);
 
-                system_managers.insert(system, RefCell::new(system_manager));
+                system_managers.push(RefCell::new(system_manager));
+                system_managers.sort_by_key(|c| c.borrow().precedence);
+
+                system_hashes.insert(system);
             },
             SystemCommandType::UnregisterSystem => {
                 let system = commands.to_unregister.pop_front().unwrap_or_else(|| panic!("Internal error: expected a system to unregister"));
 
-                if let None = system_managers.remove(&system) {
+                if !system_hashes.remove(&system) {
                     return Err(anyhow!("System is not registered"));
                 }
+
+                system_managers.retain(|m| m.borrow().system != system);
             },
         }
     }

@@ -24,7 +24,7 @@ pub const VEC_2_Y_AXIS: Vec2 = vec2(0.0, 1.0);
 impl Vec2 {
     #[inline]
     pub fn len(&self) -> f32 {
-        (self.x.powi(2) + self.y.powi(2)).sqrt()
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 
     #[inline]
@@ -190,7 +190,7 @@ pub const VEC_3_Z_AXIS: Vec3 = vec3(0.0, 0.0, 1.0);
 impl Vec3 {
     #[inline]
     pub fn len(&self) -> f32 {
-        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }
 
     #[inline]
@@ -423,7 +423,7 @@ pub const VEC_4_W_AXIS: Vec4 = vec4(0.0, 0.0, 0.0, 1.0);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
-pub struct Quaternion {
+pub struct Quat {
     pub w: f32,
     pub i: f32,
     pub j: f32,
@@ -431,11 +431,23 @@ pub struct Quaternion {
 }
 
 #[inline]
-pub const fn quat(w: f32, i: f32, j: f32, k: f32) -> Quaternion {
-    Quaternion { w, i, j, k }
+pub const fn quat(w: f32, i: f32, j: f32, k: f32) -> Quat {
+    Quat { w, i, j, k }
 }
 
-impl Quaternion {
+impl Quat {
+    #[inline]
+    pub fn len(&self) -> f32 {
+        (self.w * self.w + self.i * self.i + self.j * self.j + self.k * self.k).sqrt()
+    }
+
+    #[inline]
+    pub fn normalized(&self) -> Quat {
+        let len = self.len();
+
+        quat(self.w / len, self.i / len, self.j / len, self.k / len)
+    }
+
     #[inline]
     pub fn from_axis_spin(axis: &Vec3, spin_deg: f32) -> Self {
         let sin_half = (spin_deg / 2.0).to_radians().sin();
@@ -452,8 +464,8 @@ impl Quaternion {
     }
 }
 
-impl ops::Mul for Quaternion {
-    type Output = Quaternion;
+impl ops::Mul for Quat {
+    type Output = Quat;
 
     #[inline]
     fn mul(self, rhs: Self) -> Self {
@@ -468,7 +480,7 @@ impl ops::Mul for Quaternion {
     }
 }
 
-impl ops::MulAssign for Quaternion {
+impl ops::MulAssign for Quat {
     #[inline]
     fn mul_assign(&mut self, rhs: Self) {
         // https://stackoverflow.com/questions/19956555/how-to-multiply-two-quaternions
