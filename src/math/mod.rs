@@ -220,6 +220,18 @@ impl Vec3 {
     }
 
     #[inline]
+    pub fn rotated(&self, axis: &Vec3, spin_deg: f32) -> Vec3 {
+        // https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation
+
+        let half_spin_rad = (spin_deg / 2.0).to_radians();
+        let cos_half_spin = half_spin_rad.cos();
+        let sin_half_spin = half_spin_rad.sin();
+        let crossed = axis.cross(self);
+
+        *self + (2.0 * cos_half_spin * sin_half_spin * crossed) + (2.0 * sin_half_spin * sin_half_spin * axis.cross(&crossed))
+    }
+
+    #[inline]
     pub fn xy(&self) -> Vec2 {
         vec2(self.x, self.y)
     }
@@ -412,15 +424,15 @@ pub const VEC_4_W_AXIS: Vec4 = vec4(0.0, 0.0, 0.0, 1.0);
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct Quaternion {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
     pub w: f32,
+    pub i: f32,
+    pub j: f32,
+    pub k: f32,
 }
 
 #[inline]
-pub const fn quat(x: f32, y: f32, z: f32, w: f32) -> Quaternion {
-    Quaternion { x, y, z, w }
+pub const fn quat(w: f32, i: f32, j: f32, k: f32) -> Quaternion {
+    Quaternion { w, i, j, k }
 }
 
 impl Quaternion {
@@ -429,15 +441,43 @@ impl Quaternion {
         let sin_half = (spin_deg / 2.0).to_radians().sin();
         let cos_half = (spin_deg / 2.0).to_radians().cos();
 
+        let axis_norm = axis.normalized();
+
         Self {
-            x: sin_half * axis.x,
-            y: sin_half * axis.y,
-            z: sin_half * axis.z,
             w: cos_half,
+            i: sin_half * axis_norm.x,
+            k: sin_half * axis_norm.y,
+            j: sin_half * axis_norm.z,
         }
     }
+}
 
-    // TODO rotate by
+impl ops::Mul for Quaternion {
+    type Output = Quaternion;
+
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        // https://stackoverflow.com/questions/19956555/how-to-multiply-two-quaternions
+
+        Self {
+            w: self.w * rhs.w - self.i * rhs.i - self.j * rhs.j - self.k * rhs.k,
+            i: self.w * rhs.i + self.i * rhs.w + self.j * rhs.k - self.k * rhs.j,
+            j: self.w * rhs.j - self.i * rhs.k + self.j * rhs.w + self.k * rhs.i,
+            k: self.w * rhs.k - self.i * rhs.j + self.j * rhs.i + self.k * rhs.w,
+        }
+    }
+}
+
+impl ops::MulAssign for Quaternion {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        // https://stackoverflow.com/questions/19956555/how-to-multiply-two-quaternions
+
+        self.w = self.w * rhs.w - self.i * rhs.i - self.j * rhs.j - self.k * rhs.k;
+        self.i = self.w * rhs.i + self.i * rhs.w + self.j * rhs.k - self.k * rhs.j;
+        self.j = self.w * rhs.j - self.i * rhs.k + self.j * rhs.w + self.k * rhs.i;
+        self.k = self.w * rhs.k - self.i * rhs.j + self.j * rhs.i + self.k * rhs.w;
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////
