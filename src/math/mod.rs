@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use std::ops;
 
 /////////////////////////////////////////////////////////////////////////////
 /// Vec2
@@ -22,23 +23,8 @@ pub const VEC_2_Y_AXIS: Vec2 = vec2(0.0, 1.0);
 
 impl Vec2 {
     #[inline]
-    pub fn add(&self, vec: &Vec2) -> Vec2 {
-        vec2(self.x + vec.x, self.y + vec.y)
-    }
-
-    #[inline]
-    pub fn sub(&self, vec: &Vec2) -> Vec2 {
-        vec2(self.x - vec.x, self.y - vec.y)
-    }
-
-    #[inline]
     pub fn len(&self) -> f32 {
         (self.x.powi(2) + self.y.powi(2)).sqrt()
-    }
-
-    #[inline]
-    pub fn scaled(&self, val: f32) -> Vec2 {
-        vec2(self.x * val, self.y * val)
     }
 
     #[inline]
@@ -46,6 +32,136 @@ impl Vec2 {
         let len = self.len();
 
         vec2(self.x / len, self.y / len)
+    }
+
+    #[inline]
+    pub fn to_vec3(&self, z: f32) -> Vec3 {
+        vec3(self.x, self.y, z)
+    }
+
+    #[inline]
+    pub fn to_vec4(&self, z: f32, w: f32) -> Vec4 {
+        vec4(self.x, self.y, z, w)
+    }
+}
+
+impl ops::Add for Vec2 {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        vec2(self.x + rhs.x, self.y + rhs.y)
+    }
+}
+
+impl ops::AddAssign for Vec2 {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
+impl ops::Sub for Vec2 {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        vec2(self.x - rhs.x, self.y - rhs.y)
+    }
+}
+
+impl ops::SubAssign for Vec2 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+    }
+}
+
+impl ops::Mul for Vec2 {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        vec2(self.x * rhs.x, self.y * rhs.y)
+    }
+}
+
+impl ops::MulAssign for Vec2 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        self.x *= rhs.x;
+        self.y *= rhs.y;
+    }
+}
+
+impl ops::Mul<f32> for Vec2 {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: f32) -> Self {
+        vec2(self.x * rhs, self.y * rhs)
+    }
+}
+
+impl ops::Mul<Vec2> for f32 {
+    type Output = Vec2;
+
+    #[inline]
+    fn mul(self, rhs: Vec2) -> Vec2 {
+        vec2(self * rhs.x, self * rhs.y)
+    }
+}
+
+impl ops::MulAssign<f32> for Vec2 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: f32) {
+        self.x *= rhs;
+        self.y *= rhs;
+    }
+}
+
+impl ops::Div for Vec2 {
+    type Output = Vec2;
+
+    #[inline]
+    fn div(self, rhs: Self) -> Self {
+        vec2(self.x / rhs.x, self.y / rhs.y)
+    }
+}
+
+impl ops::DivAssign for Vec2 {
+    #[inline]
+    fn div_assign(&mut self, rhs: Self) {
+        self.x /= rhs.x;
+        self.y /= rhs.y;
+    }
+}
+
+impl ops::Div<f32> for Vec2 {
+    type Output = Vec2;
+
+    #[inline]
+    fn div(self, rhs: f32) -> Self {
+        vec2(self.x / rhs, self.y / rhs)
+    }
+}
+
+impl ops::DivAssign<f32> for Vec2 {
+    #[inline]
+    fn div_assign(&mut self, rhs: f32) {
+        self.x /= rhs;
+        self.y /= rhs;
+    }
+}
+
+impl ops::Neg for Vec2 {
+    type Output = Vec2;
+
+    #[inline]
+    fn neg(self) -> Self {
+        vec2(-self.x, -self.y)
     }
 }
 
@@ -73,23 +189,8 @@ pub const VEC_3_Z_AXIS: Vec3 = vec3(0.0, 0.0, 1.0);
 
 impl Vec3 {
     #[inline]
-    pub fn add(&self, vec: &Vec3) -> Vec3 { // TODO: ops...
-        vec3(self.x + vec.x, self.y + vec.y, self.z + vec.z)
-    }
-
-    #[inline]
-    pub fn sub(&self, vec: &Vec3) -> Vec3 {
-        vec3(self.x - vec.x, self.y - vec.y, self.z - vec.z)
-    }
-
-    #[inline]
     pub fn len(&self) -> f32 {
         (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
-    }
-
-    #[inline]
-    pub fn scaled(&self, val: f32) -> Vec3 {
-        vec3(self.x * val, self.y * val, self.z * val)
     }
 
     #[inline]
@@ -119,8 +220,164 @@ impl Vec3 {
     }
 
     #[inline]
+    pub fn xy(&self) -> Vec2 {
+        vec2(self.x, self.y)
+    }
+
+    #[inline]
+    pub fn yx(&self) -> Vec2 {
+        vec2(self.y, self.x)
+    }
+
+    #[inline]
+    pub fn xz(&self) -> Vec2 {
+        vec2(self.x, self.z)
+    }
+
+    #[inline]
+    pub fn zx(&self) -> Vec2 {
+        vec2(self.z, self.x)
+    }
+
+    #[inline]
+    pub fn yz(&self) -> Vec2 {
+        vec2(self.y, self.z)
+    }
+
+    #[inline]
+    pub fn zy(&self) -> Vec2 {
+        vec2(self.z, self.y)
+    }
+
+    #[inline]
     pub fn to_vec4(&self, w: f32) -> Vec4 {
         vec4(self.x, self.y, self.z, w)
+    }
+}
+
+impl ops::Add for Vec3 {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        vec3(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
+    }
+}
+
+impl ops::AddAssign for Vec3 {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
+}
+
+impl ops::Sub for Vec3 {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        vec3(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
+    }
+}
+
+impl ops::SubAssign for Vec3 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+        self.z -= rhs.z;
+    }
+}
+
+impl ops::Mul for Vec3 {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        vec3(self.x * rhs.x, self.y * rhs.y, self.z * rhs.z)
+    }
+}
+
+impl ops::MulAssign for Vec3 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        self.x *= rhs.x;
+        self.y *= rhs.y;
+        self.z *= rhs.z;
+    }
+}
+
+impl ops::Mul<f32> for Vec3 {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: f32) -> Self {
+        vec3(self.x * rhs, self.y * rhs, self.z * rhs)
+    }
+}
+
+impl ops::Mul<Vec3> for f32 {
+    type Output = Vec3;
+
+    #[inline]
+    fn mul(self, rhs: Vec3) -> Vec3 {
+        vec3(self * rhs.x, self * rhs.y, self * rhs.z)
+    }
+}
+
+impl ops::MulAssign<f32> for Vec3 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: f32) {
+        self.x *= rhs;
+        self.y *= rhs;
+        self.z *= rhs;
+    }
+}
+
+impl ops::Div for Vec3 {
+    type Output = Vec3;
+
+    #[inline]
+    fn div(self, rhs: Self) -> Self {
+        vec3(self.x / rhs.x, self.y / rhs.y, self.z / rhs.z)
+    }
+}
+
+impl ops::DivAssign for Vec3 {
+    #[inline]
+    fn div_assign(&mut self, rhs: Self) {
+        self.x /= rhs.x;
+        self.y /= rhs.y;
+        self.z /= rhs.z;
+    }
+}
+
+impl ops::Div<f32> for Vec3 {
+    type Output = Vec3;
+
+    #[inline]
+    fn div(self, rhs: f32) -> Self {
+        vec3(self.x / rhs, self.y / rhs, self.z / rhs)
+    }
+}
+
+impl ops::DivAssign<f32> for Vec3 {
+    #[inline]
+    fn div_assign(&mut self, rhs: f32) {
+        self.x /= rhs;
+        self.y /= rhs;
+        self.z /= rhs;
+    }
+}
+
+impl ops::Neg for Vec3 {
+    type Output = Vec3;
+
+    #[inline]
+    fn neg(self) -> Self {
+        vec3(-self.x, -self.y, -self.z)
     }
 }
 
@@ -147,13 +404,6 @@ pub const VEC_4_X_AXIS: Vec4 = vec4(1.0, 0.0, 0.0, 0.0);
 pub const VEC_4_Y_AXIS: Vec4 = vec4(0.0, 1.0, 0.0, 0.0);
 pub const VEC_4_Z_AXIS: Vec4 = vec4(0.0, 0.0, 1.0, 0.0);
 pub const VEC_4_W_AXIS: Vec4 = vec4(0.0, 0.0, 0.0, 1.0);
-
-impl Vec4 {
-    #[inline]
-    pub fn to_vec3(&self) -> Vec3 {
-        vec3(self.x, self.y, self.z)
-    }
-}
 
 /////////////////////////////////////////////////////////////////////////////
 /// Quaternion
