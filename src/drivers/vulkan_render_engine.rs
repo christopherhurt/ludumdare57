@@ -20,14 +20,14 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
-use crate::core::{Mesh, Scene};
+use crate::core::Mesh;
 use crate::math::Vec3;
-use crate::render_engine::{Device, RenderEngine, RenderEngineInitProperties, VirtualKey, Window};
+use crate::render_engine::{Device, RenderEngine, RenderEngineInitProps, VirtualKey, Window};
 
 const VULKAN_PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 const VALIDATION_LAYER_NAME: vk::ExtensionName = vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
 const REQUIRED_DEVICE_EXTENSION_NAMES: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
-const MAX_FRAMES_IN_FLIGHT: usize = 3;
+const MAX_FRAMES_IN_FLIGHT: usize = 3; // TODO: rename for triple buffer approach
 
 pub struct VulkanRenderEngine {
     render_thread_join_handle: Option<JoinHandle<()>>,
@@ -67,7 +67,11 @@ impl VulkanRenderEngine {
 }
 
 impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine {
-    fn sync_data(&mut self, scene: &Scene) -> anyhow::Result<()> {
+    unsafe fn new(init_props: RenderEngineInitProps) -> Self {
+        todo!() // TODO
+    }
+
+    fn sync_state<'a>(&mut self, state: RenderState) {
         todo!() // TODO
     }
 

@@ -1,28 +1,28 @@
 use anyhow::Result;
-use std::rc::Rc;
 use strum_macros::EnumIter;
 
-use crate::core::{Mesh, Scene};
+use crate::core::MeshId;
 use crate::math::Vec3;
 
-pub struct RenderEngineInitProperties {
+pub struct RenderEngineInitProps {
     pub debug_enabled: bool,
-    pub window_properties: WindowInitProperties,
+    pub window_props: WindowInitProps,
 }
 
-pub struct WindowInitProperties {
+pub struct WindowInitProps {
     pub width: u32,
     pub height: u32,
     pub title: String,
 }
 
 pub trait RenderEngine<W: Window, D: Device> {
-    fn sync_data(&mut self, scene: &Scene) -> Result<()>; // TODO: use a separate struct
+    unsafe fn new(init_props: RenderEngineInitProps) -> Self;
+    fn sync_state<'a>(&mut self, state: RenderState);
     fn get_window(&self) -> &W;
     fn get_window_mut(&mut self) -> &mut W;
     fn get_device(&self) -> &D;
     fn get_device_mut(&mut self) -> &mut D;
-    fn join_render_thread(&mut self) -> Result<()>;
+    unsafe fn join_render_thread(&mut self) -> Result<()>;
 }
 
 pub trait Window {
@@ -33,7 +33,11 @@ pub trait Window {
 }
 
 pub trait Device {
-    fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Rc<Mesh>>;
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<MeshId>;
+}
+
+pub struct RenderState {
+    // TODO: add contents
 }
 
 #[derive(Debug, Clone, Copy, EnumIter, Eq, Hash, PartialEq)]

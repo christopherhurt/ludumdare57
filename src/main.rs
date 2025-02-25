@@ -1,6 +1,6 @@
 use core::{Node, Scene, Viewport2D};
 use drivers::vulkan_render_engine::VulkanRenderEngine;
-use render_engine::{RenderEngine, RenderEngineInitProperties, Window, WindowInitProperties};
+use render_engine::{RenderEngine, RenderEngineInitProps, Window, WindowInitProps};
 
 pub mod core;
 pub mod drivers;
@@ -27,7 +27,7 @@ fn main() {
     run_game_loop(&mut render_engine, &mut scene);
 }
 
-fn init_scene() -> Scene {
+fn init_render_engine() -> VulkanRenderEngine {
     let mut scene = Scene::new(vec![Viewport2D::default()]);
 
     // TODO
