@@ -14,6 +14,7 @@ pub mod system;
 
 pub(in crate::ecs) type Signature = u64;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SystemSignature(Signature);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,7 +118,6 @@ impl ECSCommands {
     }
 }
 
-#[inline]
 fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
     let comp_size = size_of::<T>();
 
@@ -424,13 +424,13 @@ impl ECSBuilder {
         }
     }
 
-    pub fn with_component<T: Component>(&mut self) -> &mut Self {
+    pub fn with_component<T: Component>(mut self) -> Self {
         self.component_manager.register_component::<T>().unwrap_or_else(|e| panic!("{}", e));
 
         self
     }
 
-    pub fn with_max_entity_capacity(&mut self, max_entity_capacity: usize) -> &mut Self {
+    pub fn with_max_entity_capacity(mut self, max_entity_capacity: usize) -> Self {
         self.max_entity_capacity = max_entity_capacity;
 
         self

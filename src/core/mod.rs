@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use crate::ecs::component::Component;
 use crate::math::{vec2, vec3, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use crate::render_engine::MeshId;
 
 /////////////////////////////////////////////////////////////////////////////
 /// Common
@@ -114,10 +117,8 @@ impl Component for Transform {}
 
 // Mesh
 
-pub struct MeshId(usize);
-
 pub struct Mesh {
-    pub id: MeshId,
+    pub id: Arc<MeshId>,
 }
 
 impl Component for Mesh {}

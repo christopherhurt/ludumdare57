@@ -1,9 +1,16 @@
-use core::{Node, Scene, Viewport2D};
-use drivers::vulkan_render_engine::VulkanRenderEngine;
-use render_engine::{RenderEngine, RenderEngineInitProps, Window, WindowInitProps};
+use anyhow::Result;
+use std::collections::hash_set::Iter;
+use std::collections::HashSet;
+
+use crate::core::{ColorMaterial, Mesh, Transform, Viewport2D};
+use crate::ecs::component::ComponentManager;
+use crate::ecs::entity::Entity;
+use crate::ecs::system::System;
+use crate::ecs::{ECSBuilder, ECSCommands, ECS};
+use crate::render_engine::vulkan::VulkanRenderEngine;
+use crate::render_engine::{RenderEngineInitProps, WindowInitProps};
 
 pub mod core;
-pub mod drivers;
 pub mod ecs;
 pub mod math;
 pub mod render_engine;
@@ -11,37 +18,45 @@ pub mod render_engine;
 fn main() {
     pretty_env_logger::init();
 
-    let render_engine_properties = RenderEngineInitProperties {
-        debug_enabled: true,
-        window_properties: WindowInitProperties {
-            width: 800,
-            height: 600,
-            title: "My Cool Game".to_string(),
-        },
+    let mut ecs = init_ecs();
+    create_scene(&mut ecs);
+
+    while ecs.invoke_systems() {}
+}
+
+fn init_ecs() -> ECS {
+    ECSBuilder::with_initial_entity_capacity(1_024)
+        .with_component::<Viewport2D>()
+        .with_component::<Transform>()
+        .with_component::<Mesh>()
+        .with_component::<ColorMaterial>()
+        .with_component::<VulkanRenderEngine>()
+        .build()
+}
+
+fn init_render_engine() -> Result<VulkanRenderEngine> {
+    let window_props = WindowInitProps {
+        width: 800,
+        height: 600,
+        title: String::from("My Cool Game"),
     };
 
-    let mut render_engine = VulkanRenderEngine::new(render_engine_properties)
-        .unwrap_or_else(|_| panic!("Failed to init VulkanRenderEngine"));
-    let mut scene = init_scene();
+    let render_engine_props = RenderEngineInitProps {
+        debug_enabled: true,
+        window_props,
+    };
 
-    run_game_loop(&mut render_engine, &mut scene);
+    VulkanRenderEngine::new(render_engine_props)
 }
 
-fn init_render_engine() -> VulkanRenderEngine {
-    let mut scene = Scene::new(vec![Viewport2D::default()]);
+fn create_scene(ecs: &mut ECS) {
+    let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
 
     // TODO
-    scene.add_node(Node::default());
 
-    scene
+    ecs.register_system(shutdown_render_engine, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
 }
 
-fn run_game_loop(render_engine: &mut VulkanRenderEngine, scene: &mut Scene) {
-    while !render_engine.get_window().is_closing() {
-        // TODO: game logic
-
-        render_engine.sync_data(scene).unwrap_or_else(|_| panic!("Failed to sync data with render engine"));
-    }
-
-    render_engine.join_render_thread().unwrap();
-}
+const shutdown_render_engine: System = |entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+    // TODO: need to both check and call ECS shutdown? as well as render engine shutdown...
+};

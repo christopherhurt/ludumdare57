@@ -4,7 +4,7 @@ use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::os::raw::c_void;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use strum::IntoEnumIterator;
@@ -20,9 +20,9 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
-use crate::core::Mesh;
+use crate::ecs::component::Component;
 use crate::math::Vec3;
-use crate::render_engine::{Device, RenderEngine, RenderEngineInitProps, VirtualKey, Window};
+use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, Window};
 
 const VULKAN_PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 const VALIDATION_LAYER_NAME: vk::ExtensionName = vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
@@ -34,7 +34,7 @@ pub struct VulkanRenderEngine {
 }
 
 struct VulkanApplication {
-    init_properties: RenderEngineInitProperties,
+    init_properties: RenderEngineInitProps,
     is_minimized: bool,
     is_closing: bool,
     keys_down: HashMap<VirtualKey, bool>,
@@ -51,7 +51,7 @@ struct VulkanContext {
 }
 
 impl VulkanRenderEngine {
-    pub fn new(init_properties: RenderEngineInitProperties) -> Result<Self> {
+    pub fn new(init_properties: RenderEngineInitProps) -> Result<Self> {
         let join_handle = thread::spawn(|| {
             let event_loop = EventLoop::new().unwrap();
             let mut application = VulkanApplication::new(init_properties).unwrap();
@@ -71,7 +71,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         todo!() // TODO
     }
 
-    fn sync_state<'a>(&mut self, state: RenderState) {
+    fn sync_state(&mut self, state: RenderState) {
         todo!() // TODO
     }
 
@@ -91,7 +91,8 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         self
     }
 
-    fn join_render_thread(&mut self) -> Result<()> {
+    unsafe fn join_render_thread(&mut self) -> Result<()> {
+        // TODO: trigger shutdown
         if let Some(join_handle) = self.render_thread_join_handle.take() {
             join_handle.join().map_err(|_| anyhow!("Failed to join render thread!"))
         } else {
@@ -119,7 +120,7 @@ impl Window for VulkanRenderEngine {
 }
 
 impl Device for VulkanRenderEngine {
-    fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Rc<Mesh>> {
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Arc<MeshId>> {
         todo!() // TODO
     }
 }
@@ -130,8 +131,10 @@ impl Drop for VulkanRenderEngine {
     }
 }
 
+impl Component for VulkanRenderEngine {}
+
 impl VulkanApplication {
-    fn new(init_properties: RenderEngineInitProperties) -> Result<Self> {
+    fn new(init_properties: RenderEngineInitProps) -> Result<Self> {
         let mut keys_down = HashMap::new();
         VirtualKey::iter().for_each(|vk| {
             if vk != VirtualKey::Unknown {
@@ -161,7 +164,7 @@ impl ApplicationHandler for VulkanApplication {
         let loader = unsafe { LibloadingLoader::new(LIBRARY).unwrap_or_else(|_| panic!("Failed to create loader for {}", LIBRARY)) };
         let entry = unsafe { Entry::new(loader) }.unwrap_or_else(|_| panic!("Failed to load entry point for {}", LIBRARY));
 
-        let win_properties = &self.init_properties.window_properties;
+        let win_properties = &self.init_properties.window_props;
         let window_attribs = WindowAttributes::default()
             .with_title(win_properties.title.clone())
             .with_inner_size(LogicalSize::new(win_properties.width, win_properties.height))
@@ -308,68 +311,68 @@ extern "system" fn debug_callback(
 }
 
 // TODO
-unsafe fn create_swapchain(
-    window: &winit_Window,
-    instance: &Instance,
-    device: &vk_Device,
-) -> Result<()> {
-    let indices = QueueFamilyIndices::get(instance, data, data.physical_device)?;
-    let support = SwapchainSupport::get(instance, data, data.physical_device)?;
+// unsafe fn create_swapchain(
+//     window: &winit_Window,
+//     instance: &Instance,
+//     device: &vk_Device,
+// ) -> Result<()> {
+//     let indices = QueueFamilyIndices::get(instance, data, data.physical_device)?;
+//     let support = SwapchainSupport::get(instance, data, data.physical_device)?;
 
-    let surface_format = get_swapchain_surface_format(&support.formats);
-    let present_mode = get_swapchain_present_mode(&support.present_modes);
-    let extent = get_swapchain_extent(window, support.capabilities);
+//     let surface_format = get_swapchain_surface_format(&support.formats);
+//     let present_mode = get_swapchain_present_mode(&support.present_modes);
+//     let extent = get_swapchain_extent(window, support.capabilities);
 
-    // Recommended to use at least one more image than the min so we shouldn't have to sometimes wait for the driver to acquire another image to render to
-    let mut image_count = support.capabilities.min_image_count + 1;
-    if support.capabilities.max_image_count != 0 // 0 means there is no maximum
-        && image_count > support.capabilities.max_image_count
-    {
-        image_count = support.capabilities.max_image_count;
-    }
+//     // Recommended to use at least one more image than the min so we shouldn't have to sometimes wait for the driver to acquire another image to render to
+//     let mut image_count = support.capabilities.min_image_count + 1;
+//     if support.capabilities.max_image_count != 0 // 0 means there is no maximum
+//         && image_count > support.capabilities.max_image_count
+//     {
+//         image_count = support.capabilities.max_image_count;
+//     }
 
-    let mut queue_family_indices = vec![];
-    let image_sharing_mode = if indices.graphics != indices.present {
-        // At least two distinct queue families are required for CONCURRENT MODE
-        queue_family_indices.push(indices.graphics);
-        queue_family_indices.push(indices.present);
-        vk::SharingMode::CONCURRENT
-    } else {
-        // Better performance than CONCURRENT mode when ownership doesn't need to be transferred between queue families,
-        // i.e. when there is only one queue family for both graphics and presenting
-        vk::SharingMode::EXCLUSIVE
-    };
+//     let mut queue_family_indices = vec![];
+//     let image_sharing_mode = if indices.graphics != indices.present {
+//         // At least two distinct queue families are required for CONCURRENT MODE
+//         queue_family_indices.push(indices.graphics);
+//         queue_family_indices.push(indices.present);
+//         vk::SharingMode::CONCURRENT
+//     } else {
+//         // Better performance than CONCURRENT mode when ownership doesn't need to be transferred between queue families,
+//         // i.e. when there is only one queue family for both graphics and presenting
+//         vk::SharingMode::EXCLUSIVE
+//     };
 
-    let info = vk::SwapchainCreateInfoKHR::builder()
-        .surface(data.surface)
-        .min_image_count(image_count)
-        .image_format(surface_format.format)
-        .image_color_space(surface_format.color_space)
-        .image_extent(extent)
-        .image_array_layers(1) // Always 1 unless you're developing a stereoscopic 3D application
-        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT) // Use a different bitmask like TRANSFER_DST when not rendering directly to the screen first, i.e. image post-processing
-        .image_sharing_mode(image_sharing_mode)
-        .queue_family_indices(&queue_family_indices)
-        .pre_transform(support.capabilities.current_transform) // Indicates we don't want any transforms applied to images, e.g. 90 degree rotation or horizontal flip
-        .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // Indicates no blending with other windows in the window system (usually don't want to do this....) https://docs.rs/vulkanalia/0.22.0/vulkanalia/vk/struct.CompositeAlphaFlagsKHR.html#associatedconstant.OPAQUE
-        .present_mode(present_mode)
-        .clipped(true) // better performance, pretty much always true unless you want to sample this for a different window in front of this one
-        .old_swapchain(vk::SwapchainKHR::null()); // Default is null anyway, only needed if current swapchain is invalid or unoptimized, and needs to be recreated from an old one (complex)
+//     let info = vk::SwapchainCreateInfoKHR::builder()
+//         .surface(data.surface)
+//         .min_image_count(image_count)
+//         .image_format(surface_format.format)
+//         .image_color_space(surface_format.color_space)
+//         .image_extent(extent)
+//         .image_array_layers(1) // Always 1 unless you're developing a stereoscopic 3D application
+//         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT) // Use a different bitmask like TRANSFER_DST when not rendering directly to the screen first, i.e. image post-processing
+//         .image_sharing_mode(image_sharing_mode)
+//         .queue_family_indices(&queue_family_indices)
+//         .pre_transform(support.capabilities.current_transform) // Indicates we don't want any transforms applied to images, e.g. 90 degree rotation or horizontal flip
+//         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // Indicates no blending with other windows in the window system (usually don't want to do this....) https://docs.rs/vulkanalia/0.22.0/vulkanalia/vk/struct.CompositeAlphaFlagsKHR.html#associatedconstant.OPAQUE
+//         .present_mode(present_mode)
+//         .clipped(true) // better performance, pretty much always true unless you want to sample this for a different window in front of this one
+//         .old_swapchain(vk::SwapchainKHR::null()); // Default is null anyway, only needed if current swapchain is invalid or unoptimized, and needs to be recreated from an old one (complex)
 
-    data.swapchain_format = surface_format.format;
-    data.swapchain_extent = extent;
-    data.swapchain = device.create_swapchain_khr(&info, None)?;
-    data.swapchain_images = device.get_swapchain_images_khr(data.swapchain)?;
+//     data.swapchain_format = surface_format.format;
+//     data.swapchain_extent = extent;
+//     data.swapchain = device.create_swapchain_khr(&info, None)?;
+//     data.swapchain_images = device.get_swapchain_images_khr(data.swapchain)?;
 
-    // TODO asdf
-    data.swapchain_image_views = data
-        .swapchain_images
-        .iter()
-        .map(|i| create_image_view(device, *i, data.swapchain_format, vk::ImageAspectFlags::COLOR, 1))
-        .collect::<Result<Vec<_>, _>>()?;
+//     // TODO asdf
+//     data.swapchain_image_views = data
+//         .swapchain_images
+//         .iter()
+//         .map(|i| create_image_view(device, *i, data.swapchain_format, vk::ImageAspectFlags::COLOR, 1))
+//         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 const fn get_is_key_down_for_state(state: ElementState) -> bool {
     match state {

@@ -1,8 +1,12 @@
 use anyhow::Result;
+use std::sync::Arc;
 use strum_macros::EnumIter;
 
-use crate::core::MeshId;
 use crate::math::Vec3;
+
+pub mod vulkan;
+
+pub struct MeshId(usize);
 
 pub struct RenderEngineInitProps {
     pub debug_enabled: bool,
@@ -17,7 +21,7 @@ pub struct WindowInitProps {
 
 pub trait RenderEngine<W: Window, D: Device> {
     unsafe fn new(init_props: RenderEngineInitProps) -> Self;
-    fn sync_state<'a>(&mut self, state: RenderState);
+    fn sync_state(&mut self, state: RenderState);
     fn get_window(&self) -> &W;
     fn get_window_mut(&mut self) -> &mut W;
     fn get_device(&self) -> &D;
@@ -33,7 +37,7 @@ pub trait Window {
 }
 
 pub trait Device {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<MeshId>;
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Arc<MeshId>>;
 }
 
 pub struct RenderState {
