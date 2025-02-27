@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
 
-use component::{Component, ComponentManager};
+use component::{Component, ComponentManager, SystemSignature};
 use entity::{Entity, EntityManager};
 use system::{System, SystemManager};
 
@@ -13,9 +13,6 @@ pub mod component;
 pub mod system;
 
 pub(in crate::ecs) type Signature = u64;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SystemSignature(Signature);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProvisionalEntity(usize);
@@ -116,6 +113,10 @@ impl ECSCommands {
         self.to_shutdown = true;
         self.system_command_order.push_back(SystemCommandType::Shutdown);
     }
+
+    pub fn is_shutting_down(&self) -> bool {
+        self.to_shutdown
+    }
 }
 
 fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
@@ -186,37 +187,23 @@ impl ECS {
     }
 
     pub fn get_system_signature_0(&self) -> Result<SystemSignature> {
-        Ok(SystemSignature(0))
+        self.component_manager.get_system_signature_0()
     }
 
     pub fn get_system_signature_1<A: Component>(&self) -> Result<SystemSignature> {
-        let sig = self.component_manager.get_signature(TypeId::of::<A>())?;
-
-        Ok(SystemSignature(sig))
+        self.component_manager.get_system_signature_1::<A>()
     }
 
     pub fn get_system_signature_2<A: Component, B: Component>(&self) -> Result<SystemSignature> {
-        let sig_a = self.component_manager.get_signature(TypeId::of::<A>())?;
-        let sig_b = self.component_manager.get_signature(TypeId::of::<B>())?;
-
-        Ok(SystemSignature(sig_a | sig_b))
+        self.component_manager.get_system_signature_2::<A, B>()
     }
 
     pub fn get_system_signature_3<A: Component, B: Component, C: Component>(&self) -> Result<SystemSignature> {
-        let sig_a = self.component_manager.get_signature(TypeId::of::<A>())?;
-        let sig_b = self.component_manager.get_signature(TypeId::of::<B>())?;
-        let sig_c = self.component_manager.get_signature(TypeId::of::<C>())?;
-
-        Ok(SystemSignature(sig_a | sig_b | sig_c))
+        self.component_manager.get_system_signature_3::<A, B, C>()
     }
 
     pub fn get_system_signature_4<A: Component, B: Component, C: Component, D: Component>(&self) -> Result<SystemSignature> {
-        let sig_a = self.component_manager.get_signature(TypeId::of::<A>())?;
-        let sig_b = self.component_manager.get_signature(TypeId::of::<B>())?;
-        let sig_c = self.component_manager.get_signature(TypeId::of::<C>())?;
-        let sig_d = self.component_manager.get_signature(TypeId::of::<D>())?;
-
-        Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
+        self.component_manager.get_system_signature_4::<A, B, C, D>()
     }
 
     pub(in crate) fn invoke_systems(&mut self) -> bool {
@@ -237,17 +224,14 @@ impl ECS {
 
         self.system_managers.iter().for_each(|manager| {
             manager.borrow_mut().invoke_system(&mut self.component_manager, &mut self.commands);
-            flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &self.system_managers);
+            flush_entity_component_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &self.system_managers)
+                .unwrap_or_else(|e| panic!("{}", e));
         });
 
         flush_all_commands(&mut self.commands, &mut self.entity_manager, &mut self.component_manager, &mut self.system_managers, &mut self.system_hashes, self.initial_entity_capacity, &mut self.is_shutdown)
             .unwrap_or_else(|e| panic!("{}", e));
 
         true
-    }
-
-    pub(in crate) fn is_shutdown(&self) -> bool {
-        self.is_shutdown
     }
 }
 
@@ -359,7 +343,7 @@ fn flush_all_commands(
     initial_entity_capacity: usize,
     is_shutdown: &mut bool,
 ) -> Result<()> {
-    flush_entity_component_commands(commands, entity_manager, component_manager, system_managers);
+    flush_entity_component_commands(commands, entity_manager, component_manager, system_managers)?;
 
     while let Some(command_type) = commands.system_command_order.pop_front() {
         match command_type {

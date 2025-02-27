@@ -91,7 +91,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         self
     }
 
-    unsafe fn join_render_thread(&mut self) -> Result<()> {
+    unsafe fn join_render_thread(mut self) -> Result<()> {
         // TODO: trigger shutdown
         if let Some(join_handle) = self.render_thread_join_handle.take() {
             join_handle.join().map_err(|_| anyhow!("Failed to join render thread!"))

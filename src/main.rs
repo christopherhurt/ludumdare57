@@ -59,4 +59,7 @@ fn create_scene(ecs: &mut ECS) {
 
 const shutdown_render_engine: System = |entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
     // TODO: need to both check and call ECS shutdown? as well as render engine shutdown...
+    if commands.is_shutting_down() {
+        // TODO: need to be able to take ownership of the render engine....as the join_render_thread call consumes it - can't use a ref
+    }
 };

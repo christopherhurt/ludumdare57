@@ -7,6 +7,9 @@ use crate::ecs::entity::Entity;
 
 pub trait Component: Sized + 'static {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SystemSignature(pub(in crate::ecs) Signature);
+
 pub struct ComponentArray {
     entity_to_index: Vec<usize>,
     index_to_entity: Vec<Entity>,
@@ -186,7 +189,41 @@ impl ComponentManager {
 
     pub(in crate::ecs) fn handle_entity_removed(&mut self, entity: Entity) {
         self.component_types_to_arrays.values_mut().for_each(|comp_arr| {
-            comp_arr.remove_component(entity);
+            comp_arr.remove_component(entity).unwrap_or_default();
         });
+    }
+
+    pub fn get_system_signature_0(&self) -> Result<SystemSignature> {
+        Ok(SystemSignature(0))
+    }
+
+    pub fn get_system_signature_1<A: Component>(&self) -> Result<SystemSignature> {
+        let sig = self.get_signature(TypeId::of::<A>())?;
+
+        Ok(SystemSignature(sig))
+    }
+
+    pub fn get_system_signature_2<A: Component, B: Component>(&self) -> Result<SystemSignature> {
+        let sig_a = self.get_signature(TypeId::of::<A>())?;
+        let sig_b = self.get_signature(TypeId::of::<B>())?;
+
+        Ok(SystemSignature(sig_a | sig_b))
+    }
+
+    pub fn get_system_signature_3<A: Component, B: Component, C: Component>(&self) -> Result<SystemSignature> {
+        let sig_a = self.get_signature(TypeId::of::<A>())?;
+        let sig_b = self.get_signature(TypeId::of::<B>())?;
+        let sig_c = self.get_signature(TypeId::of::<C>())?;
+
+        Ok(SystemSignature(sig_a | sig_b | sig_c))
+    }
+
+    pub fn get_system_signature_4<A: Component, B: Component, C: Component, D: Component>(&self) -> Result<SystemSignature> {
+        let sig_a = self.get_signature(TypeId::of::<A>())?;
+        let sig_b = self.get_signature(TypeId::of::<B>())?;
+        let sig_c = self.get_signature(TypeId::of::<C>())?;
+        let sig_d = self.get_signature(TypeId::of::<D>())?;
+
+        Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
     }
 }

@@ -6,7 +6,7 @@ use crate::math::Vec3;
 
 pub mod vulkan;
 
-pub struct MeshId(usize);
+pub struct MeshId(pub(in crate::render_engine) usize);
 
 pub struct RenderEngineInitProps {
     pub debug_enabled: bool,
@@ -26,7 +26,7 @@ pub trait RenderEngine<W: Window, D: Device> {
     fn get_window_mut(&mut self) -> &mut W;
     fn get_device(&self) -> &D;
     fn get_device_mut(&mut self) -> &mut D;
-    unsafe fn join_render_thread(&mut self) -> Result<()>;
+    unsafe fn join_render_thread(self) -> Result<()>;
 }
 
 pub trait Window {
