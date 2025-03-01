@@ -20,7 +20,6 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
-use crate::ecs::component::Component;
 use crate::math::Vec3;
 use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, Window};
 
@@ -75,20 +74,20 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         todo!() // TODO
     }
 
-    fn get_window(&self) -> &VulkanRenderEngine {
-        self
+    fn get_window(&self) -> Result<&VulkanRenderEngine> {
+        todo!() // TODO
     }
 
-    fn get_window_mut(&mut self) -> &mut VulkanRenderEngine {
-        self
+    fn get_window_mut(&mut self) -> Result<&mut VulkanRenderEngine> {
+        todo!() // TODO
     }
 
-    fn get_device(&self) -> &VulkanRenderEngine {
-        self
+    fn get_device(&self) -> Result<&VulkanRenderEngine> {
+        todo!() // TODO
     }
 
-    fn get_device_mut(&mut self) -> &mut VulkanRenderEngine {
-        self
+    fn get_device_mut(&mut self) -> Result<&mut VulkanRenderEngine> {
+        todo!() // TODO
     }
 
     unsafe fn join_render_thread(mut self) -> Result<()> {
@@ -130,8 +129,6 @@ impl Drop for VulkanRenderEngine {
         todo!() // TODO
     }
 }
-
-impl Component for VulkanRenderEngine {}
 
 impl VulkanApplication {
     fn new(init_properties: RenderEngineInitProps) -> Result<Self> {

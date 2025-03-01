@@ -21,12 +21,12 @@ pub struct WindowInitProps {
 
 pub trait RenderEngine<W: Window, D: Device> {
     unsafe fn new(init_props: RenderEngineInitProps) -> Self;
-    fn sync_state(&mut self, state: RenderState);
-    fn get_window(&self) -> &W;
-    fn get_window_mut(&mut self) -> &mut W;
-    fn get_device(&self) -> &D;
-    fn get_device_mut(&mut self) -> &mut D;
-    unsafe fn join_render_thread(self) -> Result<()>;
+    fn sync_state(&mut self, state: RenderState) -> Result<()>; // TODO: want to do this in a way that doesn't involve a state copy, but is thread safe
+    fn get_window(&self) -> Result<&W>;
+    fn get_window_mut(&mut self) -> Result<&mut W>;
+    fn get_device(&self) -> Result<&D>;
+    fn get_device_mut(&mut self) -> Result<&mut D>;
+    unsafe fn join_render_thread(&mut self) -> Result<()>;
 }
 
 pub trait Window {

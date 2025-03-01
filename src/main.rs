@@ -2,7 +2,8 @@ use anyhow::Result;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 
-use crate::core::{ColorMaterial, Mesh, Transform, Viewport2D};
+use crate::component_bindings::{Mesh, VulkanComponent};
+use crate::core::{ColorMaterial, Transform, Viewport2D};
 use crate::ecs::component::ComponentManager;
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
@@ -10,6 +11,7 @@ use crate::ecs::{ECSBuilder, ECSCommands, ECS};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{RenderEngineInitProps, WindowInitProps};
 
+pub mod component_bindings;
 pub mod core;
 pub mod ecs;
 pub mod math;
@@ -30,7 +32,7 @@ fn init_ecs() -> ECS {
         .with_component::<Transform>()
         .with_component::<Mesh>()
         .with_component::<ColorMaterial>()
-        .with_component::<VulkanRenderEngine>()
+        .with_component::<VulkanComponent>()
         .build()
 }
 
@@ -54,7 +56,13 @@ fn create_scene(ecs: &mut ECS) {
 
     // TODO
 
-    ecs.register_system(shutdown_render_engine, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
+    ecs.register_system(shutdown_render_engine, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
+}
+
+const shutdown_ecs: System = |entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+    entites.for_each(|e| {
+        let render_engine = components.get_component::<VulkanComponent>(e);
+    });
 }
 
 const shutdown_render_engine: System = |entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
