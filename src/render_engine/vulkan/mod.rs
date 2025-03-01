@@ -70,7 +70,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         todo!() // TODO
     }
 
-    fn sync_state(&mut self, state: RenderState) {
+    fn sync_state(&mut self, state: RenderState) -> Result<()> {
         todo!() // TODO
     }
 
@@ -90,7 +90,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         todo!() // TODO
     }
 
-    unsafe fn join_render_thread(mut self) -> Result<()> {
+    unsafe fn join_render_thread(&mut self) -> Result<()> {
         // TODO: trigger shutdown
         if let Some(join_handle) = self.render_thread_join_handle.take() {
             join_handle.join().map_err(|_| anyhow!("Failed to join render thread!"))

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use render_engine::{RenderEngine, Window};
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 
@@ -54,20 +55,32 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 fn create_scene(ecs: &mut ECS) {
     let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
 
+    ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
+
     // TODO
 
-    ecs.register_system(shutdown_render_engine, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
+    ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
 }
 
-const shutdown_ecs: System = |entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
     entites.for_each(|e| {
-        let render_engine = components.get_component::<VulkanComponent>(e);
-    });
-}
+        let vulkan = components.get_component::<VulkanComponent>(e).unwrap();
 
-const shutdown_render_engine: System = |entites: &Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
-    // TODO: need to both check and call ECS shutdown? as well as render engine shutdown...
+        if vulkan.render_engine.get_window().map_or(true, |w| w.is_closing()) {
+            commands.shutdown();
+        }
+    });
+};
+
+const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
     if commands.is_shutting_down() {
-        // TODO: need to be able to take ownership of the render engine....as the join_render_thread call consumes it - can't use a ref
+        entites.for_each(|e| {
+            let vulkan = components.get_mut_component::<VulkanComponent>(e).unwrap();
+
+            unsafe {
+                vulkan.render_engine.join_render_thread()
+                    .unwrap_or_else(|e| panic!("{}", e));
+            }
+        });
     }
 };

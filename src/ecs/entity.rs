@@ -51,7 +51,7 @@ impl EntityManager {
         Ok(new_entity)
     }
 
-    pub(in crate::ecs) fn destroy_entity(&mut self, entity: Entity) -> Result<()> {
+    pub(in crate::ecs) fn destroy_entity(&mut self, entity: &Entity) -> Result<()> {
         if entity.0 >= self.entity_counter || self.entity_destroyed[entity.0] {
             return Err(anyhow!("Entity {:?} does not exist", entity));
         }
@@ -59,12 +59,12 @@ impl EntityManager {
         self.signatures[entity.0] = DEFAULT_ENTITY_SIGNATURE;
         self.entity_destroyed[entity.0] = true;
 
-        self.usable_entities.push_back(entity);
+        self.usable_entities.push_back(entity.clone());
 
         Ok(())
     }
 
-    pub(in crate::ecs) fn set_signature(&mut self, entity: Entity, signature: Signature) -> Result<()> {
+    pub(in crate::ecs) fn set_signature(&mut self, entity: &Entity, signature: Signature) -> Result<()> {
         if entity.0 >= self.entity_counter || self.entity_destroyed[entity.0] {
             return Err(anyhow!("Entity {:?} does not exist", entity));
         }
@@ -74,7 +74,7 @@ impl EntityManager {
         Ok(())
     }
 
-    pub(in crate::ecs) fn get_signature(&self, entity: Entity) -> Result<Signature> {
+    pub(in crate::ecs) fn get_signature(&self, entity: &Entity) -> Result<Signature> {
         if entity.0 >= self.entity_counter || self.entity_destroyed[entity.0] {
             return Err(anyhow!("Entity {:?} does not exist", entity));
         }

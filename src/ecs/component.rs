@@ -30,7 +30,7 @@ impl ComponentArray {
         }
     }
 
-    pub(in crate::ecs) fn insert_component(&mut self, entity: Entity, component: Box<[u8]>) -> Result<()> {
+    pub(in crate::ecs) fn insert_component(&mut self, entity: &Entity, component: Box<[u8]>) -> Result<()> {
         if entity.0 < self.entity_to_index.len() && self.entity_to_index[entity.0] != INVALID_COMPONENT_INDEX {
             return Err(anyhow!("Component already exists for entity {:?}", entity));
         }
@@ -41,7 +41,7 @@ impl ComponentArray {
 
         self.entity_to_index[entity.0] = self.index_to_entity.len();
 
-        self.index_to_entity.push(entity);
+        self.index_to_entity.push(entity.clone());
 
         if self.components.len() > self.components.capacity() - component.len() {
             self.components.reserve(self.components.len());
@@ -52,7 +52,7 @@ impl ComponentArray {
         Ok(())
     }
 
-    pub(in crate::ecs) fn remove_component(&mut self, entity: Entity) -> Result<()> {
+    pub(in crate::ecs) fn remove_component(&mut self, entity: &Entity) -> Result<()> {
         if entity.0 >= self.entity_to_index.len() || self.entity_to_index[entity.0] == INVALID_COMPONENT_INDEX {
             return Err(anyhow!("No such component exists for entity {:?}", entity));
         }
@@ -61,7 +61,7 @@ impl ComponentArray {
         self.entity_to_index[entity.0] = INVALID_COMPONENT_INDEX;
 
         let moved_entity = self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity array is empty"));
-        let should_move = moved_entity != entity;
+        let should_move = moved_entity != *entity;
 
         if should_move {
             self.index_to_entity[dst_index] = moved_entity;
@@ -80,9 +80,9 @@ impl ComponentArray {
         Ok(())
     }
 
-    pub fn get_component<T: Component>(&self, entity: Entity) -> Result<&T> {
+    pub fn get_component<T: Component>(&self, entity: &Entity) -> Option<&T> {
         if entity.0 >= self.entity_to_index.len() || self.entity_to_index[entity.0] == INVALID_COMPONENT_INDEX {
-            return Err(anyhow!("No such component exists for entity {:?}", entity));
+            return None;
         }
 
         let index = self.entity_to_index[entity.0];
@@ -90,13 +90,13 @@ impl ComponentArray {
         unsafe {
             let comp_raw = (self.components.as_ptr() as *const T).add(index);
 
-            Ok(&*comp_raw)
+            Some(&*comp_raw)
         }
     }
 
-    pub fn get_mut_component<T: Component>(&mut self, entity: Entity) -> Result<&mut T> {
+    pub fn get_mut_component<T: Component>(&mut self, entity: &Entity) -> Option<&mut T> {
         if entity.0 >= self.entity_to_index.len() || self.entity_to_index[entity.0] == INVALID_COMPONENT_INDEX {
-            return Err(anyhow!("No such component exists for entity {:?}", entity));
+            return None;
         }
 
         let index = self.entity_to_index[entity.0];
@@ -104,7 +104,7 @@ impl ComponentArray {
         unsafe {
             let comp_raw = (self.components.as_mut_ptr() as *mut T).add(index);
 
-            Ok(&mut *comp_raw)
+            Some(&mut *comp_raw)
         }
     }
 }
@@ -128,7 +128,7 @@ impl ComponentManager {
         }
     }
 
-    pub(in crate::ecs) fn attach_component(&mut self, entity: Entity, type_id: TypeId, component: Box<[u8]>) -> Result<()> {
+    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Box<[u8]>) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
@@ -137,7 +137,7 @@ impl ComponentManager {
         Ok(())
     }
 
-    pub(in crate::ecs) fn detach_component(&mut self, entity: Entity, type_id: TypeId) -> Result<()> {
+    pub(in crate::ecs) fn detach_component(&mut self, entity: &Entity, type_id: TypeId) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
@@ -173,21 +173,21 @@ impl ComponentManager {
         Ok(())
     }
 
-    pub fn get_component<T: Component>(&self, entity: Entity) -> Result<&T> {
+    pub fn get_component<T: Component>(&self, entity: &Entity) -> Option<&T> {
         match self.component_types_to_arrays.get(&TypeId::of::<T>()) {
             Some(comp_arr) => comp_arr.get_component::<T>(entity),
-            None => Err(anyhow!("No such component has been registered")),
+            None => None,
         }
     }
 
-    pub fn get_mut_component<T: Component>(&mut self, entity: Entity) -> Result<&mut T> {
+    pub fn get_mut_component<T: Component>(&mut self, entity: &Entity) -> Option<&mut T> {
         match self.component_types_to_arrays.get_mut(&TypeId::of::<T>()) {
             Some(comp_arr) => comp_arr.get_mut_component(entity),
-            None => Err(anyhow!("No such component has been registered")),
+            None => None,
         }
     }
 
-    pub(in crate::ecs) fn handle_entity_removed(&mut self, entity: Entity) {
+    pub(in crate::ecs) fn handle_entity_removed(&mut self, entity: &Entity) {
         self.component_types_to_arrays.values_mut().for_each(|comp_arr| {
             comp_arr.remove_component(entity).unwrap_or_default();
         });

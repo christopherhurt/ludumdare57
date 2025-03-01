@@ -3,6 +3,7 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
+use std::ptr::fn_addr_eq;
 
 use component::{Component, ComponentManager, SystemSignature};
 use entity::{Entity, EntityManager};
@@ -75,27 +76,27 @@ impl ECSCommands {
         entity
     }
 
-    pub fn destroy_entity(&mut self, entity: Entity) {
-        self.to_destroy.push_back(entity);
+    pub fn destroy_entity(&mut self, entity: &Entity) {
+        self.to_destroy.push_back(entity.clone());
         self.entity_component_command_order.push_back(EntityComponentCommandType::DestroyEntity);
     }
 
-    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) {
+    pub fn attach_component<T: Component>(&mut self, entity: &Entity, component: T) {
         let raw_comp_data = component_to_boxed_slice(component);
 
-        self.to_attach.push_back((entity, TypeId::of::<T>(), raw_comp_data));
+        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), raw_comp_data));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachComponent);
     }
 
-    pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: ProvisionalEntity, component: T) {
+    pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: &ProvisionalEntity, component: T) {
         let raw_comp_data = component_to_boxed_slice(component);
 
-        self.to_attach_provisional.push_back((provisional_entity, TypeId::of::<T>(), raw_comp_data));
+        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), raw_comp_data));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachProvisionalComponent);
     }
 
-    pub fn detach_component<T: Component>(&mut self, entity: Entity) {
-        self.to_detach.push_back((entity, TypeId::of::<T>()));
+    pub fn detach_component<T: Component>(&mut self, entity: &Entity) {
+        self.to_detach.push_back((entity.clone(), TypeId::of::<T>()));
         self.entity_component_command_order.push_back(EntityComponentCommandType::DetachComponent);
     }
 
@@ -158,19 +159,19 @@ impl ECS {
         self.commands.create_entity()
     }
 
-    pub fn destroy_entity(&mut self, entity: Entity) {
+    pub fn destroy_entity(&mut self, entity: &Entity) {
         self.commands.destroy_entity(entity);
     }
 
-    pub fn attach_component<T: Component>(&mut self, entity: Entity, component: T) {
+    pub fn attach_component<T: Component>(&mut self, entity: &Entity, component: T) {
         self.commands.attach_component(entity, component);
     }
 
-    pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: ProvisionalEntity, component: T) {
+    pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: &ProvisionalEntity, component: T) {
         self.commands.attach_provisional_component(provisional_entity, component);
     }
 
-    pub fn detach_component<T: Component>(&mut self, entity: Entity) {
+    pub fn detach_component<T: Component>(&mut self, entity: &Entity) {
         self.commands.detach_component::<T>(entity);
     }
 
@@ -251,8 +252,8 @@ fn flush_entity_component_commands(
                 let entity = entity_manager.create_entity()?;
 
                 system_managers.iter().map(|manager| {
-                    let updated_signature = entity_manager.get_signature(entity)?;
-                    manager.borrow_mut().handle_entity_updated(entity, updated_signature);
+                    let updated_signature = entity_manager.get_signature(&entity)?;
+                    manager.borrow_mut().handle_entity_updated(&entity, updated_signature);
 
                     Ok::<_, Error>(())
                 }).find(|r| r.is_err()).unwrap_or(Ok(()))?;
@@ -262,15 +263,15 @@ fn flush_entity_component_commands(
             EntityComponentCommandType::DestroyEntity => {
                 let entity = commands.to_destroy.pop_front().unwrap_or_else(|| panic!("Internal error: expected an entity to destroy"));
 
-                component_manager.handle_entity_removed(entity);
-                system_managers.iter().for_each(|manager| manager.borrow_mut().handle_entity_removed(entity));
+                component_manager.handle_entity_removed(&entity);
+                system_managers.iter().for_each(|manager| manager.borrow_mut().handle_entity_removed(&entity));
 
-                entity_manager.destroy_entity(entity)?;
+                entity_manager.destroy_entity(&entity)?;
             },
             EntityComponentCommandType::AttachComponent => {
                 let (entity, type_id, comp_data) = commands.to_attach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
 
-                component_manager.attach_component(entity, type_id, comp_data)?;
+                component_manager.attach_component(&entity, type_id, comp_data)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
@@ -280,7 +281,7 @@ fn flush_entity_component_commands(
 
                 let entity = *provisional_entity_map.get(&provisional_entity).unwrap_or_else(|| panic!("Internal error: provisional entity {:?} was not created before attaching a component to it", provisional_entity));
 
-                component_manager.attach_component(entity, type_id, comp_data)?;
+                component_manager.attach_component(&entity, type_id, comp_data)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
@@ -288,7 +289,7 @@ fn flush_entity_component_commands(
             EntityComponentCommandType::DetachComponent => {
                 let (entity, type_id) = commands.to_detach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to detach"));
 
-                component_manager.detach_component(entity, type_id)?;
+                component_manager.detach_component(&entity, type_id)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
@@ -325,11 +326,11 @@ fn apply_entity_signature_update(
     entity_manager: &mut EntityManager,
     system_managers: &Vec<RefCell<SystemManager>>,
 ) -> Result<()> {
-    let mut entity_signature = entity_manager.get_signature(entity)?;
+    let mut entity_signature = entity_manager.get_signature(&entity)?;
     entity_signature |= component_signature;
 
-    entity_manager.set_signature(entity, entity_signature)?;
-    system_managers.iter().for_each(|manager| manager.borrow_mut().handle_entity_updated(entity, entity_signature));
+    entity_manager.set_signature(&entity, entity_signature)?;
+    system_managers.iter().for_each(|manager| manager.borrow_mut().handle_entity_updated(&entity, entity_signature));
 
     Ok(())
 }
@@ -370,7 +371,7 @@ fn flush_all_commands(
                     return Err(anyhow!("System is not registered"));
                 }
 
-                system_managers.retain(|m| m.borrow().system != system);
+                system_managers.retain(|m| !fn_addr_eq(m.borrow().system, system));
             },
             SystemCommandType::Shutdown => {
                 *is_shutdown = true;
