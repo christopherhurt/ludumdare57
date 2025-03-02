@@ -56,9 +56,6 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 
 fn create_scene(ecs: &mut ECS) {
     let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
-    let vulkan = VulkanComponent::new(render_engine);
-    let vulkan_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&vulkan_entity, vulkan);
 
     let cam = Camera::new(VEC_3_ZERO, VEC_3_Z_AXIS, VEC_3_Y_AXIS);
     let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
@@ -82,6 +79,10 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_entity, cube_transform);
     ecs.attach_provisional_component(&cube_entity, cube_color_material);
 
+    let vulkan = VulkanComponent::new(render_engine);
+    let vulkan_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&vulkan_entity, vulkan);
+
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_2::<VulkanComponent, Viewport2D>().unwrap()]), 0);
     ecs.register_system(MOVE_CUBE, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 1);
@@ -98,20 +99,62 @@ const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentM
     });
 };
 
-const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
-    // TODO: address errors
-    let vulkan_entity = entites.find(|e| components.get_component::<VulkanComponent>(e).is_some()).unwrap();
-    let window = components.get_component::<VulkanComponent>(vulkan_entity).unwrap().render_engine.get_window();
+const MOVE_CAMERA: System = |mut entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+    let vulkan = entites.find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
 
-    if let Ok(window) = window {
-        entites.for_each(|e| {
+    if let Ok(window) = vulkan.render_engine.get_window() {
+        for e in entites {
             if let Some(viewport) = components.get_mut_component::<Viewport2D>(e) {
-                if let Ok(_) = window.is_key_down(VirtualKey::W) {
-                    // TODO
+                let cam = &mut viewport.cam;
+
+                let speed = 0.0001;
+                let mut move_dir = VEC_3_ZERO;
+
+                if window.is_key_down(VirtualKey::W).is_ok_and(|b| b) {
+                    move_dir.z += speed;
                 }
-                // TODO
+                if window.is_key_down(VirtualKey::S).is_ok_and(|b| b) {
+                    move_dir.z -= speed;
+                }
+                if window.is_key_down(VirtualKey::D).is_ok_and(|b| b) {
+                    move_dir.x += speed;
+                }
+                if window.is_key_down(VirtualKey::A).is_ok_and(|b| b) {
+                    move_dir.x -= speed;
+                }
+                if window.is_key_down(VirtualKey::Q).is_ok_and(|b| b) {
+                    move_dir.y += speed;
+                }
+                if window.is_key_down(VirtualKey::E).is_ok_and(|b| b) {
+                    move_dir.y -= speed;
+                }
+
+                move_dir = move_dir.normalized();
+                cam.pos += move_dir;
+
+                let rot_speed = 0.0001;
+                if window.is_key_down(VirtualKey::Left).is_ok_and(|b| b)
+                    && window.is_key_down(VirtualKey::Right).is_ok_and(|b| !b) {
+                    cam.dir = cam.dir.rotated(&cam.up, rot_speed);
+                }
+                if window.is_key_down(VirtualKey::Right).is_ok_and(|b| b)
+                    && window.is_key_down(VirtualKey::Left).is_ok_and(|b| !b) {
+                    cam.dir = cam.dir.rotated(&cam.up, -rot_speed);
+                }
+                if window.is_key_down(VirtualKey::Up).is_ok_and(|b| b)
+                    && window.is_key_down(VirtualKey::Down).is_ok_and(|b| !b) {
+                    let right = cam.dir.cross(&cam.up).normalized();
+                    cam.dir = cam.dir.rotated(&right, rot_speed);
+                    cam.up = cam.up.rotated(&right, rot_speed);
+                }
+                if window.is_key_down(VirtualKey::Down).is_ok_and(|b| b)
+                    && window.is_key_down(VirtualKey::Up).is_ok_and(|b| !b) {
+                    let right = cam.dir.cross(&cam.up).normalized();
+                    cam.dir = cam.dir.rotated(&right, -rot_speed);
+                    cam.up = cam.up.rotated(&right, -rot_speed);
+                }
             }
-        });
+        }
     }
 };
 
