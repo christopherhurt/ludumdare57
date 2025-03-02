@@ -31,6 +31,7 @@ impl Color {
 pub const RED: Color = Color::rgb(1.0, 0.0, 0.0);
 pub const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
 pub const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+pub const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
 
 // Camera
 
@@ -116,6 +117,12 @@ impl Component for Transform {}
 
 pub struct ColorMaterial {
     pub color: Color,
+}
+
+impl ColorMaterial {
+    pub fn new(color: Color) -> Self {
+        Self { color }
+    }
 }
 
 impl Default for ColorMaterial {
