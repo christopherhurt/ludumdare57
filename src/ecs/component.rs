@@ -94,7 +94,7 @@ impl ComponentArray {
         }
     }
 
-    pub fn get_mut_component<T: Component>(&mut self, entity: &Entity) -> Option<&mut T> {
+    pub fn get_mut_component<T: Component>(&self, entity: &Entity) -> Option<&mut T> {
         if entity.0 >= self.entity_to_index.len() || self.entity_to_index[entity.0] == INVALID_COMPONENT_INDEX {
             return None;
         }
@@ -102,7 +102,8 @@ impl ComponentArray {
         let index = self.entity_to_index[entity.0];
 
         unsafe {
-            let comp_raw = (self.components.as_mut_ptr() as *mut T).add(index);
+            // TODO: should enforce proper interior mutability here like RefCell, i.e. panic on more than one borrow with at least one mutable borrow
+            let comp_raw = (self.components.as_ptr() as *mut T).add(index);
 
             Some(&mut *comp_raw)
         }
@@ -180,8 +181,8 @@ impl ComponentManager {
         }
     }
 
-    pub fn get_mut_component<T: Component>(&mut self, entity: &Entity) -> Option<&mut T> {
-        match self.component_types_to_arrays.get_mut(&TypeId::of::<T>()) {
+    pub fn get_mut_component<T: Component>(&self, entity: &Entity) -> Option<&mut T> {
+        match self.component_types_to_arrays.get(&TypeId::of::<T>()) {
             Some(comp_arr) => comp_arr.get_mut_component(entity),
             None => None,
         }
