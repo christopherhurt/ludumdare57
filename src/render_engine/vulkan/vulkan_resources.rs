@@ -4,13 +4,12 @@ use std::collections::HashSet;
 use vulkanalia::{Device as vk_Device, Version};
 use vulkanalia::bytecode::Bytecode;
 use vulkanalia::prelude::v1_0::*;
-use vulkanalia::vk;
-use vulkanalia::vk::{ExtDebugUtilsExtension, KhrSwapchainExtension};
+use vulkanalia::vk::{self, ExtDebugUtilsExtension, KhrSwapchainExtension};
 use vulkanalia::window as vk_window;
 use winit::window::Window as winit_Window;
 
-use crate::render_engine::vulkan::vulkan_structs::{Pipeline, Swapchain, Vertex};
-use crate::render_engine::vulkan::vulkan_utils::{debug_callback, get_depth_format, get_queue_family_indices, get_swapchain_support};
+use crate::render_engine::vulkan::vulkan_structs::{ImageResources, Pipeline, Swapchain, Vertex};
+use crate::render_engine::vulkan::vulkan_utils::{debug_callback, get_depth_format, get_memory_type_index, get_queue_family_indices, get_swapchain_support, transition_image_layout};
 
 const VULKAN_PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 const VALIDATION_LAYER_NAME: vk::ExtensionName = vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
@@ -18,7 +17,11 @@ const REQUIRED_DEVICE_EXTENSION_NAMES: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAI
 
 // Instance
 
-pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(window: &winit_Window, entry: &Entry, debug_enabled: bool) -> Result<(Instance, Option<vk::DebugUtilsMessengerEXT>)> {
+pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(
+    window: &winit_Window,
+    entry: &Entry,
+    debug_enabled: bool,
+) -> Result<(Instance, Option<vk::DebugUtilsMessengerEXT>)> {
     let application_info = vk::ApplicationInfo::builder()
         .application_name(b"My Cool Game\0")
         .application_version(vk::make_version(1, 0, 0))
@@ -85,6 +88,52 @@ pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(window: &winit
 }
 
 // Image + Image Views
+
+unsafe fn create_image(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    width: u32,
+    height: u32,
+    format: vk::Format,
+    tiling: vk::ImageTiling,
+    usage: vk::ImageUsageFlags,
+    properties: vk::MemoryPropertyFlags,
+) -> Result<ImageResources> {
+    let info = vk::ImageCreateInfo::builder()
+        .image_type(vk::ImageType::_2D)
+        .extent(vk::Extent3D { width, height, depth: 1 })
+        .mip_levels(1)
+        .array_layers(1)
+        .format(format)
+        .tiling(tiling)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .usage(usage)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .samples(vk::SampleCountFlags::_1)
+        .flags(vk::ImageCreateFlags::empty());
+
+    let image = device.create_image(&info, None)?;
+
+    let requirements = device.get_image_memory_requirements(image);
+
+    let info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(requirements.size)
+        .memory_type_index(
+            get_memory_type_index(
+                instance,
+                physical_device,
+                properties,
+                requirements,
+            )?
+        );
+
+    let memory = device.allocate_memory(&info, None)?;
+
+    device.bind_image_memory(image, memory, 0)?;
+
+    Ok(ImageResources { image, memory })
+}
 
 unsafe fn create_image_view(
     device: &vk_Device,
@@ -224,7 +273,12 @@ unsafe fn create_shader_module(shader_path: &str, device: &Device) -> Result<vk:
     Ok(device.create_shader_module(&info, None)?)
 }
 
-unsafe fn create_render_pass(instance: &Instance, device: &Device, physical_device: vk::PhysicalDevice, format: vk::Format) -> Result<vk::RenderPass> {
+unsafe fn create_render_pass(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    format: vk::Format,
+) -> Result<vk::RenderPass> {
     let color_attachment = vk::AttachmentDescription::builder()
         .format(format)
         .samples(vk::SampleCountFlags::_1)
@@ -278,7 +332,12 @@ unsafe fn create_render_pass(instance: &Instance, device: &Device, physical_devi
     Ok(device.create_render_pass(&info, None)?)
 }
 
-unsafe fn create_pipeline(device: &Device, render_pass: vk::RenderPass, swapchain: &Swapchain, descriptor_set_layout: vk::DescriptorSetLayout) -> Result<Pipeline> {
+unsafe fn create_pipeline(
+    device: &Device,
+    render_pass: vk::RenderPass,
+    swapchain: &Swapchain,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+) -> Result<Pipeline> {
     let vert_shader_module = create_shader_module("../shaders/generated/vert.spv", device)?; // TODO: update path
     let frag_shader_module = create_shader_module("../shaders/generated/frag.spv", device)?; // TODO: update path
 
@@ -388,4 +447,48 @@ unsafe fn create_pipeline(device: &Device, render_pass: vk::RenderPass, swapchai
             layout: pipeline_layout,
         }
     )
+}
+
+// Depth Buffer
+
+unsafe fn create_depth_objects(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    swapchain_extent: &vk::Extent2D,
+    command_pool: vk::CommandPool,
+    graphics_queue: vk::Queue,
+) -> Result<(ImageResources, vk::ImageView)> {
+    let format = get_depth_format(instance, physical_device)?;
+
+    let depth_image_resources = create_image(
+        instance,
+        device,
+        physical_device,
+        swapchain_extent.width,
+        swapchain_extent.height,
+        format,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    let depth_image_view = create_image_view(
+        device,
+        depth_image_resources.image,
+        format,
+        vk::ImageAspectFlags::DEPTH,
+    )?;
+
+    transition_image_layout(
+        device,
+        command_pool,
+        graphics_queue,
+        depth_image_resources.image,
+        format,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    )?;
+
+    Ok((depth_image_resources, depth_image_view))
 }

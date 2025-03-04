@@ -8,6 +8,30 @@ use vulkanalia::vk::KhrSurfaceExtension;
 
 use crate::render_engine::vulkan::vulkan_structs::{QueueFamilyIndices, SwapchainSupport};
 
+pub(in crate::render_engine::vulkan) extern "system" fn debug_callback(
+    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    type_: vk::DebugUtilsMessageTypeFlagsEXT,
+    data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _: *mut c_void,
+) -> vk::Bool32 {
+    let data = unsafe { *data };
+    let message = unsafe { CStr::from_ptr(data.message) }.to_string_lossy();
+
+    if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
+        error!("({:?}) {}", type_, message);
+    } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::WARNING {
+        warn!("({:?}) {}", type_, message);
+    } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::INFO {
+        debug!("({:?}) {}", type_, message);
+    } else {
+        trace!("({:?}) {}", type_, message);
+    }
+
+    vk::FALSE
+}
+
+// Device Info
+
 pub(in crate::render_engine::vulkan) unsafe fn get_queue_family_indices(
     instance: &Instance,
     surface: vk::SurfaceKHR,
@@ -77,24 +101,141 @@ pub(in crate::render_engine::vulkan) unsafe fn get_depth_format(instance: &Insta
     get_supported_format(instance, physical_device, candidates, vk::ImageTiling::OPTIMAL, vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT)
 }
 
-pub(in crate::render_engine::vulkan) extern "system" fn debug_callback(
-    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    type_: vk::DebugUtilsMessageTypeFlagsEXT,
-    data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    _: *mut c_void,
-) -> vk::Bool32 {
-    let data = unsafe { *data };
-    let message = unsafe { CStr::from_ptr(data.message) }.to_string_lossy();
+pub(in crate::render_engine::vulkan) unsafe fn get_memory_type_index(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    properties: vk::MemoryPropertyFlags,
+    requirements: vk::MemoryRequirements,
+) -> Result<u32> {
+    let memory = instance.get_physical_device_memory_properties(physical_device);
 
-    if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
-        error!("({:?}) {}", type_, message);
-    } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::WARNING {
-        warn!("({:?}) {}", type_, message);
-    } else if severity >= vk::DebugUtilsMessageSeverityFlagsEXT::INFO {
-        debug!("({:?}) {}", type_, message);
+    (0..memory.memory_type_count)
+        .find(|i| {
+            let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
+            let memory_type = memory.memory_types[*i as usize];
+            suitable && memory_type.property_flags.contains(properties)
+        })
+        .ok_or_else(|| anyhow!("Failed to find suitable memory type."))
+}
+
+// Commands
+
+unsafe fn begin_single_time_commands(
+    device: &Device,
+    command_pool: vk::CommandPool,
+) -> Result<vk::CommandBuffer> {
+    let info = vk::CommandBufferAllocateInfo::builder()
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_pool(command_pool)
+        .command_buffer_count(1);
+
+    let command_buffer = device.allocate_command_buffers(&info)?[0];
+
+    let info = vk::CommandBufferBeginInfo::builder()
+        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+    device.begin_command_buffer(command_buffer, &info)?;
+
+    Ok(command_buffer)
+}
+
+unsafe fn end_single_time_commands(
+    device: &Device,
+    command_pool: vk::CommandPool,
+    command_buffer: vk::CommandBuffer,
+    graphics_queue: vk::Queue,
+) -> Result<()> {
+    device.end_command_buffer(command_buffer)?;
+
+    let command_buffers = &[command_buffer];
+    let info = vk::SubmitInfo::builder()
+        .command_buffers(command_buffers);
+
+    device.queue_submit(graphics_queue, &[info], vk::Fence::null())?;
+    device.queue_wait_idle(graphics_queue)?;
+
+    device.free_command_buffers(command_pool, &[command_buffer]);
+
+    Ok(())
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn transition_image_layout(
+    device: &Device,
+    command_pool: vk::CommandPool,
+    graphics_queue: vk::Queue,
+    image: vk::Image,
+    format: vk::Format,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+) -> Result<()> {
+    // https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#synchronization-access-types-supported
+    let (
+        src_access_mask,
+        dst_access_mask,
+        src_stage_mask,
+        dst_stage_mask,
+    ) = match (old_layout, new_layout) {
+        (vk::ImageLayout::UNDEFINED, vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL) => (
+            vk::AccessFlags::empty(),
+            vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+        ),
+        (vk::ImageLayout::UNDEFINED, vk::ImageLayout::TRANSFER_DST_OPTIMAL) => (
+            vk::AccessFlags::empty(),
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::TRANSFER,
+        ),
+        (vk::ImageLayout::TRANSFER_DST_OPTIMAL, vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL) => (
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::SHADER_READ,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+        ),
+        _ => return Err(anyhow!("Unsupported image layout transition!")),
+    };
+
+    let aspect_mask = if new_layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
+        match format {
+            vk::Format::D32_SFLOAT_S8_UINT | vk::Format::D24_UNORM_S8_UINT =>
+                vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+            _ => vk::ImageAspectFlags::DEPTH
+        }
     } else {
-        trace!("({:?}) {}", type_, message);
-    }
+        vk::ImageAspectFlags::COLOR
+    };
 
-    vk::FALSE
+    let command_buffer = begin_single_time_commands(device, command_pool)?;
+
+    let subresource = vk::ImageSubresourceRange::builder()
+        .aspect_mask(aspect_mask)
+        .base_mip_level(0)
+        .level_count(1)
+        .base_array_layer(0)
+        .layer_count(1);
+
+    let barrier = vk::ImageMemoryBarrier::builder()
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .image(image)
+        .subresource_range(subresource)
+        .src_access_mask(src_access_mask)
+        .dst_access_mask(dst_access_mask);
+
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        src_stage_mask,
+        dst_stage_mask,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[barrier],
+    );
+
+    end_single_time_commands(device, command_pool, command_buffer, graphics_queue)?;
+
+    Ok(())
 }

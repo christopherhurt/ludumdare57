@@ -4,6 +4,12 @@ use vulkanalia::vk::HasBuilder;
 use crate::math::Vec3;
 
 #[derive(Clone, Debug)]
+pub(in crate::render_engine::vulkan) struct ImageResources {
+    pub(in crate::render_engine::vulkan) image: vk::Image,
+    pub(in crate::render_engine::vulkan) memory: vk::DeviceMemory,
+}
+
+#[derive(Clone, Debug)]
 pub(in crate::render_engine::vulkan) struct Pipeline {
     pub(in crate::render_engine::vulkan) pipeline: vk::Pipeline,
     pub(in crate::render_engine::vulkan) layout: vk::PipelineLayout,
