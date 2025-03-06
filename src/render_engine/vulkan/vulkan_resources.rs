@@ -8,8 +8,20 @@ use vulkanalia::vk::{self, ExtDebugUtilsExtension, KhrSwapchainExtension};
 use vulkanalia::window as vk_window;
 use winit::window::Window as winit_Window;
 
-use crate::render_engine::vulkan::vulkan_structs::{ImageResources, Pipeline, Swapchain, Vertex};
-use crate::render_engine::vulkan::vulkan_utils::{debug_callback, get_depth_format, get_memory_type_index, get_queue_family_indices, get_swapchain_support, transition_image_layout};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, ImageResources, Pipeline, Swapchain, Vertex};
+use crate::render_engine::vulkan::vulkan_utils::{
+    copy_buffer,
+    debug_callback,
+    destroy_buffer,
+    get_depth_format,
+    get_memory_type_index,
+    get_queue_family_indices,
+    get_swapchain_extent,
+    get_swapchain_present_mode,
+    get_swapchain_support,
+    get_swapchain_surface_format,
+    transition_image_layout,
+};
 
 const VULKAN_PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 const VALIDATION_LAYER_NAME: vk::ExtensionName = vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
@@ -158,44 +170,6 @@ unsafe fn create_image_view(
 }
 
 // Swapchain
-
-fn get_swapchain_surface_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
-    formats
-        .iter()
-        .cloned()
-        // TODO: prefer more than one format/color space
-        .find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR)
-        .unwrap_or_else(|| formats[0])
-}
-
-fn get_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
-    present_modes
-        .iter()
-        .cloned()
-        .find(|m| *m == vk::PresentModeKHR::MAILBOX)
-        .unwrap_or(vk::PresentModeKHR::FIFO)
-}
-
-fn get_swapchain_extent(window: &winit_Window, capabilities: vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
-    if capabilities.current_extent.width != u32::MAX {
-        capabilities.current_extent
-    } else {
-        let size = window.inner_size();
-        let clamp = |min: u32, max: u32, v: u32| min.max(max.min(v));
-        vk::Extent2D::builder()
-            .width(clamp(
-                capabilities.min_image_extent.width,
-                capabilities.max_image_extent.width,
-                size.width,
-            ))
-            .height(clamp(
-                capabilities.min_image_extent.height,
-                capabilities.max_image_extent.height,
-                size.height,
-            ))
-            .build()
-    }
-}
 
 pub(in crate::render_engine::vulkan) unsafe fn create_swapchain(
     preferred_image_count: u32,
@@ -449,7 +423,35 @@ unsafe fn create_pipeline(
     )
 }
 
-// Depth Buffer
+// Framebuffers + Attachments
+
+unsafe fn create_color_objects(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    swapchain: Swapchain,
+) -> Result<(ImageResources, vk::ImageView)> {
+    let color_image_resources = create_image(
+        instance,
+        device,
+        physical_device,
+        swapchain.extent.width,
+        swapchain.extent.height,
+        swapchain.format,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::COLOR_ATTACHMENT,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    let color_image_view = create_image_view(
+        device,
+        color_image_resources.image,
+        swapchain.format,
+        vk::ImageAspectFlags::COLOR,
+    )?;
+
+    Ok((color_image_resources, color_image_view))
+}
 
 unsafe fn create_depth_objects(
     instance: &Instance,
@@ -491,4 +493,168 @@ unsafe fn create_depth_objects(
     )?;
 
     Ok((depth_image_resources, depth_image_view))
+}
+
+unsafe fn create_framebuffer(
+    device: &Device,
+    render_pass: vk::RenderPass,
+    extent: vk::Extent2D,
+    swapchain_image_view: vk::ImageView,
+    depth_image_view: vk::ImageView,
+) -> Result<vk::Framebuffer> {
+    let attachments = &[swapchain_image_view, depth_image_view];
+    let create_info = vk::FramebufferCreateInfo::builder()
+        .render_pass(render_pass)
+        .attachments(attachments)
+        .width(extent.width)
+        .height(extent.height)
+        .layers(1);
+
+    Ok(device.create_framebuffer(&create_info, None)?)
+}
+
+// Buffers
+
+unsafe fn create_buffer(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    size: vk::DeviceSize,
+    usage: vk::BufferUsageFlags,
+    properties: vk::MemoryPropertyFlags,
+) -> Result<BufferResources> {
+    let buffer_info = vk::BufferCreateInfo::builder()
+        .size(size)
+        .usage(usage)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+    let buffer = device.create_buffer(&buffer_info, None)?;
+
+    let requirements = device.get_buffer_memory_requirements(buffer);
+
+    let memory_info = vk::MemoryAllocateInfo::builder()
+        .allocation_size(requirements.size)
+        .memory_type_index(
+            get_memory_type_index(
+                instance,
+                physical_device,
+                properties,
+                requirements,
+            )?
+        );
+
+    let memory = device.allocate_memory(&memory_info, None)?;
+
+    device.bind_buffer_memory(buffer, memory, 0)?;
+
+    Ok(BufferResources { buffer, memory })
+}
+
+unsafe fn create_vertex_buffer(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    vertices: &Vec<Vertex>,
+) -> Result<BufferResources> {
+    let size = (size_of::<Vertex>() * vertices.len()) as u64;
+
+    let staging_buffer_resources = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+    )?;
+
+    let memory = device.map_memory(
+        staging_buffer_resources.memory,
+        0,
+        size,
+        vk::MemoryMapFlags::empty(),
+    )?;
+
+    std::ptr::copy_nonoverlapping(vertices.as_ptr(), memory.cast(), vertices.len());
+
+    device.unmap_memory(staging_buffer_resources.memory);
+
+    let vertex_buffer_resources = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    copy_buffer(device, command_pool, queue, staging_buffer_resources.buffer, vertex_buffer_resources.buffer, size)?;
+
+    destroy_buffer(device, staging_buffer_resources)?;
+
+    Ok(vertex_buffer_resources)
+}
+
+unsafe fn create_index_buffer(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    indices: &Vec<u32>,
+) -> Result<BufferResources> {
+    let size = (size_of::<u32>() * indices.len()) as u64;
+
+    let staging_buffer_resources = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+    )?;
+
+    let memory = device.map_memory(
+        staging_buffer_resources.memory,
+        0,
+        size,
+        vk::MemoryMapFlags::empty(),
+    )?;
+
+    std::ptr::copy_nonoverlapping(indices.as_ptr(), memory.cast(), indices.len());
+
+    device.unmap_memory(staging_buffer_resources.memory);
+
+    let index_buffer_resources = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    copy_buffer(device, command_pool, queue, staging_buffer_resources.buffer, index_buffer_resources.buffer, size)?;
+
+    destroy_buffer(device, staging_buffer_resources);
+
+    Ok(index_buffer_resources)
+}
+
+unsafe fn create_uniform_buffer<T: Sized>(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+) -> Result<BufferResources> {
+    Ok(
+        create_buffer(
+            instance,
+            device,
+            physical_device,
+            size_of::<T>() as u64,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?
+    )
 }

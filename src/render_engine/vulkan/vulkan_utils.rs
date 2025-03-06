@@ -5,8 +5,9 @@ use std::os::raw::c_void;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk;
 use vulkanalia::vk::KhrSurfaceExtension;
+use winit::window::Window as winit_Window;
 
-use crate::render_engine::vulkan::vulkan_structs::{QueueFamilyIndices, SwapchainSupport};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, QueueFamilyIndices, SwapchainSupport};
 
 pub(in crate::render_engine::vulkan) extern "system" fn debug_callback(
     severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -118,6 +119,46 @@ pub(in crate::render_engine::vulkan) unsafe fn get_memory_type_index(
         .ok_or_else(|| anyhow!("Failed to find suitable memory type."))
 }
 
+// Swapchain
+
+pub(in crate::render_engine::vulkan) fn get_swapchain_surface_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
+    formats
+        .iter()
+        .cloned()
+        // TODO: prefer more than one format/color space
+        .find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR)
+        .unwrap_or_else(|| formats[0])
+}
+
+pub(in crate::render_engine::vulkan) fn get_swapchain_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
+    present_modes
+        .iter()
+        .cloned()
+        .find(|m| *m == vk::PresentModeKHR::MAILBOX)
+        .unwrap_or(vk::PresentModeKHR::FIFO)
+}
+
+pub(in crate::render_engine::vulkan) fn get_swapchain_extent(window: &winit_Window, capabilities: vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
+    if capabilities.current_extent.width != u32::MAX {
+        capabilities.current_extent
+    } else {
+        let size = window.inner_size();
+        let clamp = |min: u32, max: u32, v: u32| min.max(max.min(v));
+        vk::Extent2D::builder()
+            .width(clamp(
+                capabilities.min_image_extent.width,
+                capabilities.max_image_extent.width,
+                size.width,
+            ))
+            .height(clamp(
+                capabilities.min_image_extent.height,
+                capabilities.max_image_extent.height,
+                size.height,
+            ))
+            .build()
+    }
+}
+
 // Commands
 
 unsafe fn begin_single_time_commands(
@@ -143,7 +184,7 @@ unsafe fn end_single_time_commands(
     device: &Device,
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
-    graphics_queue: vk::Queue,
+    queue: vk::Queue,
 ) -> Result<()> {
     device.end_command_buffer(command_buffer)?;
 
@@ -151,8 +192,8 @@ unsafe fn end_single_time_commands(
     let info = vk::SubmitInfo::builder()
         .command_buffers(command_buffers);
 
-    device.queue_submit(graphics_queue, &[info], vk::Fence::null())?;
-    device.queue_wait_idle(graphics_queue)?;
+    device.queue_submit(queue, &[info], vk::Fence::null())?;
+    device.queue_wait_idle(queue)?;
 
     device.free_command_buffers(command_pool, &[command_buffer]);
 
@@ -236,6 +277,36 @@ pub(in crate::render_engine::vulkan) unsafe fn transition_image_layout(
     );
 
     end_single_time_commands(device, command_pool, command_buffer, graphics_queue)?;
+
+    Ok(())
+}
+
+// Buffers
+
+pub(in crate::render_engine::vulkan) unsafe fn copy_buffer(
+    device: &Device,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    source: vk::Buffer,
+    destination: vk::Buffer,
+    size: vk::DeviceSize,
+) -> Result<()> {
+    let command_buffer = begin_single_time_commands(device, command_pool)?;
+
+    let regions = vk::BufferCopy::builder().size(size);
+    device.cmd_copy_buffer(command_buffer, source, destination, &[regions]);
+
+    end_single_time_commands(device, command_pool, command_buffer, queue)?;
+
+    Ok(())
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn destroy_buffer(
+    device: &Device,
+    buffer_resources: BufferResources,
+) -> Result<()> {
+    device.destroy_buffer(buffer_resources.buffer, None);
+    device.free_memory(buffer_resources.memory, None);
 
     Ok(())
 }
