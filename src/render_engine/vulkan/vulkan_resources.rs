@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
-use log::info;
+use log::{info, warn};
 use std::collections::HashSet;
-use vulkanalia::{Device as vk_Device, Version};
+use vulkanalia::Device as vk_Device;
 use vulkanalia::bytecode::Bytecode;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{self, ExtDebugUtilsExtension, KhrSwapchainExtension};
@@ -23,11 +23,10 @@ use crate::render_engine::vulkan::vulkan_utils::{
     transition_image_layout,
 };
 
-const VULKAN_PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 const VALIDATION_LAYER_NAME: vk::ExtensionName = vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
 const REQUIRED_DEVICE_EXTENSION_NAMES: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
 
-// Instance
+// Instance + Devices
 
 pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(
     window: &winit_Window,
@@ -46,16 +45,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(
         .map(|e| e.as_ptr())
         .collect::<Vec<_>>();
 
-    let flags = if cfg!(target_os = "macos") && entry.version()? >= VULKAN_PORTABILITY_MACOS_VERSION {
-        info!("Enabling extensions for macOS portability.");
-
-        extensions.push(vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name.as_ptr());
-        extensions.push(vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name.as_ptr());
-
-        vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-    } else {
-        vk::InstanceCreateFlags::empty()
-    };
+    let flags = vk::InstanceCreateFlags::empty();
 
     let available_layers = entry
         .enumerate_instance_layer_properties()?
@@ -97,6 +87,109 @@ pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(
     };
 
     Ok((instance, debug_messenger))
+}
+
+unsafe fn pick_physical_device(instance: &Instance, surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
+    for physical_device in instance.enumerate_physical_devices()? {
+        let properties = instance.get_physical_device_properties(physical_device);
+
+        let is_suitable = is_suitable_physical_device(instance, surface, physical_device);
+        if let Err(error) = is_suitable {
+            warn!("Skipping physical device (`{}`): {}", properties.device_name, error);
+        } else if !is_suitable.unwrap() {
+            warn!("Skipping unsuitable physical device (`{}`)", properties.device_name);
+        } else {
+            info!("Selected physical device (`{}`).", properties.device_name);
+            return Ok(physical_device);
+        }
+    }
+
+    Err(anyhow!("Failed to find suitable physical device."))
+}
+
+unsafe fn is_suitable_physical_device(
+    instance: &Instance,
+    surface: vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+) -> Result<bool> {
+    // TODO: prefer properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
+
+    if get_queue_family_indices(instance, surface, physical_device).is_err() {
+        return Ok(false);
+    }
+
+    if !has_required_physical_device_extensions(instance, physical_device)? {
+        return Ok(false);
+    }
+
+    let support = get_swapchain_support(instance, surface, physical_device)?;
+    if support.formats.is_empty() || support.present_modes.is_empty() {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+unsafe fn has_required_physical_device_extensions(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Result<bool> {
+    let supported_extensions = instance
+        .enumerate_device_extension_properties(physical_device, None)?
+        .iter()
+        .map(|e| e.extension_name)
+        .collect::<HashSet<_>>();
+
+    Ok(REQUIRED_DEVICE_EXTENSION_NAMES.iter().all(|e| supported_extensions.contains(e)))
+}
+
+unsafe fn create_logical_device(
+    instance: &Instance,
+    surface: vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+    debug_enabled: bool,
+) -> Result<(Device, vk::Queue, vk::Queue)> {
+    let indices = get_queue_family_indices(instance, surface, physical_device)?;
+
+    let mut unique_indices = HashSet::new();
+    unique_indices.insert(indices.graphics);
+    unique_indices.insert(indices.present);
+
+    let queue_priorities = &[1.0];
+    let queue_infos = unique_indices
+        .iter()
+        .map(|i| {
+            vk::DeviceQueueCreateInfo::builder()
+                .queue_family_index(*i)
+                .queue_priorities(queue_priorities)
+        })
+        .collect::<Vec<_>>();
+
+    let layers = if debug_enabled {
+        vec![VALIDATION_LAYER_NAME.as_ptr()]
+    } else {
+        vec![]
+    };
+
+    let extensions = REQUIRED_DEVICE_EXTENSION_NAMES
+        .iter()
+        .map(|n| n.as_ptr())
+        .collect::<Vec<_>>();
+
+    let features = vk::PhysicalDeviceFeatures::builder();
+
+    let info = vk::DeviceCreateInfo::builder()
+        .queue_create_infos(&queue_infos)
+        .enabled_layer_names(&layers)
+        .enabled_extension_names(&extensions)
+        .enabled_features(&features);
+
+    let device = instance.create_device(physical_device, &info, None)?;
+
+    let graphics_queue = device.get_device_queue(indices.graphics, 0);
+    let present_queue = device.get_device_queue(indices.present, 0);
+
+    Ok((device, graphics_queue, present_queue))
 }
 
 // Image + Image Views
