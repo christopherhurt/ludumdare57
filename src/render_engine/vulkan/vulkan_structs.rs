@@ -10,9 +10,22 @@ pub(in crate::render_engine::vulkan) struct BufferResources {
 }
 
 #[derive(Clone, Debug)]
+pub(in crate::render_engine::vulkan) struct FrameSyncObjects {
+    pub(in crate::render_engine::vulkan) image_available_semaphore: vk::Semaphore,
+    pub(in crate::render_engine::vulkan) render_finished_semaphore: vk::Semaphore,
+    pub(in crate::render_engine::vulkan) in_flight_fence: vk::Fence,
+}
+
+#[derive(Clone, Debug)]
 pub(in crate::render_engine::vulkan) struct ImageResources {
     pub(in crate::render_engine::vulkan) image: vk::Image,
     pub(in crate::render_engine::vulkan) memory: vk::DeviceMemory,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::render_engine::vulkan) struct Mesh {
+    pub(in crate::render_engine::vulkan) vertex_buffer: BufferResources,
+    pub(in crate::render_engine::vulkan) index_buffer: BufferResources,
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +54,13 @@ pub(in crate::render_engine::vulkan) struct SwapchainSupport {
     pub(in crate::render_engine::vulkan) capabilities: vk::SurfaceCapabilitiesKHR,
     pub(in crate::render_engine::vulkan) formats: Vec<vk::SurfaceFormatKHR>,
     pub(in crate::render_engine::vulkan) present_modes: Vec<vk::PresentModeKHR>,
+}
+
+// TODO: split this into per-frame and per-entity uniform objects, and others?
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub(in crate::render_engine::vulkan) struct UniformBufferObject {
+    // TODO: add fields
 }
 
 #[derive(Copy, Clone, Debug)]

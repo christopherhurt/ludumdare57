@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use strum::IntoEnumIterator;
+use vulkanalia::Device as vk_Device;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DebugUtilsMessengerEXT, SurfaceKHR};
@@ -18,7 +19,24 @@ use winit::window::{Window as winit_Window, WindowAttributes};
 
 use crate::math::Vec3;
 use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, Window};
-use crate::render_engine::vulkan::vulkan_resources::create_vk_instance;
+use crate::render_engine::vulkan::vulkan_resources::{
+    create_vk_instance,
+    pick_physical_device,
+    create_logical_device,
+    create_swapchain,
+    create_render_pass,
+    create_descriptor_set_layout,
+    create_pipeline,
+    create_command_pool,
+    create_depth_objects,
+    create_framebuffer,
+    create_uniform_buffer,
+    create_descriptor_pool,
+    create_descriptor_sets,
+    create_command_buffer,
+    create_sync_objects,
+};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Mesh, Pipeline, Swapchain, UniformBufferObject};
 
 mod vulkan_resources;
 mod vulkan_structs;
@@ -35,7 +53,6 @@ struct VulkanApplication {
     is_minimized: bool,
     is_closing: bool,
     keys_down: HashMap<VirtualKey, bool>,
-    // TODO: mesh id to mesh mapping
     context: Option<VulkanContext>,
 }
 
@@ -43,8 +60,94 @@ struct VulkanContext {
     winit_window: winit_Window,
     vk_instance: Instance,
     surface: SurfaceKHR,
-
     debug_messenger: Option<DebugUtilsMessengerEXT>,
+
+    physical_device: vk::PhysicalDevice,
+    device: vk_Device,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
+    swapchain: Swapchain,
+    render_pass: vk::RenderPass,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    pipeline: Pipeline,
+    single_time_command_pool: vk::CommandPool,
+    per_frame_command_pools: Vec<vk::CommandPool>,
+    depth_image_resources: ImageResources,
+    depth_image_view: vk::ImageView,
+    framebuffers: Vec<vk::Framebuffer>,
+    uniform_buffer: BufferResources,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_sets: Vec<vk::DescriptorSet>,
+    per_frame_command_buffers: Vec<vk::CommandBuffer>,
+    sync_objects: Vec<FrameSyncObjects>,
+
+    meshes: HashMap<MeshId, Mesh>,
+}
+
+impl VulkanContext {
+    fn new(init_properties: RenderEngineInitProps, event_loop: &ActiveEventLoop) -> Self {
+        let loader = unsafe { LibloadingLoader::new(LIBRARY).unwrap_or_else(|_| panic!("Failed to create loader for {}", LIBRARY)) };
+        let entry = unsafe { Entry::new(loader) }.unwrap_or_else(|_| panic!("Failed to load entry point for {}", LIBRARY));
+
+        let win_properties = init_properties.window_props;
+        let window_attribs = WindowAttributes::default()
+            .with_title(win_properties.title.clone())
+            .with_inner_size(LogicalSize::new(win_properties.width, win_properties.height))
+            .with_resizable(false);
+        let winit_window = event_loop.create_window(window_attribs).unwrap_or_else(|_| panic!("Failed to create winit window!"));
+
+        unsafe {
+            let (vk_instance, debug_messenger) = create_vk_instance(&winit_window, &entry, init_properties.debug_enabled)
+                .unwrap_or_else(|_| panic!("Failed to create Vulkan instance!"));
+
+            let surface = vk_window::create_surface(&vk_instance, &winit_window, &winit_window).unwrap_or_else(|_| panic!("Failed to create surface"));
+
+            let physical_device = pick_physical_device(&vk_instance, surface).unwrap_or_else(|e| panic!("{}", e));
+            let (device, graphics_queue, present_queue) = create_logical_device(&vk_instance, surface, physical_device, init_properties.debug_enabled).unwrap_or_else(|e| panic!("{}", e));
+            let swapchain = create_swapchain(MAX_FRAMES_IN_FLIGHT as u32, &winit_window, &vk_instance, surface, &device, physical_device).unwrap_or_else(|e| panic!("{}", e));
+            let render_pass = create_render_pass(&vk_instance, &device, physical_device, swapchain.format).unwrap_or_else(|e| panic!("{}", e));
+            let descriptor_set_layout = create_descriptor_set_layout(&device).unwrap_or_else(|e| panic!("{}", e));
+            let pipeline = create_pipeline(&device, render_pass, &swapchain, descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
+            let single_time_command_pool = create_command_pool(&vk_instance, &device, surface, physical_device).unwrap_or_else(|e| panic!("{}", e));
+            let per_frame_command_pools = (0..swapchain.images.len()).map(|_| create_command_pool(&vk_instance, &device, surface, physical_device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let (depth_image_resources, depth_image_view) = create_depth_objects(&vk_instance, &device, physical_device, &swapchain.extent, single_time_command_pool, graphics_queue).unwrap_or_else(|e| panic!("{}", e));
+            let framebuffers = swapchain.image_views.iter().map(|i| create_framebuffer(&device, render_pass, swapchain.extent, *i, depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
+            // TODO: split up into more than one uniform buffer
+            let uniform_buffer = create_uniform_buffer::<UniformBufferObject>(&vk_instance, &device, physical_device).unwrap_or_else(|e| panic!("{}", e));
+            let descriptor_pool = create_descriptor_pool(&device, swapchain.images.len()).unwrap_or_else(|e| panic!("{}", e));
+            let descriptor_sets = create_descriptor_sets(&device, swapchain.images.len(), descriptor_set_layout, descriptor_pool).unwrap_or_else(|e| panic!("{}", e));
+            let per_frame_command_buffers = per_frame_command_pools.iter().map(|p| create_command_buffer(&device, *p).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let sync_objects = (0..swapchain.images.len()).map(|_| create_sync_objects(&device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+
+            Self {
+                winit_window,
+                vk_instance,
+                surface,
+                debug_messenger,
+
+                physical_device,
+                device,
+                graphics_queue,
+                present_queue,
+                swapchain,
+                render_pass,
+                descriptor_set_layout,
+                pipeline,
+                single_time_command_pool,
+                per_frame_command_pools,
+                depth_image_resources,
+                depth_image_view,
+                framebuffers,
+                uniform_buffer,
+                descriptor_pool,
+                descriptor_sets,
+                per_frame_command_buffers,
+                sync_objects,
+
+                meshes: HashMap::new(),
+            }
+        }
+    }
 }
 
 impl VulkanRenderEngine {
@@ -119,6 +222,8 @@ impl Window for VulkanRenderEngine {
 impl Device for VulkanRenderEngine {
     unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Arc<MeshId>> {
         todo!() // TODO
+        // create_vertex_buffer(&instance, &device, &mut data)?;
+        // create_index_buffer(&instance, &device, &mut data)?;
     }
 }
 
@@ -150,29 +255,7 @@ impl VulkanApplication {
 
 impl ApplicationHandler for VulkanApplication {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let loader = unsafe { LibloadingLoader::new(LIBRARY).unwrap_or_else(|_| panic!("Failed to create loader for {}", LIBRARY)) };
-        let entry = unsafe { Entry::new(loader) }.unwrap_or_else(|_| panic!("Failed to load entry point for {}", LIBRARY));
-
-        let win_properties = &self.init_properties.window_props;
-        let window_attribs = WindowAttributes::default()
-            .with_title(win_properties.title.clone())
-            .with_inner_size(LogicalSize::new(win_properties.width, win_properties.height))
-            .with_resizable(false);
-        let winit_window = event_loop.create_window(window_attribs).unwrap_or_else(|_| panic!("Failed to create winit window!"));
-
-        let (vk_instance, debug_messenger) = unsafe { create_vk_instance(&winit_window, &entry, self.init_properties.debug_enabled) }
-            .unwrap_or_else(|_| panic!("Failed to create Vulkan instance!"));
-
-        let surface = unsafe { vk_window::create_surface(&vk_instance, &winit_window, &winit_window) }.unwrap_or_else(|_| panic!("Failed to create surface"));
-
-        let context = VulkanContext {
-            winit_window,
-            vk_instance,
-            surface,
-            debug_messenger,
-        };
-
-        self.context = Some(context);
+        self.context = Some(VulkanContext::new(self.init_properties.clone(), event_loop));
     }
 
     fn window_event(

@@ -6,13 +6,16 @@ use crate::math::Vec3;
 
 pub mod vulkan;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MeshId(pub(in crate::render_engine) usize);
 
+#[derive(Clone, Debug)]
 pub struct RenderEngineInitProps {
     pub debug_enabled: bool,
     pub window_props: WindowInitProps,
 }
 
+#[derive(Clone, Debug)]
 pub struct WindowInitProps {
     pub width: u32,
     pub height: u32,

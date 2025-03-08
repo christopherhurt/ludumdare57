@@ -8,7 +8,7 @@ use vulkanalia::vk::{self, ExtDebugUtilsExtension, KhrSwapchainExtension};
 use vulkanalia::window as vk_window;
 use winit::window::Window as winit_Window;
 
-use crate::render_engine::vulkan::vulkan_structs::{BufferResources, ImageResources, Pipeline, Swapchain, Vertex};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Pipeline, Swapchain, Vertex};
 use crate::render_engine::vulkan::vulkan_utils::{
     copy_buffer,
     debug_callback,
@@ -89,7 +89,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(
     Ok((instance, debug_messenger))
 }
 
-unsafe fn pick_physical_device(instance: &Instance, surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
+pub(in crate::render_engine::vulkan) unsafe fn pick_physical_device(instance: &Instance, surface: vk::SurfaceKHR) -> Result<vk::PhysicalDevice> {
     for physical_device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(physical_device);
 
@@ -143,7 +143,7 @@ unsafe fn has_required_physical_device_extensions(
     Ok(REQUIRED_DEVICE_EXTENSION_NAMES.iter().all(|e| supported_extensions.contains(e)))
 }
 
-unsafe fn create_logical_device(
+pub(in crate::render_engine::vulkan) unsafe fn create_logical_device(
     instance: &Instance,
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
@@ -340,14 +340,14 @@ unsafe fn create_shader_module(shader_path: &str, device: &Device) -> Result<vk:
     Ok(device.create_shader_module(&info, None)?)
 }
 
-unsafe fn create_render_pass(
+pub(in crate::render_engine::vulkan) unsafe fn create_render_pass(
     instance: &Instance,
     device: &Device,
     physical_device: vk::PhysicalDevice,
-    format: vk::Format,
+    swapchain_format: vk::Format,
 ) -> Result<vk::RenderPass> {
     let color_attachment = vk::AttachmentDescription::builder()
-        .format(format)
+        .format(swapchain_format)
         .samples(vk::SampleCountFlags::_1)
         .load_op(vk::AttachmentLoadOp::CLEAR)
         .store_op(vk::AttachmentStoreOp::STORE)
@@ -399,7 +399,7 @@ unsafe fn create_render_pass(
     Ok(device.create_render_pass(&info, None)?)
 }
 
-unsafe fn create_pipeline(
+pub(in crate::render_engine::vulkan) unsafe fn create_pipeline(
     device: &Device,
     render_pass: vk::RenderPass,
     swapchain: &Swapchain,
@@ -518,35 +518,7 @@ unsafe fn create_pipeline(
 
 // Framebuffers + Attachments
 
-unsafe fn create_color_objects(
-    instance: &Instance,
-    device: &Device,
-    physical_device: vk::PhysicalDevice,
-    swapchain: Swapchain,
-) -> Result<(ImageResources, vk::ImageView)> {
-    let color_image_resources = create_image(
-        instance,
-        device,
-        physical_device,
-        swapchain.extent.width,
-        swapchain.extent.height,
-        swapchain.format,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::COLOR_ATTACHMENT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
-
-    let color_image_view = create_image_view(
-        device,
-        color_image_resources.image,
-        swapchain.format,
-        vk::ImageAspectFlags::COLOR,
-    )?;
-
-    Ok((color_image_resources, color_image_view))
-}
-
-unsafe fn create_depth_objects(
+pub(in crate::render_engine::vulkan) unsafe fn create_depth_objects(
     instance: &Instance,
     device: &Device,
     physical_device: vk::PhysicalDevice,
@@ -588,7 +560,7 @@ unsafe fn create_depth_objects(
     Ok((depth_image_resources, depth_image_view))
 }
 
-unsafe fn create_framebuffer(
+pub(in crate::render_engine::vulkan) unsafe fn create_framebuffer(
     device: &Device,
     render_pass: vk::RenderPass,
     extent: vk::Extent2D,
@@ -735,7 +707,7 @@ unsafe fn create_index_buffer(
     Ok(index_buffer_resources)
 }
 
-unsafe fn create_uniform_buffer<T: Sized>(
+pub(in crate::render_engine::vulkan) unsafe fn create_uniform_buffer<T: Sized>(
     instance: &Instance,
     device: &Device,
     physical_device: vk::PhysicalDevice,
@@ -750,4 +722,122 @@ unsafe fn create_uniform_buffer<T: Sized>(
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
         )?
     )
+}
+
+// Command Pool + Command Buffers
+
+pub(in crate::render_engine::vulkan) unsafe fn create_command_pool(
+    instance: &Instance,
+    device: &Device,
+    surface: vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+) -> Result<vk::CommandPool> {
+    let indices = get_queue_family_indices(instance, surface, physical_device)?;
+
+    let info = vk::CommandPoolCreateInfo::builder()
+        .flags(vk::CommandPoolCreateFlags::TRANSIENT)
+        .queue_family_index(indices.graphics);
+
+    Ok(device.create_command_pool(&info, None)?)
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn create_command_buffer(device: &Device, command_pool: vk::CommandPool) -> Result<vk::CommandBuffer> {
+    let allocate_info = vk::CommandBufferAllocateInfo::builder()
+        .command_pool(command_pool)
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_buffer_count(1);
+
+    Ok(device.allocate_command_buffers(&allocate_info)?[0])
+}
+
+// Sync Objects
+
+pub(in crate::render_engine::vulkan) unsafe fn create_sync_objects(
+    device: &Device,
+) -> Result<FrameSyncObjects> {
+    let semaphore_info = vk::SemaphoreCreateInfo::builder();
+    let fence_info = vk::FenceCreateInfo::builder()
+        .flags(vk::FenceCreateFlags::SIGNALED);
+
+    Ok(
+        FrameSyncObjects {
+            image_available_semaphore: device.create_semaphore(&semaphore_info, None)?,
+            render_finished_semaphore: device.create_semaphore(&semaphore_info, None)?,
+            in_flight_fence: device.create_fence(&fence_info, None)?,
+        }
+    )
+}
+
+// Descriptor Sets
+
+pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_set_layout(
+    device: &Device,
+) -> Result<vk::DescriptorSetLayout> {
+    let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX);
+
+    let bindings = &[ubo_binding];
+    let info = vk::DescriptorSetLayoutCreateInfo::builder()
+        .bindings(bindings);
+
+    Ok(device.create_descriptor_set_layout(&info, None)?)
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_pool(
+    device: &Device,
+    pool_size: usize,
+) -> Result<vk::DescriptorPool> {
+    let ubo_size = vk::DescriptorPoolSize::builder()
+        .type_(vk::DescriptorType::UNIFORM_BUFFER)
+        .descriptor_count(pool_size as u32);
+
+    let pool_sizes = &[ubo_size];
+    let info = vk::DescriptorPoolCreateInfo::builder()
+        .pool_sizes(pool_sizes)
+        .max_sets(pool_size as u32);
+
+    Ok(device.create_descriptor_pool(&info, None)?)
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_sets(
+    device: &Device,
+    num_descriptor_sets: usize,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_pool: vk::DescriptorPool,
+) -> Result<Vec<vk::DescriptorSet>> {
+    let layouts = vec![descriptor_set_layout; num_descriptor_sets];
+    let info = vk::DescriptorSetAllocateInfo::builder()
+        .descriptor_pool(descriptor_pool)
+        .set_layouts(&layouts);
+
+    Ok(device.allocate_descriptor_sets(&info)?)
+}
+
+unsafe fn update_descriptor_set(
+    device: &Device,
+    descriptor_set: vk::DescriptorSet,
+    uniform_buffer: vk::Buffer,
+) -> Result<()> {
+    let info = vk::DescriptorBufferInfo::builder()
+        .buffer(uniform_buffer)
+        .offset(0)
+        .range(vk::WHOLE_SIZE as u64);
+
+    let buffer_info = &[info];
+    let ubo_write = vk::WriteDescriptorSet::builder()
+        .dst_set(descriptor_set)
+        .dst_binding(0)
+        .dst_array_element(0)
+        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+        .buffer_info(buffer_info);
+
+    device.update_descriptor_sets(
+        &[ubo_write],
+        &[] as &[vk::CopyDescriptorSet],
+    );
+
+    Ok(())
 }
