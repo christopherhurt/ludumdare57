@@ -63,7 +63,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&player_entity, viewport);
 
     let cube_positions = vec![]; // TODO
-    let cube_indexes = None; // TODO
+    let cube_indexes = vec![]; // TODO
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| unsafe { d.create_mesh(cube_positions, cube_indexes) })
         .unwrap_or_else(|e| panic!("{}", e));

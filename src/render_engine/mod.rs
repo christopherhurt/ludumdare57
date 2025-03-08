@@ -40,7 +40,7 @@ pub trait Window {
 }
 
 pub trait Device {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Arc<MeshId>>;
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<Arc<MeshId>>;
 }
 
 pub struct RenderState {

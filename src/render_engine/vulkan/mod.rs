@@ -8,7 +8,7 @@ use strum::IntoEnumIterator;
 use vulkanalia::Device as vk_Device;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
-use vulkanalia::vk::{DebugUtilsMessengerEXT, SurfaceKHR};
+use vulkanalia::vk::{DebugUtilsMessengerEXT, ExtDebugUtilsExtension, KhrSurfaceExtension, KhrSwapchainExtension, SurfaceKHR};
 use vulkanalia::window as vk_window;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -75,7 +75,7 @@ struct VulkanContext {
     depth_image_resources: ImageResources,
     depth_image_view: vk::ImageView,
     framebuffers: Vec<vk::Framebuffer>,
-    uniform_buffer: BufferResources,
+    uniform_buffers: Vec<BufferResources>,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
     per_frame_command_buffers: Vec<vk::CommandBuffer>,
@@ -113,7 +113,7 @@ impl VulkanContext {
             let (depth_image_resources, depth_image_view) = create_depth_objects(&vk_instance, &device, physical_device, &swapchain.extent, single_time_command_pool, graphics_queue).unwrap_or_else(|e| panic!("{}", e));
             let framebuffers = swapchain.image_views.iter().map(|i| create_framebuffer(&device, render_pass, swapchain.extent, *i, depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
             // TODO: split up into more than one uniform buffer
-            let uniform_buffer = create_uniform_buffer::<UniformBufferObject>(&vk_instance, &device, physical_device).unwrap_or_else(|e| panic!("{}", e));
+            let uniform_buffers = (0..swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&vk_instance, &device, physical_device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
             let descriptor_pool = create_descriptor_pool(&device, swapchain.images.len()).unwrap_or_else(|e| panic!("{}", e));
             let descriptor_sets = create_descriptor_sets(&device, swapchain.images.len(), descriptor_set_layout, descriptor_pool).unwrap_or_else(|e| panic!("{}", e));
             let per_frame_command_buffers = per_frame_command_pools.iter().map(|p| create_command_buffer(&device, *p).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
@@ -138,7 +138,7 @@ impl VulkanContext {
                 depth_image_resources,
                 depth_image_view,
                 framebuffers,
-                uniform_buffer,
+                uniform_buffers,
                 descriptor_pool,
                 descriptor_sets,
                 per_frame_command_buffers,
@@ -146,6 +146,75 @@ impl VulkanContext {
 
                 meshes: HashMap::new(),
             }
+        }
+    }
+
+    unsafe fn destroy_swapchain(&mut self) {
+        self.device.destroy_image_view(self.depth_image_view, None);
+        self.device.free_memory(self.depth_image_resources.memory, None);
+        self.device.destroy_image(self.depth_image_resources.image, None);
+
+        self.device.destroy_descriptor_pool(self.descriptor_pool, None);
+        self.uniform_buffers
+            .iter()
+            .for_each(|b| {
+                self.device.destroy_buffer((*b).buffer, None);
+                self.device.free_memory((*b).memory, None);
+            });
+
+        self.framebuffers
+            .iter()
+            .for_each(|f| self.device.destroy_framebuffer(*f, None));
+
+        self.device.destroy_pipeline(self.pipeline.pipeline, None);
+        self.device.destroy_pipeline_layout(self.pipeline.layout, None);
+
+        self.device.destroy_render_pass(self.render_pass, None);
+
+        self.swapchain.image_views
+            .iter()
+            .for_each(|v| self.device.destroy_image_view(*v, None));
+        self.device.destroy_swapchain_khr(self.swapchain.swapchain, None);
+    }
+}
+
+impl Drop for VulkanContext {
+    fn drop(&mut self) {
+        unsafe {
+            self.destroy_swapchain();
+
+            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+
+            self.meshes.values().for_each(|m| {
+                self.device.destroy_buffer((*m).vertex_buffer.buffer, None);
+                self.device.free_memory((*m).vertex_buffer.memory, None);
+
+                self.device.destroy_buffer((*m).index_buffer.buffer, None);
+                self.device.free_memory((*m).index_buffer.memory, None);
+            });
+
+            self.sync_objects
+                .iter()
+                .for_each(|s| {
+                    self.device.destroy_fence((*s).in_flight_fence, None);
+                    self.device.destroy_semaphore((*s).image_available_semaphore, None);
+                    self.device.destroy_semaphore((*s).render_finished_semaphore, None);
+                });
+
+            self.device.destroy_command_pool(self.single_time_command_pool, None);
+            self.per_frame_command_pools
+                .iter()
+                .for_each(|p| self.device.destroy_command_pool(*p, None));
+
+            self.device.destroy_device(None);
+
+            self.vk_instance.destroy_surface_khr(self.surface, None);
+
+            if let Some(d) = self.debug_messenger {
+                self.vk_instance.destroy_debug_utils_messenger_ext(d, None);
+            }
+
+            self.vk_instance.destroy_instance(None);
         }
     }
 }
@@ -220,7 +289,7 @@ impl Window for VulkanRenderEngine {
 }
 
 impl Device for VulkanRenderEngine {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Option<Vec<usize>>) -> Result<Arc<MeshId>> {
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<Arc<MeshId>> {
         todo!() // TODO
         // create_vertex_buffer(&instance, &device, &mut data)?;
         // create_index_buffer(&instance, &device, &mut data)?;

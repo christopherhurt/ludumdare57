@@ -329,8 +329,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_swapchain(
 
 // Render Pass + Pipeline
 
-unsafe fn create_shader_module(shader_path: &str, device: &Device) -> Result<vk::ShaderModule> {
-    let bytes = include_bytes!(shader_path); // TODO: runtime load
+unsafe fn create_shader_module(device: &Device, bytes: &[u8]) -> Result<vk::ShaderModule> {
     let bytecode = Bytecode::new(bytes).unwrap();
 
     let info = vk::ShaderModuleCreateInfo::builder()
@@ -405,8 +404,11 @@ pub(in crate::render_engine::vulkan) unsafe fn create_pipeline(
     swapchain: &Swapchain,
     descriptor_set_layout: vk::DescriptorSetLayout,
 ) -> Result<Pipeline> {
-    let vert_shader_module = create_shader_module("../shaders/generated/vert.spv", device)?; // TODO: update path
-    let frag_shader_module = create_shader_module("../shaders/generated/frag.spv", device)?; // TODO: update path
+    let vert_shader_bytes = include_bytes!("shaders/generated/vert_shader.spv");
+    let frag_shader_bytes = include_bytes!("shaders/generated/frag_shader.spv");
+
+    let vert_shader_module = create_shader_module(device, vert_shader_bytes)?;
+    let frag_shader_module = create_shader_module(device, frag_shader_bytes)?;
 
     let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
         .stage(vk::ShaderStageFlags::VERTEX)

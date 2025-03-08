@@ -1,3 +1,6 @@
 .vscode
 # Cargo
 /target
+# Generated
+/src/render_engine/vulkan/shaders/generated/*
+!/src/render_engine/vulkan/shaders/generated/.gitkeep

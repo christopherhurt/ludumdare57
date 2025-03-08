@@ -3,7 +3,6 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
-use std::ptr::fn_addr_eq;
 
 use component::{Component, ComponentManager, SystemSignature};
 use entity::{Entity, EntityManager};
@@ -371,7 +370,7 @@ fn flush_all_commands(
                     return Err(anyhow!("System is not registered"));
                 }
 
-                system_managers.retain(|m| !fn_addr_eq(m.borrow().system, system));
+                system_managers.retain(|m| !std::ptr::eq(&m.borrow().system as *const _, &system as *const _));
             },
             SystemCommandType::Shutdown => {
                 *is_shutdown = true;
