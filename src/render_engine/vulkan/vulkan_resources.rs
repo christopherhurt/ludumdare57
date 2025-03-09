@@ -617,7 +617,7 @@ unsafe fn create_buffer(
     Ok(BufferResources { buffer, memory })
 }
 
-unsafe fn create_vertex_buffer(
+pub(in crate::render_engine::vulkan) unsafe fn create_vertex_buffer(
     instance: &Instance,
     device: &Device,
     physical_device: vk::PhysicalDevice,
@@ -663,15 +663,15 @@ unsafe fn create_vertex_buffer(
     Ok(vertex_buffer_resources)
 }
 
-unsafe fn create_index_buffer(
+pub(in crate::render_engine::vulkan) unsafe fn create_index_buffer(
     instance: &Instance,
     device: &Device,
     physical_device: vk::PhysicalDevice,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
-    indices: &Vec<u32>,
+    indices: &Vec<usize>,
 ) -> Result<BufferResources> {
-    let size = (size_of::<u32>() * indices.len()) as u64;
+    let size = (size_of::<usize>() * indices.len()) as u64;
 
     let staging_buffer_resources = create_buffer(
         instance,
@@ -704,7 +704,7 @@ unsafe fn create_index_buffer(
 
     copy_buffer(device, command_pool, queue, staging_buffer_resources.buffer, index_buffer_resources.buffer, size)?;
 
-    destroy_buffer(device, staging_buffer_resources);
+    destroy_buffer(device, staging_buffer_resources)?;
 
     Ok(index_buffer_resources)
 }
@@ -806,40 +806,36 @@ pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_pool(
 
 pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_sets(
     device: &Device,
-    num_descriptor_sets: usize,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
+    uniform_buffers: &Vec<BufferResources>,
 ) -> Result<Vec<vk::DescriptorSet>> {
-    let layouts = vec![descriptor_set_layout; num_descriptor_sets];
+    let layouts = vec![descriptor_set_layout; uniform_buffers.len()];
     let info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(descriptor_pool)
         .set_layouts(&layouts);
 
-    Ok(device.allocate_descriptor_sets(&info)?)
-}
+    let descriptor_sets = device.allocate_descriptor_sets(&info)?;
 
-unsafe fn update_descriptor_set(
-    device: &Device,
-    descriptor_set: vk::DescriptorSet,
-    uniform_buffer: vk::Buffer,
-) -> Result<()> {
-    let info = vk::DescriptorBufferInfo::builder()
-        .buffer(uniform_buffer)
-        .offset(0)
-        .range(vk::WHOLE_SIZE as u64);
+    for i in 0..descriptor_sets.len() {
+        let info = vk::DescriptorBufferInfo::builder()
+            .buffer(uniform_buffers[i].buffer)
+            .offset(0)
+            .range(vk::WHOLE_SIZE as u64);
 
-    let buffer_info = &[info];
-    let ubo_write = vk::WriteDescriptorSet::builder()
-        .dst_set(descriptor_set)
-        .dst_binding(0)
-        .dst_array_element(0)
-        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-        .buffer_info(buffer_info);
+        let buffer_info = &[info];
+        let ubo_write = vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_sets[i])
+            .dst_binding(0)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(buffer_info);
 
-    device.update_descriptor_sets(
-        &[ubo_write],
-        &[] as &[vk::CopyDescriptorSet],
-    );
+        device.update_descriptor_sets(
+            &[ubo_write],
+            &[] as &[vk::CopyDescriptorSet],
+        );
+    }
 
-    Ok(())
+    Ok(descriptor_sets)
 }

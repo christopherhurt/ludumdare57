@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::ecs::component::Component;
 use crate::render_engine::MeshId;
 use crate::render_engine::vulkan::VulkanRenderEngine;
@@ -7,11 +5,11 @@ use crate::render_engine::vulkan::VulkanRenderEngine;
 // Mesh
 
 pub struct Mesh {
-    pub id: Arc<MeshId>,
+    pub id: MeshId,
 }
 
 impl Mesh {
-    pub fn new(id: Arc<MeshId>) -> Self {
+    pub fn new(id: MeshId) -> Self {
         Self { id }
     }
 }

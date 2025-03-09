@@ -1,8 +1,8 @@
 use anyhow::Result;
-use std::sync::Arc;
 use strum_macros::EnumIter;
 
-use crate::math::Vec3;
+use crate::core::Color;
+use crate::math::{Mat4, Vec3};
 
 pub mod vulkan;
 
@@ -22,9 +22,9 @@ pub struct WindowInitProps {
     pub title: String,
 }
 
-pub trait RenderEngine<W: Window, D: Device> {
-    unsafe fn new(init_props: RenderEngineInitProps) -> Self;
-    fn sync_state(&mut self, state: RenderState) -> Result<()>; // TODO: want to do this in a way that doesn't involve a state copy, but is thread safe
+pub trait RenderEngine<W: Window, D: Device>: Sized {
+    unsafe fn new(init_props: RenderEngineInitProps) -> Result<Self>;
+    fn sync_state(&mut self, state: RenderState) -> Result<()>;
     fn get_window(&self) -> Result<&W>;
     fn get_window_mut(&mut self) -> Result<&mut W>;
     fn get_device(&self) -> Result<&D>;
@@ -40,11 +40,19 @@ pub trait Window {
 }
 
 pub trait Device {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<Arc<MeshId>>;
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<MeshId>;
 }
 
 pub struct RenderState {
-    // TODO: add contents
+    pub view: Mat4,
+    pub proj: Mat4,
+    pub entity_states: Vec<EntityRenderState>,
+}
+
+pub struct EntityRenderState {
+    pub world: Mat4,
+    pub mesh_id: MeshId,
+    pub color: Color,
 }
 
 #[derive(Debug, Clone, Copy, EnumIter, Eq, Hash, PartialEq)]

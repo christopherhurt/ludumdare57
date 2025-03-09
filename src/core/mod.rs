@@ -1,5 +1,5 @@
 use crate::ecs::component::Component;
-use crate::math::{vec2, vec3, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use crate::math::{vec2, vec3, Mat4, Quat, Vec2, Vec3, MAT_4_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 /////////////////////////////////////////////////////////////////////////////
 /// Common
@@ -39,11 +39,22 @@ pub struct Camera {
     pub pos: Vec3,
     pub dir: Vec3,
     pub up: Vec3,
+    pub fov_deg: f32,
 }
 
 impl Camera {
-    pub fn new(pos: Vec3, dir: Vec3, up: Vec3) -> Self {
-        Self { pos, dir, up }
+    pub fn new(pos: Vec3, dir: Vec3, up: Vec3, fov_deg: f32) -> Self {
+        Self { pos, dir, up, fov_deg }
+    }
+
+    pub(in crate) fn to_view_mat(&self) -> Mat4 {
+        // TODO
+        MAT_4_IDENTITY
+    }
+
+    pub(in crate) fn to_proj_mat(&self) -> Mat4 {
+        // TODO
+        MAT_4_IDENTITY
     }
 }
 
@@ -53,6 +64,7 @@ impl Default for Camera {
             pos: VEC_3_ZERO,
             dir: VEC_3_Z_AXIS,
             up: VEC_3_Y_AXIS,
+            fov_deg: 45.0,
         }
     }
 }
@@ -85,6 +97,7 @@ impl Default for Viewport2D {
     }
 }
 
+// TODO: move this and other Component impls to bindings module? thinking about how the dependency tree is organized...
 impl Component for Viewport2D {}
 
 // Transform
@@ -98,6 +111,11 @@ pub struct Transform {
 impl Transform {
     pub fn new(pos: Vec3, rot: Quat, scl: Vec3) -> Self {
         Self { pos, rot, scl }
+    }
+
+    pub(in crate) fn to_world_mat(&self) -> Mat4 {
+        // TODO
+        MAT_4_IDENTITY
     }
 }
 

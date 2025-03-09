@@ -1,7 +1,9 @@
 use vulkanalia::vk;
 use vulkanalia::vk::HasBuilder;
 
-use crate::math::Vec3;
+use crate::core::Color;
+use crate::math::{Mat4, Vec3};
+use crate::render_engine::MeshId;
 
 #[derive(Clone, Debug)]
 pub(in crate::render_engine::vulkan) struct BufferResources {
@@ -24,8 +26,10 @@ pub(in crate::render_engine::vulkan) struct ImageResources {
 
 #[derive(Clone, Debug)]
 pub(in crate::render_engine::vulkan) struct Mesh {
+    pub(in crate::render_engine::vulkan) mesh_id: MeshId,
     pub(in crate::render_engine::vulkan) vertex_buffer: BufferResources,
     pub(in crate::render_engine::vulkan) index_buffer: BufferResources,
+    pub(in crate::render_engine::vulkan) index_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +64,10 @@ pub(in crate::render_engine::vulkan) struct SwapchainSupport {
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub(in crate::render_engine::vulkan) struct UniformBufferObject {
-    // TODO: add fields
+    pub(in crate::render_engine::vulkan) world: Mat4,
+    pub(in crate::render_engine::vulkan) view: Mat4,
+    pub(in crate::render_engine::vulkan) proj: Mat4,
+    pub(in crate::render_engine::vulkan) color: Color,
 }
 
 #[derive(Copy, Clone, Debug)]

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use math::{vec2, vec3, Quat, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
-use render_engine::{Device, RenderEngine, Window};
+use render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window};
 use core::{Camera, YELLOW};
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -51,13 +51,13 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
         window_props,
     };
 
-    VulkanRenderEngine::new(render_engine_props)
+    unsafe { VulkanRenderEngine::new(render_engine_props) }
 }
 
 fn create_scene(ecs: &mut ECS) {
     let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
 
-    let cam = Camera::new(VEC_3_ZERO, VEC_3_Z_AXIS, VEC_3_Y_AXIS);
+    let cam = Camera::new(VEC_3_ZERO, VEC_3_Z_AXIS, VEC_3_Y_AXIS, 45.0);
     let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
@@ -86,6 +86,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_2::<VulkanComponent, Viewport2D>().unwrap()]), 0);
     ecs.register_system(MOVE_CUBE, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 1);
+    ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
 }
 
@@ -93,7 +94,7 @@ const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentM
     entites.for_each(|e| {
         let vulkan = components.get_component::<VulkanComponent>(e).unwrap();
 
-        if vulkan.render_engine.get_window().map_or(true, |w| w.is_closing()) {
+        if vulkan.render_engine.get_window().map_or(true, |w| w.is_key_down(VirtualKey::Space).unwrap_or(false) || w.is_closing()) {
             commands.shutdown();
         }
     });
@@ -164,6 +165,22 @@ const MOVE_CUBE: System = |entites: Iter<Entity>, components: &mut ComponentMana
         let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0001);
         transform.rot *= spin;
     });
+};
+
+const SYNC_RENDER_STATE: System = |mut entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+    let vulkan = entites.find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
+    let viewport = entites.find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
+
+    // TODO
+    let entity_states = vec![] as Vec<EntityRenderState>;
+
+    let render_state = RenderState {
+        view: viewport.cam.to_view_mat(),
+        proj: viewport.cam.to_proj_mat(),
+        entity_states,
+    };
+
+    vulkan.render_engine.sync_state(render_state).unwrap_or_else(|e| panic!("{}", e));
 };
 
 const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
