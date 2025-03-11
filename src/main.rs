@@ -1,6 +1,6 @@
 use anyhow::Result;
+use log::error;
 use math::{vec2, vec3, Quat, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
-use render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window};
 use core::{Camera, YELLOW};
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -12,7 +12,7 @@ use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{RenderEngineInitProps, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
 
 pub mod component_bindings;
 pub mod core;
@@ -84,7 +84,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&vulkan_entity, vulkan);
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
-    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_2::<VulkanComponent, Viewport2D>().unwrap()]), 0);
+    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), 0);
     ecs.register_system(MOVE_CUBE, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 1);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
@@ -100,8 +100,8 @@ const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentM
     });
 };
 
-const MOVE_CAMERA: System = |mut entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
-    let vulkan = entites.find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
+const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+    let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
 
     if let Ok(window) = vulkan.render_engine.get_window() {
         for e in entites {
@@ -167,9 +167,9 @@ const MOVE_CUBE: System = |entites: Iter<Entity>, components: &mut ComponentMana
     });
 };
 
-const SYNC_RENDER_STATE: System = |mut entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
-    let vulkan = entites.find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
-    let viewport = entites.find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
+const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+    let vulkan = entites.clone().find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
+    let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
 
     // TODO
     let entity_states = vec![] as Vec<EntityRenderState>;
@@ -180,7 +180,7 @@ const SYNC_RENDER_STATE: System = |mut entites: Iter<Entity>, components: &mut C
         entity_states,
     };
 
-    vulkan.render_engine.sync_state(render_state).unwrap_or_else(|e| panic!("{}", e));
+    vulkan.render_engine.sync_state(render_state).unwrap_or_else(|e| error!("Couldn't sync render state: {}", e));
 };
 
 const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {

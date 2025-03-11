@@ -356,7 +356,9 @@ fn flush_all_commands(
 
                 let raw_signatures = system_signatures.iter().map(|sig| sig.0).collect();
 
-                let system_manager = SystemManager::new(system, raw_signatures, precedence, initial_entity_capacity);
+                let mut system_manager = SystemManager::new(system, raw_signatures, precedence, initial_entity_capacity);
+
+                entity_manager.get_all_entities_and_signatures().iter().for_each(|(e, s)| system_manager.handle_entity_updated(e, *s));
 
                 system_managers.push(RefCell::new(system_manager));
                 system_managers.sort_by_key(|c| c.borrow().precedence);

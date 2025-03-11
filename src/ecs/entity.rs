@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::cmp::min;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use crate::ecs::Signature;
 
@@ -80,5 +80,20 @@ impl EntityManager {
         }
 
         Ok(self.signatures[entity.0])
+    }
+
+    pub(in crate::ecs) fn get_all_entities_and_signatures(&self) -> HashMap<Entity, Signature> {
+        let mut result = HashMap::new();
+
+        for i in 0..self.entity_destroyed.len() {
+            if !self.entity_destroyed[i] {
+                let entity = Entity(i);
+                let signature = self.get_signature(&entity).unwrap_or_else(|_| panic!("Internal error: no signature exists for non-destroyed entity {:?}", entity));
+
+                result.insert(entity, signature);
+            }
+        }
+
+        result
     }
 }

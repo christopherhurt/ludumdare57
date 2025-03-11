@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use vulkan_structs::Vertex;
+use winit::platform::windows::EventLoopBuilderExtWindows;
 use core::panic;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -351,8 +352,9 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let moved_properties = init_props.clone();
         let moved_is_closing = is_closing.clone();
 
-        let join_handle = thread::spawn(move || {
-            let event_loop = EventLoop::new().unwrap();
+        let join_handle: JoinHandle<()> = thread::spawn(move || {
+            // TODO: clean up Windows-specific module dependency
+            let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
             let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
