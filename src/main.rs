@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::error;
 use math::{vec2, vec3, Quat, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use core::{Camera, YELLOW};
 use std::collections::hash_set::Iter;
@@ -62,8 +61,8 @@ fn create_scene(ecs: &mut ECS) {
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
 
-    let cube_positions = vec![]; // TODO
-    let cube_indexes = vec![]; // TODO
+    let cube_positions = vec![vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 1.0, 0.0)]; // TODO
+    let cube_indexes = vec![0, 1, 2]; // TODO
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| unsafe { d.create_mesh(cube_positions, cube_indexes) })
         .unwrap_or_else(|e| panic!("{}", e));
@@ -171,8 +170,15 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut Compo
     let vulkan = entites.clone().find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
     let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
 
-    // TODO
-    let entity_states = vec![] as Vec<EntityRenderState>;
+    let entity_states = entites.clone().filter(|e|
+        components.get_component::<Transform>(e).is_some()
+        && components.get_component::<Mesh>(e).is_some()
+        && components.get_component::<ColorMaterial>(e).is_some())
+    .map(|e| EntityRenderState {
+        world: components.get_component::<Transform>(e).unwrap().to_world_mat(),
+        mesh_id: components.get_component::<Mesh>(e).unwrap().id,
+        color: components.get_component::<ColorMaterial>(e).unwrap().color,
+    }).collect();
 
     let render_state = RenderState {
         view: viewport.cam.to_view_mat(),
@@ -180,7 +186,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut Compo
         entity_states,
     };
 
-    vulkan.render_engine.sync_state(render_state).unwrap_or_else(|e| error!("Couldn't sync render state: {}", e));
+    vulkan.render_engine.sync_state(render_state).unwrap_or_default();
 };
 
 const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {

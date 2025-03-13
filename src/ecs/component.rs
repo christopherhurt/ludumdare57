@@ -73,6 +73,7 @@ impl ComponentArray {
             let moved_comp_byte = self.components.pop().unwrap_or_else(|| panic!("Internal error: components array is empty"));
 
             if should_move {
+                // TODO: manually drop old component
                 self.components[comp_index + i] = moved_comp_byte;
             }
         }
@@ -107,6 +108,12 @@ impl ComponentArray {
 
             Some(&mut *comp_raw)
         }
+    }
+}
+
+impl Drop for ComponentManager {
+    fn drop(&mut self) {
+        // TODO: manually drop components
     }
 }
 

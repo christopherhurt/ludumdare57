@@ -433,13 +433,17 @@ impl Window for VulkanRenderEngine {
 
 impl Device for VulkanRenderEngine {
     unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<MeshId> {
-        let mesh_id = MeshId(self.mesh_id_counter);
+        if !vertex_positions.is_empty() && !vertex_indexes.is_empty() {
+            let mesh_id = MeshId(self.mesh_id_counter);
 
-        self.mesh_id_counter += 1;
+            self.mesh_id_counter += 1;
 
-        self.mesh_sender.send((mesh_id, vertex_positions, vertex_indexes))?;
+            self.mesh_sender.send((mesh_id, vertex_positions, vertex_indexes))?;
 
-        Ok(mesh_id)
+            Ok(mesh_id)
+        } else {
+            Err(anyhow!("Can't create a mesh with empty vertex data arrays"))
+        }
     }
 }
 

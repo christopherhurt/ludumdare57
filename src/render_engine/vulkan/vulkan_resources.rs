@@ -597,7 +597,13 @@ unsafe fn create_buffer(
 
     let buffer = device.create_buffer(&buffer_info, None)?;
 
-    let requirements = device.get_buffer_memory_requirements(buffer);
+    let mut requirements = device.get_buffer_memory_requirements(buffer);
+
+    // requirements.size = requirements.size.max(256);
+    // requirements.alignment = requirements.alignment.max(8);
+    // TODO: i think its failing for these requirements:
+    //  Requirements: MemoryRequirements { size: 256, alignment: 4, memory_type_bits: 59 }
+    //  Specifically I think get_emmory_type_index below is failing
 
     let memory_info = vk::MemoryAllocateInfo::builder()
         .allocation_size(requirements.size)

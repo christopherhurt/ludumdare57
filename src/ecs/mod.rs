@@ -3,6 +3,7 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
+use std::mem::ManuallyDrop;
 
 use component::{Component, ComponentManager, SystemSignature};
 use entity::{Entity, EntityManager};
@@ -125,6 +126,10 @@ fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
     unsafe {
         let ptr = &component as *const T as *const u8;
         let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
+
+        // TODO comment
+        let _ = ManuallyDrop::new(component);
+
         Box::from(raw_slice)
     }
 }
