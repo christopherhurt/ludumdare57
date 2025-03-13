@@ -586,7 +586,7 @@ impl ApplicationHandler for VulkanApplication {
     ) {
         match event {
             WindowEvent::RedrawRequested if !self.is_closing.load(Ordering::SeqCst) && !self.is_minimized =>
-                unsafe { self.render() }.unwrap(),
+                unsafe { self.render() }.unwrap_or_else(|e| panic!("Internal render error: {}", e)),
             WindowEvent::Resized(size) =>
                 self.is_minimized = size.width == 0 || size.height == 0,
             WindowEvent::CloseRequested => {

@@ -43,12 +43,14 @@ pub trait Device {
     unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<MeshId>;
 }
 
+#[derive(Clone, Debug)]
 pub struct RenderState {
     pub view: Mat4,
     pub proj: Mat4,
     pub entity_states: Vec<EntityRenderState>,
 }
 
+#[derive(Clone, Debug)]
 pub struct EntityRenderState {
     pub world: Mat4,
     pub mesh_id: MeshId,
