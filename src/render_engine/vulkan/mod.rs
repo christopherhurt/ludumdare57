@@ -21,6 +21,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
+use crate::core::Color;
 use crate::math::Vec3;
 use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
@@ -54,7 +55,7 @@ pub struct VulkanRenderEngine {
     init_props: RenderEngineInitProps,
     mesh_id_counter: usize,
     state_sender: SyncSender<RenderState>,
-    mesh_sender: Sender<(MeshId, Vec<Vec3>, Vec<usize>)>,
+    mesh_sender: Sender<(MeshId, Vec<Vec3>, Vec<u32>)>,
     keys_down_mirror: Option<HashMap<VirtualKey, bool>>,
     keys_receiver: Receiver<HashMap<VirtualKey, bool>>,
     is_closing: Arc<AtomicBool>,
@@ -64,7 +65,7 @@ pub struct VulkanRenderEngine {
 struct VulkanApplication {
     init_props: RenderEngineInitProps,
     state_receiver: Receiver<RenderState>,
-    mesh_receiver: Receiver<(MeshId, Vec<Vec3>, Vec<usize>)>,
+    mesh_receiver: Receiver<(MeshId, Vec<Vec3>, Vec<u32>)>,
     is_minimized: bool,
     is_closing: Arc<AtomicBool>,
     keys_down: HashMap<VirtualKey, bool>,
@@ -75,6 +76,8 @@ struct VulkanApplication {
 }
 
 struct VulkanContext {
+    clear_color: Color,
+
     winit_window: winit_Window,
     // This isn't needed after creation time, but it needs to retained for the lifetime of VulkanContext to prevent memory leaks
     _entry: Entry,
@@ -143,6 +146,8 @@ impl VulkanContext {
             let sync_objects = (0..MAX_FRAMES_IN_FLIGHT).map(|_| create_sync_objects(&device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
 
             Self {
+                clear_color: init_properties.clear_color,
+
                 winit_window,
                 _entry: entry,
                 vk_instance,
@@ -187,7 +192,7 @@ impl VulkanContext {
             .extent(self.swapchain.extent);
         let color_clear_value = vk::ClearValue {
             color: vk::ClearColorValue {
-                float32: [0.0, 0.0, 0.0, 1.0],
+                float32: [self.clear_color.r, self.clear_color.g, self.clear_color.b, self.clear_color.a],
             },
         };
         let depth_clear_value = vk::ClearValue {
@@ -439,7 +444,7 @@ impl Window for VulkanRenderEngine {
 }
 
 impl Device for VulkanRenderEngine {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<MeshId> {
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<u32>) -> Result<MeshId> {
         if !vertex_positions.is_empty() && !vertex_indexes.is_empty() {
             let mesh_id = MeshId(self.mesh_id_counter);
 
@@ -458,7 +463,7 @@ impl VulkanApplication {
     fn new(
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
-        mesh_receiver: Receiver<(MeshId, Vec<Vec3>, Vec<usize>)>,
+        mesh_receiver: Receiver<(MeshId, Vec<Vec3>, Vec<u32>)>,
         keys_sender: SyncSender<HashMap<VirtualKey, bool>>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
@@ -586,6 +591,12 @@ impl ApplicationHandler for VulkanApplication {
         if self.context.is_none() {
             let new_context = VulkanContext::new(self.init_props.clone(), event_loop);
             self.context = Some(new_context);
+        }
+    }
+
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+        if let Some(context) = self.context.as_ref() {
+            context.winit_window.request_redraw();
         }
     }
 

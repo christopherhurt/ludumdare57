@@ -673,9 +673,9 @@ pub(in crate::render_engine::vulkan) unsafe fn create_index_buffer(
     physical_device: vk::PhysicalDevice,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
-    indices: &Vec<usize>,
+    indices: &Vec<u32>,
 ) -> Result<BufferResources> {
-    let size = (size_of::<usize>() * indices.len()) as u64;
+    let size = (size_of::<u32>() * indices.len()) as u64;
 
     let staging_buffer_resources = create_buffer(
         instance,

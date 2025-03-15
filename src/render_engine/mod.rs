@@ -12,6 +12,7 @@ pub struct MeshId(pub(in crate::render_engine) usize);
 #[derive(Clone, Debug)]
 pub struct RenderEngineInitProps {
     pub debug_enabled: bool,
+    pub clear_color: Color,
     pub window_props: WindowInitProps,
 }
 
@@ -40,7 +41,7 @@ pub trait Window {
 }
 
 pub trait Device {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<usize>) -> Result<MeshId>;
+    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<u32>) -> Result<MeshId>;
 }
 
 #[derive(Clone, Debug)]

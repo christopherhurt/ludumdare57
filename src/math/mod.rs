@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use std::ops;
 
+const EQUALITY_THRESHOLD: f32 = 0.00001;
+
 /////////////////////////////////////////////////////////////////////////////
 /// Vec2
 /////////////////////////////////////////////////////////////////////////////
@@ -28,10 +30,14 @@ impl Vec2 {
     }
 
     #[inline]
-    pub fn normalized(&self) -> Vec2 {
+    pub fn normalized(&self) -> Result<Vec2> {
         let len = self.len();
 
-        vec2(self.x / len, self.y / len)
+        if len < EQUALITY_THRESHOLD {
+            Err(anyhow!("Cannot normalize a zero length vector!"))
+        } else {
+            Ok(vec2(self.x / len, self.y / len))
+        }
     }
 
     #[inline]
@@ -165,6 +171,15 @@ impl ops::Neg for Vec2 {
     }
 }
 
+impl PartialEq<Vec2> for Vec2 {
+    fn eq(&self, other: &Vec2) -> bool {
+        (self.x - other.x).abs() < EQUALITY_THRESHOLD
+            && (self.y - other.y).abs() < EQUALITY_THRESHOLD
+    }
+}
+
+impl Eq for Vec2 {}
+
 /////////////////////////////////////////////////////////////////////////////
 /// Vec3
 /////////////////////////////////////////////////////////////////////////////
@@ -194,10 +209,14 @@ impl Vec3 {
     }
 
     #[inline]
-    pub fn normalized(&self) -> Vec3 {
+    pub fn normalized(&self) -> Result<Vec3> {
         let len = self.len();
 
-        vec3(self.x / len, self.y / len, self.z / len)
+        if len < EQUALITY_THRESHOLD {
+            Err(anyhow!("Cannot normalize a zero length vector!"))
+        } else {
+            Ok(vec3(self.x / len, self.y / len, self.z / len))
+        }
     }
 
     #[inline]
@@ -208,15 +227,22 @@ impl Vec3 {
     #[inline]
     pub fn cross(&self, vec: &Vec3) -> Vec3 {
         Vec3 {
-            x: self.y * vec.z - self.z * vec.y,
-            y: self.z * vec.x - self.x * vec.z,
-            z: self.x * vec.y - self.y * vec.x,
+            x: self.z * vec.y - self.y * vec.z,
+            y: self.x * vec.z - self.z * vec.x,
+            z: self.y * vec.x - self.x * vec.y,
         }
     }
 
     #[inline]
-    pub fn angle_deg_from(&self, vec: &Vec3) -> f32 {
-        (self.dot(vec) / (self.len() * vec.len())).acos().to_degrees()
+    pub fn angle_deg_from(&self, vec: &Vec3) -> Result<f32> {
+        let self_len = self.len();
+        let vec_len = vec.len();
+
+        if self_len < EQUALITY_THRESHOLD || vec_len < EQUALITY_THRESHOLD {
+            Err(anyhow!("Cannot get angle from a zero length vector!"))
+        } else {
+            Ok((self.dot(vec) / (self.len() * vec.len())).acos().to_degrees())
+        }
     }
 
     #[inline]
@@ -393,6 +419,16 @@ impl ops::Neg for Vec3 {
     }
 }
 
+impl PartialEq<Vec3> for Vec3 {
+    fn eq(&self, other: &Vec3) -> bool {
+        (self.x - other.x).abs() < EQUALITY_THRESHOLD
+            && (self.y - other.y).abs() < EQUALITY_THRESHOLD
+            && (self.z - other.z).abs() < EQUALITY_THRESHOLD
+    }
+}
+
+impl Eq for Vec3 {}
+
 /////////////////////////////////////////////////////////////////////////////
 /// Vec4
 /////////////////////////////////////////////////////////////////////////////
@@ -416,6 +452,17 @@ pub const VEC_4_X_AXIS: Vec4 = vec4(1.0, 0.0, 0.0, 0.0);
 pub const VEC_4_Y_AXIS: Vec4 = vec4(0.0, 1.0, 0.0, 0.0);
 pub const VEC_4_Z_AXIS: Vec4 = vec4(0.0, 0.0, 1.0, 0.0);
 pub const VEC_4_W_AXIS: Vec4 = vec4(0.0, 0.0, 0.0, 1.0);
+
+impl PartialEq<Vec4> for Vec4 {
+    fn eq(&self, other: &Vec4) -> bool {
+        (self.x - other.x).abs() < EQUALITY_THRESHOLD
+            && (self.y - other.y).abs() < EQUALITY_THRESHOLD
+            && (self.z - other.z).abs() < EQUALITY_THRESHOLD
+            && (self.w - other.w).abs() < EQUALITY_THRESHOLD
+    }
+}
+
+impl Eq for Vec4 {}
 
 /////////////////////////////////////////////////////////////////////////////
 /// Quaternion
@@ -442,25 +489,34 @@ impl Quat {
     }
 
     #[inline]
-    pub fn normalized(&self) -> Quat {
+    pub fn normalized(&self) -> Result<Quat> {
         let len = self.len();
 
-        quat(self.w / len, self.i / len, self.j / len, self.k / len)
+        if len < EQUALITY_THRESHOLD {
+            Err(anyhow!("Cannot normalize a zero length quaternion!"))
+        } else {
+            Ok(quat(self.w / len, self.i / len, self.j / len, self.k / len))
+        }
     }
 
     #[inline]
-    pub fn from_axis_spin(axis: &Vec3, spin_deg: f32) -> Self {
+    pub fn from_axis_spin(axis: &Vec3, spin_deg: f32) -> Result<Self> {
         let sin_half = (spin_deg / 2.0).to_radians().sin();
         let cos_half = (spin_deg / 2.0).to_radians().cos();
 
-        let axis_norm = axis.normalized();
+        let axis_norm = match axis.normalized() {
+            Ok(a) => Ok(a),
+            Err(_) => Err(anyhow!("Cannot get axis spin for a zero length axis!")),
+        }?;
 
-        Self {
-            w: cos_half,
-            i: sin_half * axis_norm.x,
-            k: sin_half * axis_norm.y,
-            j: sin_half * axis_norm.z,
-        }
+        Ok(
+            Self {
+                w: cos_half,
+                i: sin_half * axis_norm.x,
+                k: sin_half * axis_norm.y,
+                j: sin_half * axis_norm.z,
+            }
+        )
     }
 }
 
@@ -492,6 +548,17 @@ impl ops::MulAssign for Quat {
     }
 }
 
+impl PartialEq<Quat> for Quat {
+    fn eq(&self, other: &Quat) -> bool {
+        (self.i - other.i).abs() < EQUALITY_THRESHOLD
+            && (self.j - other.j).abs() < EQUALITY_THRESHOLD
+            && (self.k - other.k).abs() < EQUALITY_THRESHOLD
+            && (self.w - other.w).abs() < EQUALITY_THRESHOLD
+    }
+}
+
+impl Eq for Quat {}
+
 /////////////////////////////////////////////////////////////////////////////
 /// Mat4
 /////////////////////////////////////////////////////////////////////////////
@@ -499,21 +566,27 @@ impl ops::MulAssign for Quat {
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct Mat4 {
+    // CURSED: This engine generally works with matrices in row-major order, e.g. the mat4()
+    //  function below. But most shader programs will expect matrix values to be provided in
+    //  column-major order. Since this struct uses a C-like memory layout, we'll just define
+    //  the values in column major order such that we don't have to transpose every single
+    //  matrix before serializing it and passing it as input to the shader program. In other
+    //  words, THE ORDER IN WHICH THESE VALUES ARE DECLARED MATTERS.
     pub _00: f32,
-    pub _01: f32,
-    pub _02: f32,
-    pub _03: f32,
     pub _10: f32,
-    pub _11: f32,
-    pub _12: f32,
-    pub _13: f32,
     pub _20: f32,
-    pub _21: f32,
-    pub _22: f32,
-    pub _23: f32,
     pub _30: f32,
+    pub _01: f32,
+    pub _11: f32,
+    pub _21: f32,
     pub _31: f32,
+    pub _02: f32,
+    pub _12: f32,
+    pub _22: f32,
     pub _32: f32,
+    pub _03: f32,
+    pub _13: f32,
+    pub _23: f32,
     pub _33: f32,
 }
 
@@ -540,38 +613,6 @@ pub const MAT_4_IDENTITY: Mat4 = mat4(
 );
 
 impl Mat4 {
-    #[inline]
-    pub fn mul(&self, mat: &Mat4) -> Mat4 {
-        Mat4 {
-            _00: self._00 * mat._00 + self._01 * mat._10 + self._02 * mat._20 + self._03 * mat._30,
-            _01: self._00 * mat._01 + self._01 * mat._11 + self._02 * mat._21 + self._03 * mat._31,
-            _02: self._00 * mat._02 + self._01 * mat._12 + self._02 * mat._22 + self._03 * mat._32,
-            _03: self._00 * mat._03 + self._01 * mat._13 + self._02 * mat._23 + self._03 * mat._33,
-            _10: self._10 * mat._00 + self._11 * mat._10 + self._12 * mat._20 + self._13 * mat._30,
-            _11: self._10 * mat._01 + self._11 * mat._11 + self._12 * mat._21 + self._13 * mat._31,
-            _12: self._10 * mat._02 + self._11 * mat._12 + self._12 * mat._22 + self._13 * mat._32,
-            _13: self._10 * mat._03 + self._11 * mat._13 + self._12 * mat._23 + self._13 * mat._33,
-            _20: self._20 * mat._00 + self._21 * mat._10 + self._22 * mat._20 + self._23 * mat._30,
-            _21: self._20 * mat._01 + self._21 * mat._11 + self._22 * mat._21 + self._23 * mat._31,
-            _22: self._20 * mat._02 + self._21 * mat._12 + self._22 * mat._22 + self._23 * mat._32,
-            _23: self._20 * mat._03 + self._21 * mat._13 + self._22 * mat._23 + self._23 * mat._33,
-            _30: self._30 * mat._00 + self._31 * mat._10 + self._32 * mat._20 + self._33 * mat._30,
-            _31: self._30 * mat._01 + self._31 * mat._11 + self._32 * mat._21 + self._33 * mat._31,
-            _32: self._30 * mat._02 + self._31 * mat._12 + self._32 * mat._22 + self._33 * mat._32,
-            _33: self._30 * mat._03 + self._31 * mat._13 + self._32 * mat._23 + self._33 * mat._33,
-        }
-    }
-
-    #[inline]
-    pub fn mul_vec(&self, vec: &Vec4) -> Vec4 {
-        Vec4 {
-            x: self._00 * vec.x + self._01 * vec.y + self._02 * vec.z + self._03 * vec.w,
-            y: self._10 * vec.x + self._11 * vec.y + self._12 * vec.z + self._13 * vec.w,
-            z: self._20 * vec.x + self._21 * vec.y + self._22 * vec.z + self._23 * vec.w,
-            w: self._30 * vec.x + self._31 * vec.y + self._32 * vec.z + self._33 * vec.w,
-        }
-    }
-
     #[inline]
     pub fn transposed(&self) -> Mat4 {
         mat4(
@@ -610,7 +651,7 @@ impl Mat4 {
             + self._02 * (self._10 * _1323 - self._11 * _0323 + self._13 * _0123)
             - self._03 * (self._10 * _1223 - self._11 * _0223 + self._12 * _0123);
 
-        if inv_det == 0.0 {
+        if inv_det.abs() < EQUALITY_THRESHOLD {
             return Err(anyhow!("Matrix is not invertible"));
         }
 
@@ -639,6 +680,91 @@ impl Mat4 {
     }
 }
 
+impl ops::Mul for Mat4 {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        Mat4 {
+            _00: self._00 * rhs._00 + self._01 * rhs._10 + self._02 * rhs._20 + self._03 * rhs._30,
+            _01: self._00 * rhs._01 + self._01 * rhs._11 + self._02 * rhs._21 + self._03 * rhs._31,
+            _02: self._00 * rhs._02 + self._01 * rhs._12 + self._02 * rhs._22 + self._03 * rhs._32,
+            _03: self._00 * rhs._03 + self._01 * rhs._13 + self._02 * rhs._23 + self._03 * rhs._33,
+            _10: self._10 * rhs._00 + self._11 * rhs._10 + self._12 * rhs._20 + self._13 * rhs._30,
+            _11: self._10 * rhs._01 + self._11 * rhs._11 + self._12 * rhs._21 + self._13 * rhs._31,
+            _12: self._10 * rhs._02 + self._11 * rhs._12 + self._12 * rhs._22 + self._13 * rhs._32,
+            _13: self._10 * rhs._03 + self._11 * rhs._13 + self._12 * rhs._23 + self._13 * rhs._33,
+            _20: self._20 * rhs._00 + self._21 * rhs._10 + self._22 * rhs._20 + self._23 * rhs._30,
+            _21: self._20 * rhs._01 + self._21 * rhs._11 + self._22 * rhs._21 + self._23 * rhs._31,
+            _22: self._20 * rhs._02 + self._21 * rhs._12 + self._22 * rhs._22 + self._23 * rhs._32,
+            _23: self._20 * rhs._03 + self._21 * rhs._13 + self._22 * rhs._23 + self._23 * rhs._33,
+            _30: self._30 * rhs._00 + self._31 * rhs._10 + self._32 * rhs._20 + self._33 * rhs._30,
+            _31: self._30 * rhs._01 + self._31 * rhs._11 + self._32 * rhs._21 + self._33 * rhs._31,
+            _32: self._30 * rhs._02 + self._31 * rhs._12 + self._32 * rhs._22 + self._33 * rhs._32,
+            _33: self._30 * rhs._03 + self._31 * rhs._13 + self._32 * rhs._23 + self._33 * rhs._33,
+        }
+    }
+}
+
+impl ops::MulAssign for Mat4 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        self._00 = self._00 * rhs._00 + self._01 * rhs._10 + self._02 * rhs._20 + self._03 * rhs._30;
+        self._01 = self._00 * rhs._01 + self._01 * rhs._11 + self._02 * rhs._21 + self._03 * rhs._31;
+        self._02 = self._00 * rhs._02 + self._01 * rhs._12 + self._02 * rhs._22 + self._03 * rhs._32;
+        self._03 = self._00 * rhs._03 + self._01 * rhs._13 + self._02 * rhs._23 + self._03 * rhs._33;
+        self._10 = self._10 * rhs._00 + self._11 * rhs._10 + self._12 * rhs._20 + self._13 * rhs._30;
+        self._11 = self._10 * rhs._01 + self._11 * rhs._11 + self._12 * rhs._21 + self._13 * rhs._31;
+        self._12 = self._10 * rhs._02 + self._11 * rhs._12 + self._12 * rhs._22 + self._13 * rhs._32;
+        self._13 = self._10 * rhs._03 + self._11 * rhs._13 + self._12 * rhs._23 + self._13 * rhs._33;
+        self._20 = self._20 * rhs._00 + self._21 * rhs._10 + self._22 * rhs._20 + self._23 * rhs._30;
+        self._21 = self._20 * rhs._01 + self._21 * rhs._11 + self._22 * rhs._21 + self._23 * rhs._31;
+        self._22 = self._20 * rhs._02 + self._21 * rhs._12 + self._22 * rhs._22 + self._23 * rhs._32;
+        self._23 = self._20 * rhs._03 + self._21 * rhs._13 + self._22 * rhs._23 + self._23 * rhs._33;
+        self._30 = self._30 * rhs._00 + self._31 * rhs._10 + self._32 * rhs._20 + self._33 * rhs._30;
+        self._31 = self._30 * rhs._01 + self._31 * rhs._11 + self._32 * rhs._21 + self._33 * rhs._31;
+        self._32 = self._30 * rhs._02 + self._31 * rhs._12 + self._32 * rhs._22 + self._33 * rhs._32;
+        self._33 = self._30 * rhs._03 + self._31 * rhs._13 + self._32 * rhs._23 + self._33 * rhs._33;
+    }
+}
+
+impl ops::Mul<Vec4> for Mat4 {
+    type Output = Vec4;
+
+    #[inline]
+    fn mul(self, rhs: Vec4) -> Vec4 {
+        Vec4 {
+            x: self._00 * rhs.x + self._01 * rhs.y + self._02 * rhs.z + self._03 * rhs.w,
+            y: self._10 * rhs.x + self._11 * rhs.y + self._12 * rhs.z + self._13 * rhs.w,
+            z: self._20 * rhs.x + self._21 * rhs.y + self._22 * rhs.z + self._23 * rhs.w,
+            w: self._30 * rhs.x + self._31 * rhs.y + self._32 * rhs.z + self._33 * rhs.w,
+        }
+    }
+}
+
+impl PartialEq<Mat4> for Mat4 {
+    fn eq(&self, other: &Mat4) -> bool {
+        (self._00 - other._00).abs() < EQUALITY_THRESHOLD
+            && (self._01 - other._01).abs() < EQUALITY_THRESHOLD
+            && (self._02 - other._02).abs() < EQUALITY_THRESHOLD
+            && (self._03 - other._03).abs() < EQUALITY_THRESHOLD
+            && (self._10 - other._10).abs() < EQUALITY_THRESHOLD
+            && (self._11 - other._11).abs() < EQUALITY_THRESHOLD
+            && (self._12 - other._12).abs() < EQUALITY_THRESHOLD
+            && (self._13 - other._13).abs() < EQUALITY_THRESHOLD
+            && (self._20 - other._20).abs() < EQUALITY_THRESHOLD
+            && (self._21 - other._21).abs() < EQUALITY_THRESHOLD
+            && (self._22 - other._22).abs() < EQUALITY_THRESHOLD
+            && (self._23 - other._23).abs() < EQUALITY_THRESHOLD
+            && (self._30 - other._30).abs() < EQUALITY_THRESHOLD
+            && (self._31 - other._31).abs() < EQUALITY_THRESHOLD
+            && (self._32 - other._32).abs() < EQUALITY_THRESHOLD
+            && (self._33 - other._33).abs() < EQUALITY_THRESHOLD
+    }
+}
+
+impl Eq for Mat4 {}
+
 pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
     let translation = mat4(
         1.0, 0.0, 0.0, pos.x,
@@ -647,6 +773,7 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
         0.0, 0.0, 0.0, 1.0,
     );
 
+    // TODO: FIX THIS!!!
     let rotation = mat4(
         1.0 - 2.0 * rot.j * rot.j - 2.0 * rot.k * rot.k,    2.0 * rot.i * rot.j - 2.0 * rot.k * rot.w,          2.0 * rot.i * rot.k + 2.0 * rot.j * rot.w,          0.0,
         2.0 * rot.i * rot.j + 2.0 * rot.k * rot.w,          1.0 - 2.0 * rot.i * rot.i - 2.0 * rot.k * rot.k,    2.0 * rot.j * rot.k - 2.0 * rot.i * rot.w,          0.0,
@@ -661,11 +788,22 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
         0.0,    0.0,    0.0,    1.0,
     );
 
-    translation.mul(&rotation).mul(&scale)
+    translation * rotation * scale
 }
 
-pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Mat4 {
-    let right = dir.cross(&up);
+pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Result<Mat4> {
+    let right = match dir.cross(&up).normalized() {
+        Ok(v) => Ok(v),
+        Err(_) => Err(anyhow!("Forward and up vectors must have a non-zero length!")),
+    }?;
+    let dir = match dir.normalized() {
+        Ok(v) => Ok(v),
+        Err(_) => Err(anyhow!("Forward and up vectors must have a non-zero length!")),
+    }?;
+    let up = match up.normalized() {
+        Ok(v) => Ok(v),
+        Err(_) => Err(anyhow!("Forward and up vectors must have a non-zero length!")),
+    }?;
 
     let rotation = mat4(
         right.x,    right.y,    right.z,    0.0,
@@ -681,16 +819,28 @@ pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Mat4 {
         0.0, 0.0, 0.0, 1.0,
     );
 
-    rotation.mul(&translation)
+    Ok(rotation * translation)
 }
 
-pub fn get_proj_matrix(near: f32, far: f32, fov_deg: f32, aspect_ratio: f32) -> Mat4 {
-    let tan_half_fov = fov_deg.to_radians().tan();
+pub fn get_proj_matrix(near: f32, far: f32, fov_deg: f32, aspect_ratio: f32) -> Result<Mat4> {
+    if near <= 0.0 || far <= 0.0 {
+        return Err(anyhow!("Near and far values must be positive!"));
+    }
+    if near >= far {
+        return Err(anyhow!("Near value must be less than far value!"));
+    }
+    if aspect_ratio <= 0.0 {
+        return Err(anyhow!("Aspect ratio must be positive!"));
+    }
 
-    mat4(
-        -1.0 / (tan_half_fov * aspect_ratio),   0.0,                0.0,                            0.0,
-        0.0,                                    1.0 / tan_half_fov, 0.0,                            0.0,
-        0.0,                                    0.0,                (near + far) / (far - near),    2.0 * near * far / (near - far),
-        0.0,                                    0.0,                1.0,                            0.0,
+    let tan_half_fov = (fov_deg / 2.0).to_radians().tan();
+
+    Ok(
+        mat4(
+            1.0 / (tan_half_fov * aspect_ratio),    0.0,                    0.0,                0.0,
+            0.0,                                    -1.0 / tan_half_fov,    0.0,                0.0,
+            0.0,                                    0.0,                    far / (far - near), -near * far / (far - near),
+            0.0,                                    0.0,                    1.0,                0.0,
+        )
     )
 }

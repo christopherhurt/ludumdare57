@@ -1,5 +1,8 @@
+use anyhow::Result;
+use std::time::{Duration, SystemTime};
+
 use crate::ecs::component::Component;
-use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 /////////////////////////////////////////////////////////////////////////////
 /// Common
@@ -47,7 +50,7 @@ impl Camera {
         Self { pos, dir, up, fov_deg }
     }
 
-    pub(in crate) fn to_view_mat(&self) -> Mat4 {
+    pub(in crate) fn to_view_mat(&self) -> Result<Mat4> {
         get_view_matrix(self.dir, self.up, self.pos)
     }
 }
@@ -116,7 +119,7 @@ impl Default for Transform {
     fn default() -> Self {
         Self {
             pos: VEC_3_ZERO,
-            rot: Quat::from_axis_spin(&vec3(1.0, 0.0, 0.0), 0.0),
+            rot: Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(),
             scl: vec3(1.0, 1.0, 1.0),
         }
     }
@@ -145,3 +148,23 @@ impl Default for ColorMaterial {
 }
 
 impl Component for ColorMaterial {}
+
+// TimeDelta
+
+pub struct TimeDelta {
+    pub(in crate) is_started: bool,
+    pub(in crate) timestamp: SystemTime,
+    pub since_last_frame: Duration,
+}
+
+impl Default for TimeDelta {
+    fn default() -> Self {
+        Self {
+            is_started: false,
+            timestamp: SystemTime::now(),
+            since_last_frame: Duration::from_secs(0),
+        }
+    }
+}
+
+impl Component for TimeDelta {}
