@@ -238,8 +238,7 @@ impl VulkanContext {
     }
 
     unsafe fn recreate_swapchain(&mut self) -> Result<()> {
-        self.device.device_wait_idle()?;
-        self.destroy_swapchain();
+        self.destroy_swapchain()?;
 
         self.swapchain = create_swapchain(MAX_FRAMES_IN_FLIGHT as u32, &self.winit_window, &self.vk_instance, self.surface, &self.device, self.physical_device).unwrap_or_else(|e| panic!("{}", e));
         self.render_pass = create_render_pass(&self.vk_instance, &self.device, self.physical_device, self.swapchain.format).unwrap_or_else(|e| panic!("{}", e));
@@ -254,7 +253,9 @@ impl VulkanContext {
         Ok(())
     }
 
-    unsafe fn destroy_swapchain(&mut self) {
+    unsafe fn destroy_swapchain(&mut self) -> Result<()> {
+        self.device.device_wait_idle()?;
+
         self.device.destroy_image_view(self.depth_image_view, None);
         self.device.free_memory(self.depth_image_resources.memory, None);
         self.device.destroy_image(self.depth_image_resources.image, None);
@@ -280,10 +281,14 @@ impl VulkanContext {
             .iter()
             .for_each(|v| self.device.destroy_image_view(*v, None));
         self.device.destroy_swapchain_khr(self.swapchain.swapchain, None);
+
+        Ok(())
     }
 
-    unsafe fn destroy(mut self) {
-        self.destroy_swapchain();
+    unsafe fn destroy(mut self) -> Result<()> {
+        self.device.device_wait_idle()?;
+
+        self.destroy_swapchain()?;
 
         self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
@@ -317,6 +322,8 @@ impl VulkanContext {
         }
 
         self.vk_instance.destroy_instance(None);
+
+        Ok(())
     }
 }
 
@@ -397,6 +404,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
     }
 
     unsafe fn join_render_thread(&mut self) -> Result<()> {
+        // TODO: issue here - this doesn't actually trigger a window close, so the join below just hangs
         self.is_closing.store(true, Ordering::SeqCst);
 
         if let Some(join_handle) = self.render_thread_join_handle.take() {
@@ -595,7 +603,7 @@ impl ApplicationHandler for VulkanApplication {
             WindowEvent::CloseRequested => {
                 self.is_closing.store(true, Ordering::SeqCst);
                 if let Some(c) = self.context.take() {
-                    unsafe { c.destroy(); }
+                    unsafe { c.destroy().unwrap(); }
                 }
                 event_loop.exit();
             },
