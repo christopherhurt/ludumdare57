@@ -68,12 +68,13 @@ impl ComponentArray {
             self.entity_to_index[moved_entity.0] = dst_index;
         }
 
+        // TODO: need to manually drop the component being removed
+
         let comp_index = dst_index * self.component_size;
         for i in (0..self.component_size).rev() {
             let moved_comp_byte = self.components.pop().unwrap_or_else(|| panic!("Internal error: components array is empty"));
 
             if should_move {
-                // TODO: manually drop old component
                 self.components[comp_index + i] = moved_comp_byte;
             }
         }
@@ -111,9 +112,9 @@ impl ComponentArray {
     }
 }
 
-impl Drop for ComponentManager {
+impl Drop for ComponentArray {
     fn drop(&mut self) {
-        // TODO: manually drop components
+        // TODO: need to drop all components in the array
     }
 }
 

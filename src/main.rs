@@ -1,5 +1,5 @@
 use anyhow::Result;
-use math::{vec2, vec3, Quat, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Quat, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use core::{Camera, YELLOW};
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -40,8 +40,8 @@ fn init_ecs() -> ECS {
 
 fn init_render_engine() -> Result<VulkanRenderEngine> {
     let window_props = WindowInitProps {
-        width: 800,
-        height: 600,
+        width: 1600,
+        height: 1200,
         title: String::from("My Cool Game"),
     };
 
@@ -93,7 +93,7 @@ const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentM
     entites.for_each(|e| {
         let vulkan = components.get_component::<VulkanComponent>(e).unwrap();
 
-        if vulkan.render_engine.get_window().map_or(true, |w| w.is_key_down(VirtualKey::Space).unwrap_or(false) || w.is_closing()) {
+        if vulkan.render_engine.get_window().map_or(true, |w| w.is_key_down(VirtualKey::Space) || w.is_closing()) {
             commands.shutdown();
         }
     });
@@ -110,22 +110,28 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentMa
                 let speed = 0.0001;
                 let mut move_dir = VEC_3_ZERO;
 
-                if window.is_key_down(VirtualKey::W).is_ok_and(|b| b) {
+                if window.is_key_down(VirtualKey::W) {
+                    println!("FORWARD"); // TODO remove
                     move_dir.z += speed;
                 }
-                if window.is_key_down(VirtualKey::S).is_ok_and(|b| b) {
+                if window.is_key_down(VirtualKey::S) {
+                    println!("BACK"); // TODO remove
                     move_dir.z -= speed;
                 }
-                if window.is_key_down(VirtualKey::D).is_ok_and(|b| b) {
+                if window.is_key_down(VirtualKey::D) {
+                    println!("RIGHT"); // TODO remove
                     move_dir.x += speed;
                 }
-                if window.is_key_down(VirtualKey::A).is_ok_and(|b| b) {
+                if window.is_key_down(VirtualKey::A) {
+                    println!("LEFT"); // TODO remove
                     move_dir.x -= speed;
                 }
-                if window.is_key_down(VirtualKey::Q).is_ok_and(|b| b) {
+                if window.is_key_down(VirtualKey::Q) {
+                    println!("UP"); // TODO remove
                     move_dir.y += speed;
                 }
-                if window.is_key_down(VirtualKey::E).is_ok_and(|b| b) {
+                if window.is_key_down(VirtualKey::E) {
+                    println!("DOWN"); // TODO remove
                     move_dir.y -= speed;
                 }
 
@@ -133,22 +139,22 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentMa
                 cam.pos += move_dir;
 
                 let rot_speed = 0.0001;
-                if window.is_key_down(VirtualKey::Left).is_ok_and(|b| b)
-                    && window.is_key_down(VirtualKey::Right).is_ok_and(|b| !b) {
+                if window.is_key_down(VirtualKey::Left) && !window.is_key_down(VirtualKey::Right) {
+                    println!("ROT LEFT"); // TODO: REMOVE
                     cam.dir = cam.dir.rotated(&cam.up, rot_speed);
                 }
-                if window.is_key_down(VirtualKey::Right).is_ok_and(|b| b)
-                    && window.is_key_down(VirtualKey::Left).is_ok_and(|b| !b) {
+                if window.is_key_down(VirtualKey::Right) && !window.is_key_down(VirtualKey::Left) {
+                    println!("ROT RIGHT"); // TODO: REMOVE
                     cam.dir = cam.dir.rotated(&cam.up, -rot_speed);
                 }
-                if window.is_key_down(VirtualKey::Up).is_ok_and(|b| b)
-                    && window.is_key_down(VirtualKey::Down).is_ok_and(|b| !b) {
+                if window.is_key_down(VirtualKey::Up) && !window.is_key_down(VirtualKey::Down) {
+                    println!("ROT UP"); // TODO: REMOVE
                     let right = cam.dir.cross(&cam.up).normalized();
                     cam.dir = cam.dir.rotated(&right, rot_speed);
                     cam.up = cam.up.rotated(&right, rot_speed);
                 }
-                if window.is_key_down(VirtualKey::Down).is_ok_and(|b| b)
-                    && window.is_key_down(VirtualKey::Up).is_ok_and(|b| !b) {
+                if window.is_key_down(VirtualKey::Down) && !window.is_key_down(VirtualKey::Up) {
+                    println!("ROT DOWN"); // TODO: REMOVE
                     let right = cam.dir.cross(&cam.up).normalized();
                     cam.dir = cam.dir.rotated(&right, -rot_speed);
                     cam.up = cam.up.rotated(&right, -rot_speed);
@@ -180,9 +186,14 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut Compo
         color: components.get_component::<ColorMaterial>(e).unwrap().color,
     }).collect();
 
+    let aspect_ratio = vulkan.render_engine.get_window().and_then(|w| {
+        Ok((w.get_width() as f32) / (w.get_height() as f32))
+    }).unwrap_or(1.0);
+    let proj = get_proj_matrix(0.01, 1000.0, viewport.cam.fov_deg, aspect_ratio);
+
     let render_state = RenderState {
         view: viewport.cam.to_view_mat(),
-        proj: viewport.cam.to_proj_mat(),
+        proj,
         entity_states,
     };
 

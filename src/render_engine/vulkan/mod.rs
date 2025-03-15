@@ -76,6 +76,8 @@ struct VulkanApplication {
 
 struct VulkanContext {
     winit_window: winit_Window,
+    // This isn't needed after creation time, but it needs to retained for the lifetime of VulkanContext to prevent memory leaks
+    _entry: Entry,
     vk_instance: Instance,
     surface: SurfaceKHR,
     debug_messenger: Option<DebugUtilsMessengerEXT>,
@@ -142,6 +144,7 @@ impl VulkanContext {
 
             Self {
                 winit_window,
+                _entry: entry,
                 vk_instance,
                 surface,
                 debug_messenger,
@@ -278,46 +281,42 @@ impl VulkanContext {
             .for_each(|v| self.device.destroy_image_view(*v, None));
         self.device.destroy_swapchain_khr(self.swapchain.swapchain, None);
     }
-}
 
-impl Drop for VulkanContext {
-    fn drop(&mut self) {
-        unsafe {
-            self.destroy_swapchain();
+    unsafe fn destroy(mut self) {
+        self.destroy_swapchain();
 
-            self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
-            self.meshes.values().for_each(|m| {
-                self.device.destroy_buffer((*m).vertex_buffer.buffer, None);
-                self.device.free_memory((*m).vertex_buffer.memory, None);
+        self.meshes.values().for_each(|m| {
+            self.device.destroy_buffer((*m).vertex_buffer.buffer, None);
+            self.device.free_memory((*m).vertex_buffer.memory, None);
 
-                self.device.destroy_buffer((*m).index_buffer.buffer, None);
-                self.device.free_memory((*m).index_buffer.memory, None);
+            self.device.destroy_buffer((*m).index_buffer.buffer, None);
+            self.device.free_memory((*m).index_buffer.memory, None);
+        });
+
+        self.sync_objects
+            .iter()
+            .for_each(|s| {
+                self.device.destroy_fence((*s).in_flight_fence, None);
+                self.device.destroy_semaphore((*s).image_available_semaphore, None);
+                self.device.destroy_semaphore((*s).render_finished_semaphore, None);
             });
 
-            self.sync_objects
-                .iter()
-                .for_each(|s| {
-                    self.device.destroy_fence((*s).in_flight_fence, None);
-                    self.device.destroy_semaphore((*s).image_available_semaphore, None);
-                    self.device.destroy_semaphore((*s).render_finished_semaphore, None);
-                });
+        self.device.destroy_command_pool(self.single_time_command_pool, None);
+        self.per_frame_command_pools
+            .iter()
+            .for_each(|p| self.device.destroy_command_pool(*p, None));
 
-            self.device.destroy_command_pool(self.single_time_command_pool, None);
-            self.per_frame_command_pools
-                .iter()
-                .for_each(|p| self.device.destroy_command_pool(*p, None));
+        self.device.destroy_device(None);
 
-            self.device.destroy_device(None);
+        self.vk_instance.destroy_surface_khr(self.surface, None);
 
-            self.vk_instance.destroy_surface_khr(self.surface, None);
-
-            if let Some(d) = self.debug_messenger {
-                self.vk_instance.destroy_debug_utils_messenger_ext(d, None);
-            }
-
-            self.vk_instance.destroy_instance(None);
+        if let Some(d) = self.debug_messenger {
+            self.vk_instance.destroy_debug_utils_messenger_ext(d, None);
         }
+
+        self.vk_instance.destroy_instance(None);
     }
 }
 
@@ -409,20 +408,20 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
 }
 
 impl Window for VulkanRenderEngine {
-    fn get_width(&self) -> Result<u32> {
+    fn get_width(&self) -> u32 {
         // TODO: need to get this dynamically when resizing is allowed
-        Ok(self.init_props.window_props.width)
+        self.init_props.window_props.width
     }
 
-    fn get_height(&self) -> Result<u32> {
+    fn get_height(&self) -> u32 {
         // TODO: need to get this dynamically when resizing is allowed
-        Ok(self.init_props.window_props.height)
+        self.init_props.window_props.height
     }
 
-    fn is_key_down(&self, key: VirtualKey) -> Result<bool> {
+    fn is_key_down(&self, key: VirtualKey) -> bool {
         match &self.keys_down_mirror {
-            Some(keys_down) => Ok(*keys_down.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))),
-            None => Ok(false),
+            Some(keys_down) => *keys_down.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key)),
+            None => false,
         }
     }
 
@@ -479,8 +478,6 @@ impl VulkanApplication {
     }
 
     unsafe fn render(&mut self) -> Result<()> {
-        self.keys_sender.send(self.keys_down.clone())?;
-
         match &mut self.context {
             Some(context) => {
                 context.device.wait_for_fences(
@@ -578,8 +575,10 @@ impl VulkanApplication {
 
 impl ApplicationHandler for VulkanApplication {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let new_context = VulkanContext::new(self.init_props.clone(), event_loop);
-        self.context = Some(new_context);
+        if self.context.is_none() {
+            let new_context = VulkanContext::new(self.init_props.clone(), event_loop);
+            self.context = Some(new_context);
+        }
     }
 
     fn window_event(
@@ -595,6 +594,9 @@ impl ApplicationHandler for VulkanApplication {
                 self.is_minimized = size.width == 0 || size.height == 0,
             WindowEvent::CloseRequested => {
                 self.is_closing.store(true, Ordering::SeqCst);
+                if let Some(c) = self.context.take() {
+                    unsafe { c.destroy(); }
+                }
                 event_loop.exit();
             },
             WindowEvent::KeyboardInput { event: key_event, .. } => {
@@ -611,6 +613,9 @@ impl ApplicationHandler for VulkanApplication {
                     self.keys_down.insert(vk, is_down).unwrap_or_else(||
                         panic!("Internal error: key {:?} was not initialized in keys_down map!", vk));
                 }
+
+                // TODO: prob don't need to copy this for every input
+                self.keys_sender.send(self.keys_down.clone()).unwrap_or_default();
             },
             _ => {},
         };

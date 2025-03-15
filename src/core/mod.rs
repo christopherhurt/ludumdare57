@@ -1,5 +1,5 @@
 use crate::ecs::component::Component;
-use crate::math::{vec2, vec3, Mat4, Quat, Vec2, Vec3, MAT_4_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 /////////////////////////////////////////////////////////////////////////////
 /// Common
@@ -48,13 +48,7 @@ impl Camera {
     }
 
     pub(in crate) fn to_view_mat(&self) -> Mat4 {
-        // TODO
-        MAT_4_IDENTITY
-    }
-
-    pub(in crate) fn to_proj_mat(&self) -> Mat4 {
-        // TODO
-        MAT_4_IDENTITY
+        get_view_matrix(self.dir, self.up, self.pos)
     }
 }
 
@@ -114,8 +108,7 @@ impl Transform {
     }
 
     pub(in crate) fn to_world_mat(&self) -> Mat4 {
-        // TODO
-        MAT_4_IDENTITY
+        get_world_matrix(self.pos, self.rot, self.scl)
     }
 }
 

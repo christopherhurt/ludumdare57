@@ -127,7 +127,11 @@ fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
         let ptr = &component as *const T as *const u8;
         let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
 
-        // TODO comment
+        // TODO: right now we're not actually doing the below... will need to figure out the right way to do this
+        // The Box below takes "ownership" of the component (or rather, its raw bytes), but if we don't wrap it in
+        //  the ManuallyDrop here, the component will still be dropped. Instead, we'll drop the component ourselves
+        //  when it's removed from the ComponentArray. This is safe because after ownership of the component is moved
+        //  to the ComponentArray, it doesn't change owners for the remainder of its lifetime.
         let _ = ManuallyDrop::new(component);
 
         Box::from(raw_slice)

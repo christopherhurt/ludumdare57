@@ -638,3 +638,59 @@ impl Mat4 {
         )
     }
 }
+
+pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
+    let translation = mat4(
+        1.0, 0.0, 0.0, pos.x,
+        0.0, 1.0, 0.0, pos.y,
+        0.0, 0.0, 1.0, pos.z,
+        0.0, 0.0, 0.0, 1.0,
+    );
+
+    let rotation = mat4(
+        1.0 - 2.0 * rot.j * rot.j - 2.0 * rot.k * rot.k,    2.0 * rot.i * rot.j - 2.0 * rot.k * rot.w,          2.0 * rot.i * rot.k + 2.0 * rot.j * rot.w,          0.0,
+        2.0 * rot.i * rot.j + 2.0 * rot.k * rot.w,          1.0 - 2.0 * rot.i * rot.i - 2.0 * rot.k * rot.k,    2.0 * rot.j * rot.k - 2.0 * rot.i * rot.w,          0.0,
+        2.0 * rot.i * rot.k - 2.0 * rot.j * rot.w,          2.0 * rot.j * rot.k + 2.0 * rot.i * rot.w,          1.0 - 2.0 * rot.i * rot.i - 2.0 * rot.j * rot.j,    0.0,
+        0.0,                                                0.0,                                                0.0,                                                1.0,
+    );
+
+    let scale = mat4(
+        scl.x,  0.0,    0.0,    0.0,
+        0.0,    scl.y,  0.0,    0.0,
+        0.0,    0.0,    scl.z,  0.0,
+        0.0,    0.0,    0.0,    1.0,
+    );
+
+    translation.mul(&rotation).mul(&scale)
+}
+
+pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Mat4 {
+    let right = dir.cross(&up);
+
+    let rotation = mat4(
+        right.x,    right.y,    right.z,    0.0,
+        up.x,       up.y,       up.z,       0.0,
+        dir.x,      dir.y,      dir.z,      0.0,
+        0.0,        0.0,        0.0,        1.0,
+    );
+
+    let translation = mat4(
+        1.0, 0.0, 0.0, -pos.x,
+        0.0, 1.0, 0.0, -pos.y,
+        0.0, 0.0, 1.0, -pos.z,
+        0.0, 0.0, 0.0, 1.0,
+    );
+
+    rotation.mul(&translation)
+}
+
+pub fn get_proj_matrix(near: f32, far: f32, fov_deg: f32, aspect_ratio: f32) -> Mat4 {
+    let tan_half_fov = fov_deg.to_radians().tan();
+
+    mat4(
+        -1.0 / (tan_half_fov * aspect_ratio),   0.0,                0.0,                            0.0,
+        0.0,                                    1.0 / tan_half_fov, 0.0,                            0.0,
+        0.0,                                    0.0,                (near + far) / (far - near),    2.0 * near * far / (near - far),
+        0.0,                                    0.0,                1.0,                            0.0,
+    )
+}

@@ -33,9 +33,9 @@ pub trait RenderEngine<W: Window, D: Device>: Sized {
 }
 
 pub trait Window {
-    fn get_width(&self) -> Result<u32>;
-    fn get_height(&self) -> Result<u32>;
-    fn is_key_down(&self, key: VirtualKey) -> Result<bool>;
+    fn get_width(&self) -> u32;
+    fn get_height(&self) -> u32;
+    fn is_key_down(&self, key: VirtualKey) -> bool;
     fn is_closing(&self) -> bool;
 }
 

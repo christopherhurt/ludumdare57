@@ -93,7 +93,7 @@ pub(in crate::render_engine::vulkan) unsafe fn pick_physical_device(instance: &I
     for physical_device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(physical_device);
 
-        let is_suitable = is_suitable_physical_device(instance, surface, physical_device);
+        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties);
         if let Err(error) = is_suitable {
             warn!("Skipping physical device (`{}`): {}", properties.device_name, error);
         } else if !is_suitable.unwrap() {
@@ -111,8 +111,12 @@ unsafe fn is_suitable_physical_device(
     instance: &Instance,
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
+    properties: vk::PhysicalDeviceProperties,
 ) -> Result<bool> {
-    // TODO: prefer properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
+    // Check whether the user is poor
+    if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+        return Ok(false);
+    }
 
     if get_queue_family_indices(instance, surface, physical_device).is_err() {
         return Ok(false);
@@ -597,13 +601,7 @@ unsafe fn create_buffer(
 
     let buffer = device.create_buffer(&buffer_info, None)?;
 
-    let mut requirements = device.get_buffer_memory_requirements(buffer);
-
-    // requirements.size = requirements.size.max(256);
-    // requirements.alignment = requirements.alignment.max(8);
-    // TODO: i think its failing for these requirements:
-    //  Requirements: MemoryRequirements { size: 256, alignment: 4, memory_type_bits: 59 }
-    //  Specifically I think get_emmory_type_index below is failing
+    let requirements = device.get_buffer_memory_requirements(buffer);
 
     let memory_info = vk::MemoryAllocateInfo::builder()
         .allocation_size(requirements.size)
