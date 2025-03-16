@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use std::ops;
 
-const EQUALITY_THRESHOLD: f32 = 0.00001;
+const EQUALITY_THRESHOLD: f32 = f32::EPSILON;
 
 /////////////////////////////////////////////////////////////////////////////
 /// Vec2
@@ -246,15 +246,24 @@ impl Vec3 {
     }
 
     #[inline]
-    pub fn rotated(&self, axis: &Vec3, spin_deg: f32) -> Vec3 {
+    pub fn rotated(&self, axis: &Vec3, spin_deg: f32) -> Result<Vec3> {
         // https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation
+        let axis_norm = match axis.normalized() {
+            Ok(a) => Ok(a),
+            Err(_) => Err(anyhow!("Cannot rotate vector about a zero length axis!")),
+        }?;
 
         let half_spin_rad = (spin_deg / 2.0).to_radians();
         let cos_half_spin = half_spin_rad.cos();
         let sin_half_spin = half_spin_rad.sin();
-        let crossed = axis.cross(self);
+        let crossed = axis_norm.cross(self);
 
-        *self + (2.0 * cos_half_spin * sin_half_spin * crossed) + (2.0 * sin_half_spin * sin_half_spin * axis.cross(&crossed))
+        Ok(*self + (2.0 * cos_half_spin * sin_half_spin * crossed) + (2.0 * sin_half_spin * sin_half_spin * axis_norm.cross(&crossed)))
+    }
+
+    #[inline]
+    pub fn distance_to(&self, other: &Vec3) -> f32 {
+        (*self - *other).len()
     }
 
     #[inline]

@@ -8,12 +8,18 @@ pub struct Particle {
     pub acc: Vec3,
     pub damping: f32,
     pub mass: f32,
-    pub gravity: f32,
+    pub force_accum: Vec3,
 }
 
 impl Particle {
-    pub fn new(vel: Vec3, acc: Vec3, damping: f32, mass: f32, gravity: f32) -> Self {
-        Self { vel, acc, damping, mass, gravity }
+    pub fn new(vel: Vec3, damping: f32, mass: f32) -> Self {
+        Self {
+            vel,
+            acc: VEC_3_ZERO,
+            damping,
+            mass,
+            force_accum: VEC_3_ZERO,
+        }
     }
 }
 
@@ -24,7 +30,7 @@ impl Default for Particle {
             acc: VEC_3_ZERO,
             damping: 1.0,
             mass: 1.0,
-            gravity: 0.0,
+            force_accum: VEC_3_ZERO,
         }
     }
 }
