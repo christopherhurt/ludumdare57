@@ -68,3 +68,15 @@ pub(in crate::render_engine::vulkan) struct UniformBufferObject {
     pub(in crate::render_engine::vulkan) proj: Mat4,
     pub(in crate::render_engine::vulkan) color: Color,
 }
+
+impl UniformBufferObject {
+    pub(in crate::render_engine::vulkan) fn get_offset_alignment(min_offset_alignment: usize) -> usize {
+        let ubo_size = size_of::<UniformBufferObject>();
+
+        if ubo_size % min_offset_alignment == 0 {
+            ubo_size
+        } else {
+            ubo_size + (min_offset_alignment - ubo_size % min_offset_alignment)
+        }
+    }
+}

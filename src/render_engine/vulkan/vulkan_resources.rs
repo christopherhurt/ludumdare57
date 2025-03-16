@@ -719,13 +719,15 @@ pub(in crate::render_engine::vulkan) unsafe fn create_uniform_buffer<T: Sized>(
     instance: &Instance,
     device: &Device,
     physical_device: vk::PhysicalDevice,
+    num_uniform_objects: usize,
+    ubo_alignment: usize,
 ) -> Result<BufferResources> {
     Ok(
         create_buffer(
             instance,
             device,
             physical_device,
-            size_of::<T>() as u64,
+            (ubo_alignment * num_uniform_objects) as u64,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
         )?
@@ -814,9 +816,12 @@ pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_sets(
     device: &Device,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
-    uniform_buffers: &Vec<BufferResources>,
+    uniform_buffer: &BufferResources,
+    num_descriptor_sets: usize,
+    ubo_size: usize,
+    ubo_alignment: usize,
 ) -> Result<Vec<vk::DescriptorSet>> {
-    let layouts = vec![descriptor_set_layout; uniform_buffers.len()];
+    let layouts = vec![descriptor_set_layout; num_descriptor_sets];
     let info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(descriptor_pool)
         .set_layouts(&layouts);
@@ -825,9 +830,9 @@ pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_sets(
 
     for i in 0..descriptor_sets.len() {
         let info = vk::DescriptorBufferInfo::builder()
-            .buffer(uniform_buffers[i].buffer)
-            .offset(0)
-            .range(vk::WHOLE_SIZE as u64);
+            .buffer(uniform_buffer.buffer)
+            .offset((i * ubo_alignment) as u64)
+            .range(ubo_size as u64);
 
         let buffer_info = &[info];
         let ubo_write = vk::WriteDescriptorSet::builder()

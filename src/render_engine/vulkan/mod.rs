@@ -48,6 +48,8 @@ mod vulkan_structs;
 mod vulkan_utils;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 3;
+// TODO: we'll want a way to resize the uniform buffer and/or overwrite it multiple times per frame, instead of capping the limit on total uniform desciptors like this
+const NUM_UNIFORM_DESCRIPTORS: usize = 4096;
 
 pub struct VulkanRenderEngine {
     init_props: RenderEngineInitProps,
@@ -83,6 +85,8 @@ struct VulkanContext {
     surface: SurfaceKHR,
     debug_messenger: Option<DebugUtilsMessengerEXT>,
 
+    ubo_alignment: usize,
+
     physical_device: vk::PhysicalDevice,
     device: vk_Device,
     graphics_queue: vk::Queue,
@@ -98,7 +102,7 @@ struct VulkanContext {
     framebuffers: Vec<vk::Framebuffer>,
     uniform_buffers: Vec<BufferResources>,
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: Vec<vk::DescriptorSet>,
+    descriptor_sets: Vec<Vec<vk::DescriptorSet>>,
     per_frame_command_buffers: Vec<vk::CommandBuffer>,
     sync_objects: Vec<FrameSyncObjects>,
 
@@ -127,6 +131,9 @@ impl VulkanContext {
             let surface = vk_window::create_surface(&vk_instance, &winit_window, &winit_window).unwrap_or_else(|_| panic!("Failed to create surface"));
 
             let physical_device = pick_physical_device(&vk_instance, surface).unwrap_or_else(|e| panic!("{}", e));
+
+            let ubo_alignment = UniformBufferObject::get_offset_alignment(vk_instance.get_physical_device_properties(physical_device).limits.min_uniform_buffer_offset_alignment as usize);
+
             let (device, graphics_queue, present_queue) = create_logical_device(&vk_instance, surface, physical_device, init_properties.debug_enabled).unwrap_or_else(|e| panic!("{}", e));
             let swapchain = create_swapchain(MAX_FRAMES_IN_FLIGHT as u32, &winit_window, &vk_instance, surface, &device, physical_device).unwrap_or_else(|e| panic!("{}", e));
             let render_pass = create_render_pass(&vk_instance, &device, physical_device, swapchain.format).unwrap_or_else(|e| panic!("{}", e));
@@ -137,9 +144,9 @@ impl VulkanContext {
             let (depth_image_resources, depth_image_view) = create_depth_objects(&vk_instance, &device, physical_device, &swapchain.extent, single_time_command_pool, graphics_queue).unwrap_or_else(|e| panic!("{}", e));
             let framebuffers = swapchain.image_views.iter().map(|i| create_framebuffer(&device, render_pass, swapchain.extent, *i, depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
             // TODO: split up into more than one uniform buffer per frame
-            let uniform_buffers = (0..swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&vk_instance, &device, physical_device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
-            let descriptor_pool = create_descriptor_pool(&device, swapchain.images.len()).unwrap_or_else(|e| panic!("{}", e));
-            let descriptor_sets = create_descriptor_sets(&device, descriptor_set_layout, descriptor_pool, &uniform_buffers).unwrap_or_else(|e| panic!("{}", e));
+            let uniform_buffers = (0..swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&vk_instance, &device, physical_device, NUM_UNIFORM_DESCRIPTORS, ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let descriptor_pool = create_descriptor_pool(&device, swapchain.images.len() * NUM_UNIFORM_DESCRIPTORS).unwrap_or_else(|e| panic!("{}", e));
+            let descriptor_sets = (0..swapchain.images.len()).map(|i| create_descriptor_sets(&device, descriptor_set_layout, descriptor_pool, &uniform_buffers[i], NUM_UNIFORM_DESCRIPTORS, size_of::<UniformBufferObject>(), ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
             let per_frame_command_buffers = per_frame_command_pools.iter().map(|p| create_command_buffer(&device, *p).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
             let sync_objects = (0..MAX_FRAMES_IN_FLIGHT).map(|_| create_sync_objects(&device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
 
@@ -151,6 +158,8 @@ impl VulkanContext {
                 vk_instance,
                 surface,
                 debug_messenger,
+
+                ubo_alignment,
 
                 physical_device,
                 device,
@@ -205,29 +214,20 @@ impl VulkanContext {
         self.device.cmd_begin_render_pass(command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
 
         self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.pipeline);
-        self.device.cmd_bind_descriptor_sets(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipeline.layout,
-            0,
-            &[self.descriptor_sets[image_index]],
-            &[],
-        );
 
         // TODO: do this in a way that doesn't involve a double copy of RenderState? (i.e. serializing to RenderState, then copying RenderState to a buffer)
         //  Also, we don't want to all uniforms every entity... only the per-entity uniforms
-        for e in state.entity_states.iter() {
-            let ubo = UniformBufferObject {
-                world: e.world,
-                view: state.view,
-                proj: state.proj,
-                color: e.color,
-            };
-
-            update_uniforms(&self.device, self.uniform_buffers[image_index].memory, ubo)?;
-
+        for (i, e) in state.entity_states.iter().enumerate() {
             let mesh = self.meshes.get(&e.mesh_id).unwrap_or_else(|| panic!("No mesh exists for ID {}", e.mesh_id.0));
 
+            self.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline.layout,
+                0,
+                &[self.descriptor_sets[image_index][i]],
+                &[],
+            );
             self.device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer.buffer], &[0]);
             self.device.cmd_bind_index_buffer(command_buffer, mesh.index_buffer.buffer, 0, vk::IndexType::UINT32);
             self.device.cmd_draw_indexed(command_buffer, mesh.index_count as u32, 1, 0, 0, 0);
@@ -248,9 +248,9 @@ impl VulkanContext {
         self.pipeline = create_pipeline(&self.device, self.render_pass, &self.swapchain, self.descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
         (self.depth_image_resources, self.depth_image_view) = create_depth_objects(&self.vk_instance, &self.device, self.physical_device, &self.swapchain.extent, self.single_time_command_pool, self.graphics_queue).unwrap_or_else(|e| panic!("{}", e));
         self.framebuffers = self.swapchain.image_views.iter().map(|i| create_framebuffer(&self.device, self.render_pass, self.swapchain.extent, *i, self.depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
-        self.uniform_buffers = (0..self.swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&self.vk_instance, &self.device, self.physical_device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
-        self.descriptor_pool = create_descriptor_pool(&self.device, self.swapchain.images.len()).unwrap_or_else(|e| panic!("{}", e));
-        self.descriptor_sets = create_descriptor_sets(&self.device, self.descriptor_set_layout, self.descriptor_pool, &self.uniform_buffers).unwrap_or_else(|e| panic!("{}", e));
+        self.uniform_buffers = (0..self.swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&self.vk_instance, &self.device, self.physical_device, NUM_UNIFORM_DESCRIPTORS, self.ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+        self.descriptor_pool = create_descriptor_pool(&self.device, self.swapchain.images.len() * NUM_UNIFORM_DESCRIPTORS).unwrap_or_else(|e| panic!("{}", e));
+        self.descriptor_sets = (0..self.swapchain.images.len()).map(|i| create_descriptor_sets(&self.device, self.descriptor_set_layout, self.descriptor_pool, &self.uniform_buffers[i], NUM_UNIFORM_DESCRIPTORS, size_of::<UniformBufferObject>(), self.ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
         self.per_frame_command_buffers = self.per_frame_command_pools.iter().map(|p| create_command_buffer(&self.device, *p).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
 
         Ok(())
@@ -333,16 +333,19 @@ impl VulkanContext {
 unsafe fn update_uniforms(
     device: &vk_Device,
     uniform_memory: vk::DeviceMemory,
-    ubo: UniformBufferObject,
+    ubos: &Vec<UniformBufferObject>,
+    ubo_alignment: usize,
 ) -> Result<()> {
     let memory = device.map_memory(
         uniform_memory,
         0,
-        size_of::<UniformBufferObject>() as u64,
+        (ubo_alignment * ubos.len()) as u64,
         vk::MemoryMapFlags::empty(),
     )?;
 
-    std::ptr::copy_nonoverlapping(&ubo, memory.cast(), 1);
+    for i in 0..ubos.len() {
+        std::ptr::copy_nonoverlapping(ubos.as_ptr().add(i), (memory.cast::<u8>().add(i * ubo_alignment)).cast(), 1);
+    }
 
     device.unmap_memory(uniform_memory);
 
@@ -540,6 +543,17 @@ impl VulkanApplication {
 
                     context.meshes.insert(mesh.mesh_id, mesh);
                 }
+
+                let ubos = render_state.entity_states.iter().map(|e| {
+                    UniformBufferObject {
+                        world: e.world,
+                        view: render_state.view,
+                        proj: render_state.proj,
+                        color: e.color,
+                    }
+                }).collect();
+                update_uniforms(&context.device, context.uniform_buffers[image_index].memory, &ubos, context.ubo_alignment)?;
+
                 context.update_command_buffer(image_index, render_state)?;
 
                 let wait_semaphores = &[context.sync_objects[self.frame].image_available_semaphore];
