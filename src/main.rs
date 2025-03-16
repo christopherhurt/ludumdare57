@@ -5,7 +5,7 @@ use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 
 use crate::component_bindings::{Mesh, VulkanComponent};
-use crate::core::{Camera, ColorMaterial, TimeDelta, Transform, Viewport2D, YELLOW};
+use crate::core::{Camera, ColorMaterial, TimeDelta, Transform, Viewport2D, ORANGE, RED, YELLOW};
 use crate::ecs::component::ComponentManager;
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
@@ -17,6 +17,7 @@ pub mod component_bindings;
 pub mod core;
 pub mod ecs;
 pub mod math;
+pub mod physics;
 pub mod render_engine;
 
 fn main() {
@@ -114,7 +115,7 @@ fn create_scene(ecs: &mut ECS) {
         .unwrap_or_else(|e| panic!("{}", e));
     let cube_mesh = Mesh::new(cube_mesh_id);
     let cube_transform = Transform::new(
-        vec3(0.0, 0.0, 5.0),
+        vec3(-10.0, 0.0, 10.0),
         Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
         vec3(1.0, 1.0, 1.0),
     );
@@ -123,6 +124,30 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_entity, cube_mesh);
     ecs.attach_provisional_component(&cube_entity, cube_transform);
     ecs.attach_provisional_component(&cube_entity, cube_color_material);
+
+    let cube_2_mesh = Mesh::new(cube_mesh_id);
+    let cube_2_transform = Transform::new(
+        vec3(0.0, 0.0, 10.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(3.0, 3.0, 3.0),
+    );
+    let cube_2_color_material = ColorMaterial::new(ORANGE);
+    let cube_2_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_2_entity, cube_2_mesh);
+    ecs.attach_provisional_component(&cube_2_entity, cube_2_transform);
+    ecs.attach_provisional_component(&cube_2_entity, cube_2_color_material);
+
+    let cube_3_mesh = Mesh::new(cube_mesh_id);
+    let cube_3_transform = Transform::new(
+        vec3(10.0, 0.0, 10.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(8.0, 8.0, 8.0),
+    );
+    let cube_3_color_material = ColorMaterial::new(RED);
+    let cube_3_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_3_entity, cube_3_mesh);
+    ecs.attach_provisional_component(&cube_3_entity, cube_3_transform);
+    ecs.attach_provisional_component(&cube_3_entity, cube_3_color_material);
 
     let vulkan = VulkanComponent::new(render_engine);
     let vulkan_entity = ecs.create_entity();
@@ -144,7 +169,7 @@ const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentM
     entites.for_each(|e| {
         let vulkan = components.get_component::<VulkanComponent>(e).unwrap();
 
-        if vulkan.render_engine.get_window().map_or(true, |w| w.is_key_down(VirtualKey::Space) || w.is_closing()) {
+        if vulkan.render_engine.get_window().map_or(true, |w| w.is_closing()) {
             commands.shutdown();
         }
     });
