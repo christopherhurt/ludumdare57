@@ -1,5 +1,5 @@
 use anyhow::Result;
-use math::{get_proj_matrix, vec2, vec3, Quat, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Quat, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use core::Color;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -63,7 +63,7 @@ fn create_scene(ecs: &mut ECS) {
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
 
-    let cube_positions = vec![vec3(0.0, -0.5, 1.0), vec3(0.5, 0.5, 1.0), vec3(-0.5, 0.5, 1.0)]; // TODO
+    let cube_positions = vec![vec3(0.0, -0.5, 0.0), vec3(0.5, 0.5, 0.0), vec3(-0.5, 0.5, 0.0)]; // TODO
     let cube_indexes = vec![0, 1, 2]; // TODO
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| unsafe { d.create_mesh(cube_positions, cube_indexes) })
@@ -91,7 +91,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 0);
-    ecs.register_system(MOVE_CUBE, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 1);
+    ecs.register_system(MOVE_CUBE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 1);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
 }
@@ -178,13 +178,39 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentMa
 };
 
 const MOVE_CUBE: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+    let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
-    let time_delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-    for e in entites {
-        if let Some(transform) = components.get_mut_component::<Transform>(e) {
-            let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, 5.0 * time_delta_sec).unwrap();
-            transform.rot *= spin;
+    if let Ok(window) = vulkan.render_engine.get_window() {
+        for e in entites {
+            if let Some(transform) = components.get_mut_component::<Transform>(e) {
+                let rot_speed = 90.0 * time_delta.since_last_frame.as_secs_f32();
+
+                if window.is_key_down(VirtualKey::J) && !window.is_key_down(VirtualKey::L) {
+                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_speed).unwrap();
+                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                }
+                if window.is_key_down(VirtualKey::L) && !window.is_key_down(VirtualKey::J) {
+                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
+                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                }
+                if window.is_key_down(VirtualKey::I) && !window.is_key_down(VirtualKey::K) {
+                    let spin = Quat::from_axis_spin(&VEC_3_X_AXIS, -rot_speed).unwrap();
+                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                }
+                if window.is_key_down(VirtualKey::K) && !window.is_key_down(VirtualKey::I) {
+                    let spin = Quat::from_axis_spin(&VEC_3_X_AXIS, rot_speed).unwrap();
+                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                }
+                if window.is_key_down(VirtualKey::U) && !window.is_key_down(VirtualKey::O) {
+                    let spin = Quat::from_axis_spin(&VEC_3_Z_AXIS, -rot_speed).unwrap();
+                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                }
+                if window.is_key_down(VirtualKey::O) && !window.is_key_down(VirtualKey::U) {
+                    let spin = Quat::from_axis_spin(&VEC_3_Z_AXIS, rot_speed).unwrap();
+                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                }
+            }
         }
     }
 };
@@ -198,7 +224,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut Compo
         && components.get_component::<Mesh>(e).is_some()
         && components.get_component::<ColorMaterial>(e).is_some())
     .map(|e| EntityRenderState {
-        world: components.get_component::<Transform>(e).unwrap().to_world_mat(),
+        world: components.get_component::<Transform>(e).unwrap().to_world_mat().unwrap(),
         mesh_id: components.get_component::<Mesh>(e).unwrap().id,
         color: components.get_component::<ColorMaterial>(e).unwrap().color,
     }).collect();

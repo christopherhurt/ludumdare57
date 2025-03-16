@@ -110,7 +110,7 @@ impl Transform {
         Self { pos, rot, scl }
     }
 
-    pub(in crate) fn to_world_mat(&self) -> Mat4 {
+    pub(in crate) fn to_world_mat(&self) -> Result<Mat4> {
         get_world_matrix(self.pos, self.rot, self.scl)
     }
 }

@@ -513,9 +513,23 @@ impl Quat {
             Self {
                 w: cos_half,
                 i: sin_half * axis_norm.x,
-                k: sin_half * axis_norm.y,
-                j: sin_half * axis_norm.z,
+                j: sin_half * axis_norm.y,
+                k: sin_half * axis_norm.z,
             }
+        )
+    }
+
+    #[inline]
+    pub fn to_rotation_matrix(&self) -> Result<Mat4> {
+        let norm = self.normalized()?;
+
+        Ok(
+            mat4(
+                1.0 - 2.0 * (norm.j * norm.j + norm.k * norm.k),    2.0 * (norm.i * norm.j + norm.k * norm.w),          2.0 * (norm.i * norm.k - norm.j * norm.w),          0.0,
+                2.0 * (norm.i * norm.j - norm.k * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.k * norm.k),    2.0 * (norm.j * norm.k + norm.i * norm.w),          0.0,
+                2.0 * (norm.i * norm.k + norm.j * norm.w),          2.0 * (norm.j * norm.k - norm.i * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.j * norm.j),    0.0,
+                0.0,                                                0.0,                                                0.0,                                                1.0,
+            )
         )
     }
 }
@@ -531,7 +545,7 @@ impl ops::Mul for Quat {
             w: self.w * rhs.w - self.i * rhs.i - self.j * rhs.j - self.k * rhs.k,
             i: self.w * rhs.i + self.i * rhs.w + self.j * rhs.k - self.k * rhs.j,
             j: self.w * rhs.j - self.i * rhs.k + self.j * rhs.w + self.k * rhs.i,
-            k: self.w * rhs.k - self.i * rhs.j + self.j * rhs.i + self.k * rhs.w,
+            k: self.w * rhs.k + self.i * rhs.j - self.j * rhs.i + self.k * rhs.w,
         }
     }
 }
@@ -544,7 +558,7 @@ impl ops::MulAssign for Quat {
         self.w = self.w * rhs.w - self.i * rhs.i - self.j * rhs.j - self.k * rhs.k;
         self.i = self.w * rhs.i + self.i * rhs.w + self.j * rhs.k - self.k * rhs.j;
         self.j = self.w * rhs.j - self.i * rhs.k + self.j * rhs.w + self.k * rhs.i;
-        self.k = self.w * rhs.k - self.i * rhs.j + self.j * rhs.i + self.k * rhs.w;
+        self.k = self.w * rhs.k + self.i * rhs.j - self.j * rhs.i + self.k * rhs.w;
     }
 }
 
@@ -765,7 +779,7 @@ impl PartialEq<Mat4> for Mat4 {
 
 impl Eq for Mat4 {}
 
-pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
+pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Result<Mat4> {
     let translation = mat4(
         1.0, 0.0, 0.0, pos.x,
         0.0, 1.0, 0.0, pos.y,
@@ -773,13 +787,7 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
         0.0, 0.0, 0.0, 1.0,
     );
 
-    // TODO: FIX THIS!!!
-    let rotation = mat4(
-        1.0 - 2.0 * rot.j * rot.j - 2.0 * rot.k * rot.k,    2.0 * rot.i * rot.j - 2.0 * rot.k * rot.w,          2.0 * rot.i * rot.k + 2.0 * rot.j * rot.w,          0.0,
-        2.0 * rot.i * rot.j + 2.0 * rot.k * rot.w,          1.0 - 2.0 * rot.i * rot.i - 2.0 * rot.k * rot.k,    2.0 * rot.j * rot.k - 2.0 * rot.i * rot.w,          0.0,
-        2.0 * rot.i * rot.k - 2.0 * rot.j * rot.w,          2.0 * rot.j * rot.k + 2.0 * rot.i * rot.w,          1.0 - 2.0 * rot.i * rot.i - 2.0 * rot.j * rot.j,    0.0,
-        0.0,                                                0.0,                                                0.0,                                                1.0,
-    );
+    let rotation = rot.to_rotation_matrix()?;
 
     let scale = mat4(
         scl.x,  0.0,    0.0,    0.0,
@@ -788,7 +796,7 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
         0.0,    0.0,    0.0,    1.0,
     );
 
-    translation * rotation * scale
+    Ok(translation * rotation * scale)
 }
 
 pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Result<Mat4> {
