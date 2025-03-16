@@ -35,7 +35,7 @@ pub const RED: Color = Color::rgb(1.0, 0.0, 0.0);
 pub const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
 pub const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
 pub const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
-pub const ORANGE: Color = Color::rgb(1.0, 0.65, 0.0);
+pub const ORANGE: Color = Color::rgb(1.0, 0.35, 0.0);
 
 // Camera
 
