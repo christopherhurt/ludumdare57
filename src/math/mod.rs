@@ -241,7 +241,7 @@ impl Vec3 {
         if self_len < EQUALITY_THRESHOLD || vec_len < EQUALITY_THRESHOLD {
             Err(anyhow!("Cannot get angle from a zero length vector!"))
         } else {
-            Ok((self.dot(vec) / (self.len() * vec.len())).acos().to_degrees())
+            Ok((self.dot(vec) / (self_len * vec_len)).acos().to_degrees())
         }
     }
 
