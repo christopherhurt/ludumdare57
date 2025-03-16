@@ -8,7 +8,9 @@ use vulkanalia::vk::{self, ExtDebugUtilsExtension, KhrSwapchainExtension};
 use vulkanalia::window as vk_window;
 use winit::window::Window as winit_Window;
 
-use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Pipeline, Swapchain, Vertex};
+use crate::math::Vec3;
+use crate::render_engine::Vertex;
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Pipeline, Swapchain};
 use crate::render_engine::vulkan::vulkan_utils::{
     copy_buffer,
     debug_callback,
@@ -423,8 +425,8 @@ pub(in crate::render_engine::vulkan) unsafe fn create_pipeline(
         .module(frag_shader_module)
         .name(b"main\0");
 
-    let binding_descriptions = &[Vertex::binding_description()];
-    let attribute_descriptions = Vertex::attribute_descriptions();
+    let binding_descriptions = &[get_vertex_binding_description()];
+    let attribute_descriptions = get_vertex_attribute_descriptions();
     let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
         .vertex_binding_descriptions(binding_descriptions)
         .vertex_attribute_descriptions(&attribute_descriptions);
@@ -842,4 +844,32 @@ pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_sets(
     }
 
     Ok(descriptor_sets)
+}
+
+// Vertices
+
+fn get_vertex_binding_description() -> vk::VertexInputBindingDescription {
+    vk::VertexInputBindingDescription::builder()
+        .binding(0)
+        .stride(size_of::<Vertex>() as u32)
+        .input_rate(vk::VertexInputRate::VERTEX)
+        .build()
+}
+
+fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    let pos = vk::VertexInputAttributeDescription::builder()
+        .binding(0)
+        .location(0)
+        .format(vk::Format::R32G32B32_SFLOAT)
+        .offset(0)
+        .build();
+
+    let norm = vk::VertexInputAttributeDescription::builder()
+        .binding(0)
+        .location(1)
+        .format(vk::Format::R32G32B32_SFLOAT)
+        .offset(size_of::<Vec3>() as u32)
+        .build();
+
+    [pos, norm]
 }

@@ -41,7 +41,7 @@ pub trait Window {
 }
 
 pub trait Device {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<u32>) -> Result<MeshId>;
+    unsafe fn create_mesh(&mut self, vertices: Vec<Vertex>, vertex_indexes: Vec<u32>) -> Result<MeshId>;
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +56,13 @@ pub struct EntityRenderState {
     pub world: Mat4,
     pub mesh_id: MeshId,
     pub color: Color,
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct Vertex {
+    pub pos: Vec3,
+    pub norm: Vec3,
 }
 
 #[derive(Debug, Clone, Copy, EnumIter, Eq, Hash, PartialEq)]

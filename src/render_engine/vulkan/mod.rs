@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use vulkan_structs::Vertex;
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use core::panic;
 use std::collections::HashMap;
@@ -22,8 +21,7 @@ use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
 use crate::core::Color;
-use crate::math::Vec3;
-use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, Window};
+use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, Vertex, VirtualKey, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
     pick_physical_device,
@@ -55,7 +53,7 @@ pub struct VulkanRenderEngine {
     init_props: RenderEngineInitProps,
     mesh_id_counter: usize,
     state_sender: SyncSender<RenderState>,
-    mesh_sender: Sender<(MeshId, Vec<Vec3>, Vec<u32>)>,
+    mesh_sender: Sender<(MeshId, Vec<Vertex>, Vec<u32>)>,
     keys_down_mirror: Option<HashMap<VirtualKey, bool>>,
     keys_receiver: Receiver<HashMap<VirtualKey, bool>>,
     is_closing: Arc<AtomicBool>,
@@ -65,7 +63,7 @@ pub struct VulkanRenderEngine {
 struct VulkanApplication {
     init_props: RenderEngineInitProps,
     state_receiver: Receiver<RenderState>,
-    mesh_receiver: Receiver<(MeshId, Vec<Vec3>, Vec<u32>)>,
+    mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
     is_minimized: bool,
     is_closing: Arc<AtomicBool>,
     keys_down: HashMap<VirtualKey, bool>,
@@ -444,17 +442,19 @@ impl Window for VulkanRenderEngine {
 }
 
 impl Device for VulkanRenderEngine {
-    unsafe fn create_mesh(&mut self, vertex_positions: Vec<Vec3>, vertex_indexes: Vec<u32>) -> Result<MeshId> {
-        if !vertex_positions.is_empty() && !vertex_indexes.is_empty() {
+    unsafe fn create_mesh(&mut self, vertices: Vec<Vertex>, vertex_indexes: Vec<u32>) -> Result<MeshId> {
+        if vertices.is_empty() || vertex_indexes.is_empty() {
+            Err(anyhow!("Can't create a mesh with empty vertex data arrays"))
+        } else if vertex_indexes.len() % 3 != 0 {
+            Err(anyhow!("Can't create a mesh with an invalid number of indices"))
+        } else {
             let mesh_id = MeshId(self.mesh_id_counter);
 
             self.mesh_id_counter += 1;
 
-            self.mesh_sender.send((mesh_id, vertex_positions, vertex_indexes))?;
+            self.mesh_sender.send((mesh_id, vertices, vertex_indexes))?;
 
             Ok(mesh_id)
-        } else {
-            Err(anyhow!("Can't create a mesh with empty vertex data arrays"))
         }
     }
 }
@@ -463,7 +463,7 @@ impl VulkanApplication {
     fn new(
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
-        mesh_receiver: Receiver<(MeshId, Vec<Vec3>, Vec<u32>)>,
+        mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
         keys_sender: SyncSender<HashMap<VirtualKey, bool>>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
@@ -525,9 +525,9 @@ impl VulkanApplication {
                 self.swapchain_fences[image_index] = context.sync_objects[self.frame].in_flight_fence;
 
                 // TODO: Is there a possible race condition here where a RenderState could be received referencing a mesh not yet received??
+                //  Also, it prob does not even make sense to do the expensive pieces like buffer creation on the render thread...
                 let render_state = self.state_receiver.recv()?;
-                while let Ok((mesh_id, vertex_positions, vertex_indexes)) = self.mesh_receiver.try_recv() {
-                    let vertices = vertex_positions.iter().map(|p| Vertex { pos: *p }).collect();
+                while let Ok((mesh_id, vertices, vertex_indexes)) = self.mesh_receiver.try_recv() {
                     let vertex_buffer = create_vertex_buffer(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, &vertices)?;
                     let index_buffer = create_index_buffer(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, &vertex_indexes)?;
 

@@ -11,7 +11,7 @@ use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
 
 pub mod component_bindings;
 pub mod core;
@@ -63,10 +63,54 @@ fn create_scene(ecs: &mut ECS) {
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
 
-    let cube_positions = vec![vec3(0.0, -0.5, 0.0), vec3(0.5, 0.5, 0.0), vec3(-0.5, 0.5, 0.0)]; // TODO
-    let cube_indexes = vec![0, 1, 2]; // TODO
+    let cube_vertices = vec![
+        // Front
+        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        // Left
+        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        // Back
+        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        // Right
+        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
+        // Top
+        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+        // Down
+        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
+        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
+        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
+        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
+    ];
+    let cube_indexes = vec![
+        // Front
+        0, 1, 2, 2, 3, 0,
+        // Left
+        4, 5, 6, 6, 7, 4,
+        // Back
+        8, 9, 10, 10, 11, 8,
+        // Right
+        12, 13, 14, 14, 15, 12,
+        // Top
+        16, 17, 18, 18, 19, 16,
+        // Down
+        20, 21, 22, 22, 23, 20,
+    ];
     let cube_mesh_id = render_engine.get_device_mut()
-        .and_then(|d| unsafe { d.create_mesh(cube_positions, cube_indexes) })
+        .and_then(|d| unsafe { d.create_mesh(cube_vertices, cube_indexes) })
         .unwrap_or_else(|e| panic!("{}", e));
     let cube_mesh = Mesh::new(cube_mesh_id);
     let cube_transform = Transform::new(
@@ -187,11 +231,11 @@ const MOVE_CUBE: System = |entites: Iter<Entity>, components: &mut ComponentMana
                 let rot_speed = 90.0 * time_delta.since_last_frame.as_secs_f32();
 
                 if window.is_key_down(VirtualKey::J) && !window.is_key_down(VirtualKey::L) {
-                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_speed).unwrap();
+                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
                     transform.rot = (transform.rot * spin).normalized().unwrap();
                 }
                 if window.is_key_down(VirtualKey::L) && !window.is_key_down(VirtualKey::J) {
-                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
+                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_speed).unwrap();
                     transform.rot = (transform.rot * spin).normalized().unwrap();
                 }
                 if window.is_key_down(VirtualKey::I) && !window.is_key_down(VirtualKey::K) {

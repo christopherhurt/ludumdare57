@@ -1,8 +1,7 @@
 use vulkanalia::vk;
-use vulkanalia::vk::HasBuilder;
 
 use crate::core::Color;
-use crate::math::{Mat4, Vec3};
+use crate::math::Mat4;
 use crate::render_engine::MeshId;
 
 #[derive(Clone, Debug)]
@@ -68,31 +67,4 @@ pub(in crate::render_engine::vulkan) struct UniformBufferObject {
     pub(in crate::render_engine::vulkan) view: Mat4,
     pub(in crate::render_engine::vulkan) proj: Mat4,
     pub(in crate::render_engine::vulkan) color: Color,
-}
-
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub(in crate::render_engine::vulkan) struct Vertex {
-    pub(in crate::render_engine::vulkan) pos: Vec3,
-}
-
-impl Vertex {
-    pub(in crate::render_engine::vulkan) fn binding_description() -> vk::VertexInputBindingDescription {
-        vk::VertexInputBindingDescription::builder()
-            .binding(0)
-            .stride(size_of::<Vertex>() as u32)
-            .input_rate(vk::VertexInputRate::VERTEX)
-            .build()
-    }
-
-    pub(in crate::render_engine::vulkan) fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 1] {
-        let pos = vk::VertexInputAttributeDescription::builder()
-            .binding(0)
-            .location(0)
-            .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(0)
-            .build();
-
-        [pos]
-    }
 }
