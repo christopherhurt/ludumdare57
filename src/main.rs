@@ -2,9 +2,10 @@ use anyhow::Result;
 use math::{get_proj_matrix, vec2, vec3, Quat, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
+use std::time::Duration;
 
 use crate::component_bindings::{Mesh, VulkanComponent};
-use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW};
+use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
@@ -40,6 +41,7 @@ fn init_ecs() -> ECS {
         .with_component::<VulkanComponent>()
         .with_component::<TimeDelta>()
         .with_component::<Particle>()
+        .with_component::<Timer>()
         .with_component::<MeshWrapper>()
         .build()
 }
@@ -161,7 +163,12 @@ fn create_scene(ecs: &mut ECS) {
 
     let cube_mesh_wrapper = MeshWrapper { my_id: 0, id: cube_mesh_id };
     let cube_mesh_wrapper_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_mesh_wrapper_entity, cube_mesh_wrapper);
+    ecs.attach_provisional_component(&cube_mesh_wrapper_entity, cube_mesh_wrapper.clone());
+
+    let firework_spawner_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&firework_spawner_entity, cube_mesh_wrapper);
+    ecs.attach_provisional_component(&firework_spawner_entity, Timer::for_initial_duration(Duration::from_secs(3)));
+    ecs.attach_provisional_component(&firework_spawner_entity, Transform::new(vec3(20.0, 0.0, 0.0), Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), VEC_3_ZERO));
 
     let vulkan = VulkanComponent::new(render_engine);
     let vulkan_entity = ecs.create_entity();
@@ -176,9 +183,11 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(PUSH_CUBES, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
+    ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
+    ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
 }
 
@@ -400,6 +409,30 @@ const TURN_CUBES: System = |entites: Iter<Entity>, components: &mut ComponentMan
     }
 };
 
+const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+    let pos = &entites.clone().find_map(|e| components.get_component::<Transform>(e)).unwrap().pos;
+    let mesh_id = &entites.clone().find_map(|e| components.get_component::<MeshWrapper>(e).filter(|m| m.my_id == 0)).unwrap().id;
+
+    for e in entites {
+        if let Some(timer) = components.get_mut_component::<Timer>(e) {
+            if timer.remaining_duration.is_none() {
+                let mesh = Mesh::new(mesh_id.clone());
+                let color_material = ColorMaterial::new(PURPLE);
+                let transform = Transform::new(pos.clone(), Quat::from_axis_spin(&VEC_3_Y_AXIS, 45.0).unwrap(), vec3(1.0, 1.0, 1.0));
+                let particle = Particle::new(VEC_3_Y_AXIS * 10.0, 0.9999999, 0.1);
+
+                let proj_entity = commands.create_entity();
+                commands.attach_provisional_component(&proj_entity, mesh);
+                commands.attach_provisional_component(&proj_entity, color_material);
+                commands.attach_provisional_component(&proj_entity, transform);
+                commands.attach_provisional_component(&proj_entity, particle);
+
+                timer.reset();
+            }
+        }
+    }
+};
+
 const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
     let vulkan = entites.clone().find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
     let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
@@ -426,6 +459,16 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut Compo
     };
 
     vulkan.render_engine.sync_state(render_state).unwrap_or_default();
+};
+
+const UPDATE_TIMERS: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+
+    for e in entites {
+        if let Some(timer) = components.get_mut_component::<Timer>(e) {
+            timer.update(&time_delta.since_last_frame);
+        }
+    }
 };
 
 const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {

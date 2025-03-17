@@ -181,3 +181,66 @@ impl Default for TimeDelta {
 }
 
 impl Component for TimeDelta {}
+
+// Timer
+
+pub struct Timer {
+    pub start_value: f32,
+    pub end_value: f32,
+    pub initial_duration: Duration,
+    pub current_value: f32,
+    pub remaining_duration: Option<Duration>,
+}
+
+impl Timer {
+    pub fn new(start_value: f32, end_value: f32, initial_duration: Duration) -> Self {
+        Self {
+            start_value,
+            end_value,
+            initial_duration,
+            current_value: get_current_value(start_value, end_value, initial_duration),
+            remaining_duration: get_remaining_duration(start_value, end_value, initial_duration),
+        }
+    }
+
+    pub fn for_initial_duration(initial_duration: Duration) -> Self {
+        Timer::new(0.0, 1.0, initial_duration)
+    }
+
+    pub fn reset(&mut self) {
+        self.current_value = get_current_value(self.start_value, self.end_value, self.initial_duration);
+        self.remaining_duration = get_remaining_duration(self.start_value, self.end_value, self.initial_duration);
+    }
+
+    pub(in crate) fn update(&mut self, time_delta: &Duration) {
+        if let Some(d) = self.remaining_duration {
+            self.remaining_duration = d.checked_sub(*time_delta);
+
+            if let Some(d) = self.remaining_duration {
+                let ratio = d.as_secs_f32() / self.initial_duration.as_secs_f32();
+
+                self.current_value = self.start_value + (self.end_value - self.start_value) * (1.0 - ratio);
+            } else {
+                self.current_value = self.end_value;
+            }
+        }
+    }
+}
+
+fn get_current_value(start_value: f32, end_value: f32, initial_duration: Duration) -> f32 {
+    if initial_duration.is_zero() {
+        end_value
+    } else {
+        start_value
+    }
+}
+
+fn get_remaining_duration(start_value: f32, end_value: f32, initial_duration: Duration) -> Option<Duration> {
+    if initial_duration.is_zero() || start_value == end_value {
+        None
+    } else {
+        Some(initial_duration)
+    }
+}
+
+impl Component for Timer {}
