@@ -95,6 +95,7 @@ pub enum VirtualKey {
     Y,
     Z,
     Space,
+    Enter,
     Up,
     Left,
     Down,

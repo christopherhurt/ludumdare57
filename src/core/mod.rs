@@ -31,11 +31,23 @@ impl Color {
     }
 }
 
+impl PartialEq<Color> for Color {
+    fn eq(&self, other: &Color) -> bool {
+        (self.r - other.r).abs() < f32::EPSILON
+            && (self.g - other.g).abs() < f32::EPSILON
+            && (self.b - other.b).abs() < f32::EPSILON
+            && (self.a - other.a).abs() < f32::EPSILON
+    }
+}
+
+impl Eq for Color {}
+
 pub const RED: Color = Color::rgb(1.0, 0.0, 0.0);
 pub const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
 pub const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
 pub const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
 pub const ORANGE: Color = Color::rgb(1.0, 0.35, 0.0);
+pub const PURPLE: Color = Color::rgb(0.5, 0.0, 0.5);
 
 // Camera
 

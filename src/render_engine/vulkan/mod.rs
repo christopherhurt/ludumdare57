@@ -336,20 +336,24 @@ unsafe fn update_uniforms(
     ubos: &Vec<UniformBufferObject>,
     ubo_alignment: usize,
 ) -> Result<()> {
-    let memory = device.map_memory(
-        uniform_memory,
-        0,
-        (ubo_alignment * ubos.len()) as u64,
-        vk::MemoryMapFlags::empty(),
-    )?;
+    if !ubos.is_empty() {
+        let memory = device.map_memory(
+            uniform_memory,
+            0,
+            (ubo_alignment * ubos.len()) as u64,
+            vk::MemoryMapFlags::empty(),
+        )?;
 
-    for i in 0..ubos.len() {
-        std::ptr::copy_nonoverlapping(ubos.as_ptr().add(i), (memory.cast::<u8>().add(i * ubo_alignment)).cast(), 1);
+        for i in 0..ubos.len() {
+            std::ptr::copy_nonoverlapping(ubos.as_ptr().add(i), (memory.cast::<u8>().add(i * ubo_alignment)).cast(), 1);
+        }
+
+        device.unmap_memory(uniform_memory);
+
+        Ok(())
+    } else {
+        Ok(())
     }
-
-    device.unmap_memory(uniform_memory);
-
-    Ok(())
 }
 
 impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine {
@@ -699,6 +703,7 @@ const fn get_vk_for_winit_physical_key(key_code: PhysicalKey) -> VirtualKey {
 fn get_vk_for_winit_logical_key(named_key: Key) -> VirtualKey {
     match named_key {
         Key::Named(NamedKey::Space) => VirtualKey::Space,
+        Key::Named(NamedKey::Enter) => VirtualKey::Enter,
         Key::Named(NamedKey::ArrowUp) => VirtualKey::Up,
         Key::Named(NamedKey::ArrowLeft) => VirtualKey::Left,
         Key::Named(NamedKey::ArrowDown) => VirtualKey::Down,
