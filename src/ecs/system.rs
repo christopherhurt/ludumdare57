@@ -5,7 +5,7 @@ use crate::ecs::{ECSCommands, Signature};
 use crate::ecs::component::ComponentManager;
 use crate::ecs::entity::Entity;
 
-pub type System = fn(entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands);
+pub type System = fn(entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands);
 
 pub(in crate::ecs) struct SystemManager {
     pub(in crate::ecs) system: System,

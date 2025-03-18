@@ -181,7 +181,9 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
+    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
     ecs.register_system(PUSH_CUBES, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
+    ecs.register_system(APPLY_GRAVITY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
     ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
@@ -191,7 +193,8 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
 }
 
-const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+// Built-in
+const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     entites.for_each(|e| {
         let vulkan = components.get_component::<VulkanComponent>(e).unwrap();
 
@@ -201,7 +204,8 @@ const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &mut ComponentM
     });
 };
 
-const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+// Built-in
+const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     entites.for_each(|e| {
         let time_delta = components.get_mut_component::<TimeDelta>(e).unwrap();
 
@@ -216,7 +220,7 @@ const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &mut C
     });
 };
 
-const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
 
@@ -274,7 +278,7 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &mut ComponentMa
     }
 };
 
-const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
     let mesh_id = entites.clone().find_map(|e|
         components.get_component::<MeshWrapper>(e).filter(|m| m.my_id == 0)
@@ -310,7 +314,8 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &mut Compon
     }
 };
 
-const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+// Built-in
+const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
     let delta = time_delta.since_last_frame.as_secs_f32();
 
@@ -329,49 +334,49 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &mut Compon
             //  is not terribly close to 0. However, this operation is expensive, so we wouldn't want to do it when we're applying this
             //  to a huge number of particles, for example.
             particle.vel *= DAMPING.powf(delta);
+
+            particle.force_accum = VEC_3_ZERO;
         }
     }
 };
 
-const PUSH_CUBES: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    for (e, transform, _, _) in get_cubes(entites, components) {
+        let game_bounds = 50.0;
+
+        if transform.pos.len() > game_bounds {
+            commands.destroy_entity(e);
+        }
+    }
+};
+
+const PUSH_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
     const PUSH_DIST: f32 = 8.0;
     const FORCE_FACTOR: f32 = 1.0;
 
-    for e in entites {
-        let transform = components.get_component::<Transform>(e);
-        let particle = components.get_mut_component::<Particle>(e);
-        let material = components.get_mut_component::<ColorMaterial>(e);
-
-        if transform.is_some() && particle.is_some() && material.is_some() {
-            let transform = transform.unwrap();
-            let particle = particle.unwrap();
-            let material = material.unwrap();
-
-            if material.color == PURPLE {
-                particle.force_accum.y = particle.mass * -5.0;
-            } else if material.color == BLUE {
-                particle.force_accum.y = particle.mass * 0.6;
-            } else {
-                let diff = transform.pos - cam.pos;
-                if diff.len() <= PUSH_DIST {
-                    particle.force_accum = diff / PUSH_DIST * FORCE_FACTOR;
-                } else {
-                    particle.force_accum = VEC_3_ZERO;
-                }
-            }
-
-            let game_bounds = 50.0;
-
-            if transform.pos.len() > game_bounds {
-                commands.destroy_entity(e);
+    for (_, transform, particle, material) in get_cubes(entites, components) {
+        if material.color != PURPLE && material.color != BLUE {
+            let diff = transform.pos - cam.pos;
+            if diff.len() <= PUSH_DIST {
+                particle.force_accum += diff / PUSH_DIST * FORCE_FACTOR;
             }
         }
     }
 };
 
-const TURN_CUBES: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+const APPLY_GRAVITY: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    for (_, _, particle, material) in get_cubes(entites, components) {
+        if material.color == PURPLE {
+            particle.force_accum.y += particle.mass * -5.0;
+        } else if material.color == BLUE {
+            particle.force_accum.y += particle.mass * 0.6;
+        }
+    }
+};
+
+const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
 
@@ -409,7 +414,7 @@ const TURN_CUBES: System = |entites: Iter<Entity>, components: &mut ComponentMan
     }
 };
 
-const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let pos = &entites.clone().find_map(|e| components.get_component::<Transform>(e)).unwrap().pos;
     let mesh_id = &entites.clone().find_map(|e| components.get_component::<MeshWrapper>(e).filter(|m| m.my_id == 0)).unwrap().id;
 
@@ -433,7 +438,8 @@ const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &mut Compone
     }
 };
 
-const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+// Built-in
+const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let vulkan = entites.clone().find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
     let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
 
@@ -461,7 +467,8 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &mut Compo
     vulkan.render_engine.sync_state(render_state).unwrap_or_default();
 };
 
-const UPDATE_TIMERS: System = |entites: Iter<Entity>, components: &mut ComponentManager, _: &mut ECSCommands| {
+// Built-in
+const UPDATE_TIMERS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
 
     for e in entites {
@@ -471,7 +478,8 @@ const UPDATE_TIMERS: System = |entites: Iter<Entity>, components: &mut Component
     }
 };
 
-const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut ComponentManager, commands: &mut ECSCommands| {
+// Built-in
+const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     if commands.is_shutting_down() {
         entites.for_each(|e| {
             let vulkan = components.get_mut_component::<VulkanComponent>(e).unwrap();
@@ -483,6 +491,22 @@ const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &mut 
         });
     }
 };
+
+fn get_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -> impl Iterator<Item = (&'a Entity, &'a Transform, &'a mut Particle, &'a ColorMaterial)> {
+    entities.map(|e| {
+        let transform = components.get_component::<Transform>(e);
+        let particle = components.get_mut_component::<Particle>(e);
+        let material = components.get_component::<ColorMaterial>(e);
+
+        if transform.is_some() && particle.is_some() && material.is_some() {
+            Some((e, transform.unwrap(), particle.unwrap(), material.unwrap()))
+        } else {
+            None
+        }
+    })
+    .filter(|e| e.is_some())
+    .map(|e| e.unwrap())
+}
 
 #[derive(Debug, Clone)]
 struct MeshWrapper {
