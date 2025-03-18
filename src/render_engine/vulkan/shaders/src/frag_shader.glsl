@@ -7,7 +7,7 @@ layout(location = 0) out vec4 outColor;
 
 void main() {
     // TODO: hardcoded directional light
-    vec3 lightDir = normalize(vec3(0.0, 0.0, 1.0));
+    vec3 lightDir = normalize(vec3(-0.25, -0.5, 1.0));
     float diffuseDot = max(dot(fragNormal, -lightDir), 0.0);
     float ambientFactor = 0.2;
 

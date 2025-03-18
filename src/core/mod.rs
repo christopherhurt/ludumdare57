@@ -48,6 +48,9 @@ pub const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
 pub const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
 pub const ORANGE: Color = Color::rgb(1.0, 0.35, 0.0);
 pub const PURPLE: Color = Color::rgb(0.5, 0.0, 0.5);
+pub const BLACK: Color = Color::rgb(0.0, 0.0, 0.0);
+pub const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
+pub const MAGENTA: Color = Color::rgb(1.0, 0.0, 1.0);
 
 // Camera
 
