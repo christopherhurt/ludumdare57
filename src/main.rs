@@ -184,6 +184,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
     ecs.register_system(PUSH_CUBES, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_GRAVITY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
     ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
@@ -372,6 +373,19 @@ const APPLY_GRAVITY: System = |entites: Iter<Entity>, components: &ComponentMana
             particle.force_accum.y += particle.mass * -5.0;
         } else if material.color == BLUE {
             particle.force_accum.y += particle.mass * 0.6;
+        }
+    }
+};
+
+const APPLY_DRAG: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    const K1: f32 = 0.05;
+    const K2: f32 = 0.05;
+
+    for (_, _, particle, material) in get_cubes(entites, components) {
+        if material.color == PURPLE {
+            if let Ok(speed) = particle.vel.normalized() {
+                particle.force_accum += -particle.vel * (K1 * speed + K2 * speed * speed);
+            }
         }
     }
 };

@@ -7,6 +7,7 @@ pub struct Particle {
     pub vel: Vec3,
     pub acc: Vec3,
     pub damping: f32,
+    // TODO: consider including gravity value here instead of as its own system?
     pub mass: f32,
     pub force_accum: Vec3,
 }
