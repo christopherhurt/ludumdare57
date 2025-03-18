@@ -440,6 +440,7 @@ const PUSH_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager
     }
 };
 
+// TODO: formalize force generator functions and move and generalize them to the physics module as I see fit
 const APPLY_GRAVITY: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     for (_, _, particle, material) in get_cubes(entites, components) {
         if material.color == PURPLE {
