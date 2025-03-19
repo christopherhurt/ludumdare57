@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use crate::component_bindings::{Mesh, VulkanComponent};
-use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW, BLACK, WHITE, MAGENTA, GREEN};
+use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW, BLACK, WHITE, MAGENTA, GREEN, GRAY};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
@@ -231,6 +231,20 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_8_entity, cube_8_color_material);
     ecs.attach_provisional_component(&cube_8_entity, cube_8_particle);
 
+    let cube_9_mesh = Mesh::new(cube_mesh_id);
+    let cube_9_transform = Transform::new(
+        vec3(-10.0, 10.0, 30.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(6.0, 6.0, 6.0),
+    );
+    let cube_9_color_material = ColorMaterial::new(GRAY);
+    let cube_9_particle = Particle::new(VEC_3_ZERO, 1.0, 10.0);
+    let cube_9_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_9_entity, cube_9_mesh);
+    ecs.attach_provisional_component(&cube_9_entity, cube_9_transform);
+    ecs.attach_provisional_component(&cube_9_entity, cube_9_color_material);
+    ecs.attach_provisional_component(&cube_9_entity, cube_9_particle);
+
     let cube_mesh_wrapper = MeshWrapper { my_id: 0, id: cube_mesh_id };
     let cube_mesh_wrapper_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_mesh_wrapper_entity, cube_mesh_wrapper.clone());
@@ -258,6 +272,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_DAMPED_HARMONIC_MOTION, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -350);
     ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
     ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
@@ -407,7 +422,7 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
             // Raising to the delta power makes the damping more realistic when frame times are inconsistent, especially when damping
             //  is not terribly close to 0. However, this operation is expensive, so we wouldn't want to do it when we're applying this
             //  to a huge number of particles, for example.
-            particle.vel *= DAMPING.powf(delta);
+            particle.vel *= particle.damping.powf(delta);
 
             particle.force_accum = VEC_3_ZERO;
         }
@@ -416,7 +431,7 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
 
 const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     for (e, transform, _, _) in get_cubes(entites, components) {
-        let game_bounds = 100.0;
+        let game_bounds = 250.0;
 
         if transform.pos.len() > game_bounds {
             commands.destroy_entity(e);
@@ -431,7 +446,7 @@ const PUSH_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager
     const FORCE_FACTOR: f32 = 1.0;
 
     for (_, transform, particle, material) in get_cubes(entites, components) {
-        if material.color != PURPLE && material.color != BLUE {
+        if material.color != PURPLE && material.color != BLUE && material.color != GRAY {
             let diff = transform.pos - cam.pos;
             if diff.len() <= PUSH_DIST {
                 particle.force_accum += diff / PUSH_DIST * FORCE_FACTOR;
@@ -522,6 +537,44 @@ const APPLY_BUOYANCY: System = |entites: Iter<Entity>, components: &ComponentMan
             let d = ((transform.pos.y - WATER_HEIGHT - submersion_depth) / (2.0 * submersion_depth)).max(0.0).min(1.0);
 
             particle.force_accum += vec3(0.0, d * DENSITY * volume, 0.0);
+        }
+    }
+};
+
+// TODO: this is really just for demonstration purposes and prob shouldn't make it into the actual engine, or only some minimally used version of it
+//  This also seems to be EXTREMELY unstable for high frame rates because the calculated accereleration is huge. We might be able to mitigate it by
+//  applying a large multiplier to delta like below and finding the right K value, but the whole thing seemed pretty scuffed. They also don't really
+//  work at all when combined with any other forces, like gravity, because those are not included in the target position calculation. Best thing is
+//  probably just to avoid these types of forces calculated by target destination. Note though that the point of this type of force calculation is
+//  to avoid issues related to very high K values, i.e. "stiff springs". A trivial spring force implementation would also likely have issues caused
+//  by very large acceleration values when K values are high. From book - "When the action of the spring is faster than the time between simulated
+//  frames, then the spring can get unruly and out of control."
+const APPLY_DAMPED_HARMONIC_MOTION: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta = time_delta.since_last_frame.as_secs_f32();
+
+    let delta = delta * 1000.0; // YIKES
+
+    const DAMPING: f32 = 0.995;
+    const K: f32 = 100.0;
+
+    if delta > 0.0 {
+        for (_, transform, particle, material) in get_cubes(entites, components) {
+            if material.color == GRAY {
+                let anchor_pos = vec3(-10.0, 12.0, 30.0);
+                let rel_pos = transform.pos - anchor_pos;
+
+                let gamma = 0.5 * (4.0 * K - DAMPING * DAMPING).sqrt();
+
+                if gamma != 0.0 {
+                    let c = rel_pos * (DAMPING / (2.0 * gamma)) + particle.vel / gamma;
+
+                    let target = (rel_pos * (gamma * delta).cos() + c * (gamma * delta).sin()) * std::f32::consts::E.powf(-0.5 * delta * DAMPING);
+
+                    let acceleration = (target - rel_pos) / (delta * delta) - particle.vel * delta;
+                    particle.force_accum += acceleration * particle.mass;
+                }
+            }
         }
     }
 };
