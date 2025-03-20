@@ -1,5 +1,7 @@
 use anyhow::Result;
 use math::{get_proj_matrix, vec2, vec3, Quat, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use rand::Rng;
+use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -10,7 +12,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::Particle;
+use crate::physics::{Particle, ParticleCollision, ParticleCollisionDetector, ParticleCollisionResolver};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
 
@@ -41,6 +43,9 @@ fn init_ecs() -> ECS {
         .with_component::<VulkanComponent>()
         .with_component::<TimeDelta>()
         .with_component::<Particle>()
+        .with_component::<ParticleCollision>()
+        .with_component::<ParticleCollisionDetector>()
+        .with_component::<ParticleCollisionResolver>()
         .with_component::<Timer>()
         .with_component::<MeshWrapper>()
         .build()
@@ -262,6 +267,14 @@ fn create_scene(ecs: &mut ECS) {
     let time_delta_entity = ecs.create_entity();
     ecs.attach_provisional_component(&time_delta_entity, time_delta);
 
+    let particle_collision_detector = ParticleCollisionDetector::new(0.1);
+    let particle_collision_detector_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&particle_collision_detector_entity, particle_collision_detector);
+
+    let particle_collision_resolver = ParticleCollisionResolver::new(2.0);
+    let particle_collision_resolver_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&particle_collision_resolver_entity, particle_collision_resolver);
+
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
@@ -277,6 +290,8 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
+    ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
+    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionResolver>().unwrap()]), -99);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
@@ -578,6 +593,150 @@ const APPLY_DAMPED_HARMONIC_MOTION: System = |entites: Iter<Entity>, components:
         }
     }
 };
+
+// Built-in
+const DETECT_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    // TODO: this system will be overhauled later, this is just a simple collision detector for testing
+
+    let collision_detector = entites.clone().find_map(|e| components.get_component::<ParticleCollisionDetector>(e)).unwrap();
+
+    const FLOOR_HEIGHT: f32 = -15.0;
+
+    let mut rng = rand::rng();
+
+    for e in entites {
+        let transform = components.get_component::<Transform>(e);
+        let particle = components.get_component::<Particle>(e);
+
+        if transform.is_some() && particle.is_some() { // Only check that a Particle component exists, otherwise it's not needed
+            let transform = transform.unwrap();
+
+            if transform.pos.y <= FLOOR_HEIGHT {
+                let restitution = if rng.random_range(0.0..1.0) < 0.5 {
+                    rng.random_range(0.0..1.0)
+                } else {
+                    collision_detector.default_restitution
+                };
+
+                let collision = ParticleCollision::new(e.clone(), None, restitution, VEC_3_Y_AXIS, FLOOR_HEIGHT - transform.pos.y);
+
+                let collision_entity = commands.create_entity();
+                commands.attach_provisional_component(&collision_entity, collision);
+            }
+        }
+    }
+};
+
+// Built-in
+const RESOLVE_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let collision_resolver = entites.clone().find_map(|e| components.get_component::<ParticleCollisionResolver>(e)).unwrap();
+
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
+
+    let collisions = entites
+        .map(|e| (e, components.get_component::<ParticleCollision>(e)))
+        .filter(|(_, c)| c.is_some())
+        .map(|(e, c)| (e, c.unwrap()));
+
+    // TODO: this seems rather inefficient/stupid... is there a better way of getting an appropriate counter value here?
+    let num_collision_entities = collisions.clone().count();
+    let num_iterations = (collision_resolver.num_iterations_factor * (num_collision_entities as f32)) as usize;
+
+    // TODO: add capability to prune/exit early when no velocity or interpenetration needs to be resolved
+    for _ in 0..num_iterations {
+        let to_resolve = collisions.clone().min_by(|(_, c0), (_, c1)|
+            calculate_separating_velocity(c0, components).partial_cmp(&calculate_separating_velocity(c1, components)).unwrap_or(Ordering::Less));
+
+        if let Some((_, to_resolve)) = to_resolve {
+            resolve_velocity(to_resolve, components, delta_sec);
+            resolve_interpenetration(to_resolve, components);
+        } else {
+            break;
+        }
+    }
+
+    // TODO: can we reuse ParticleCollision entities frame to frame, or otherwise make this more efficient?
+    for (e, _) in collisions {
+        commands.destroy_entity(e);
+    }
+};
+
+fn calculate_separating_velocity(collision: &ParticleCollision, components: &ComponentManager) -> f32 {
+    let particle_a = components.get_component::<Particle>(&collision.particle_a)
+        .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &collision.particle_a));
+
+    let mut rel_vel = particle_a.vel;
+
+    if let Some(entity_b) = collision.particle_b {
+        let particle_b = components.get_component::<Particle>(&entity_b)
+            .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &collision.particle_b));
+
+        rel_vel -= particle_b.vel;
+    }
+
+    rel_vel.dot(&collision.normal)
+}
+
+fn resolve_velocity(collision: &ParticleCollision, components: &ComponentManager, delta_sec: f32) {
+    let sep_vel = calculate_separating_velocity(collision, components);
+
+    if sep_vel <= 0.0 {
+        let particle_a = components.get_mut_component::<Particle>(&collision.particle_a)
+            .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &collision.particle_a));
+        let particle_b = collision.particle_b.map(|b| components.get_mut_component::<Particle>(&b)
+            .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &b)));
+
+        let mut new_sep_vel = -sep_vel * collision.restitution;
+
+        let acc_a = particle_a.acc;
+        let acc_b = particle_b.as_ref().map(|b| b.acc).unwrap_or(VEC_3_ZERO);
+        let sep_vel_caused_by_acc = (acc_a - acc_b).dot(&collision.normal) * delta_sec;
+
+        // Adjust for resting collisions
+        if sep_vel_caused_by_acc < 0.0 {
+            new_sep_vel = (new_sep_vel + sep_vel_caused_by_acc * collision.restitution).max(0.0);
+        }
+
+        let delta_sep_vel = new_sep_vel - sep_vel;
+
+        let mass_factor_a = particle_b.as_ref().map(|b| particle_a.mass / (particle_a.mass + b.mass)).unwrap_or(1.0);
+
+        particle_a.vel += mass_factor_a * delta_sep_vel * collision.normal;
+
+        if let Some(b) = particle_b {
+            let mass_factor_b = b.mass / (particle_a.mass + b.mass);
+
+            b.vel += mass_factor_b * delta_sep_vel * -collision.normal;
+        }
+    }
+}
+
+fn resolve_interpenetration(collision: &ParticleCollision, components: &ComponentManager) {
+    if collision.penetration > 0.0 {
+        let particle_a = components.get_component::<Particle>(&collision.particle_a)
+            .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &collision.particle_a));
+        let particle_b = collision.particle_b.map(|b| components.get_component::<Particle>(&b)
+            .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &b)));
+
+        let transform_a = components.get_mut_component::<Transform>(&collision.particle_a)
+            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &collision.particle_a));
+        let transform_b = collision.particle_b.map(|b| components.get_mut_component::<Transform>(&b)
+            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &b)));
+
+        let mass_factor_a = particle_b.map(|b| b.mass / (particle_a.mass + b.mass)).unwrap_or(1.0);
+
+        transform_a.pos += mass_factor_a * collision.penetration * collision.normal;
+
+        if let Some(particle_b) = particle_b {
+            let transform_b = transform_b.unwrap();
+
+            let mass_factor_b = particle_a.mass / (particle_a.mass + particle_b.mass);
+
+            transform_b.pos += mass_factor_b * collision.penetration * -collision.normal;
+        }
+    }
+}
 
 const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
