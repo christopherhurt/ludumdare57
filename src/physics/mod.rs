@@ -1,6 +1,5 @@
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::ecs::ProvisionalEntity;
 use crate::math::{Vec3, VEC_3_ZERO};
 
 // Particle
@@ -149,19 +148,3 @@ impl ParticleCollisionDetector {
 }
 
 impl Component for ParticleCollisionDetector {}
-
-// ParticleCollisionResolver
-
-#[derive(Clone, Debug)]
-pub struct ParticleCollisionResolver {
-    // TODO: Make this Option<f32> where a value of None indicates to continue the resolver until all velocities and interpenetrations are resolved
-    pub num_iterations_factor: f32,
-}
-
-impl ParticleCollisionResolver {
-    pub fn new(num_iterations_factor: f32) -> Self {
-        Self { num_iterations_factor }
-    }
-}
-
-impl Component for ParticleCollisionResolver {}

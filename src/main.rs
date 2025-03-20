@@ -12,7 +12,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, ParticleCollisionResolver};
+use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
 
@@ -47,7 +47,6 @@ fn init_ecs() -> ECS {
         .with_component::<ParticleRod>()
         .with_component::<ParticleCollision>()
         .with_component::<ParticleCollisionDetector>()
-        .with_component::<ParticleCollisionResolver>()
         .with_component::<Timer>()
         .with_component::<MeshWrapper>()
         .build()
@@ -329,10 +328,6 @@ fn create_scene(ecs: &mut ECS) {
     let particle_collision_detector_entity = ecs.create_entity();
     ecs.attach_provisional_component(&particle_collision_detector_entity, particle_collision_detector);
 
-    let particle_collision_resolver = ParticleCollisionResolver::new(2.0);
-    let particle_collision_resolver_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&particle_collision_resolver_entity, particle_collision_resolver);
-
     ecs.register_system(INIT_CABLE_AND_ROD, HashSet::from([ecs.get_system_signature_0().unwrap()]), -10_000);
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
@@ -352,7 +347,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
-    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionResolver>().unwrap()]), -99);
+    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -99);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
@@ -790,31 +785,27 @@ const DETECT_PARTICLE_ROD_COLLISIONS: System = |entites: Iter<Entity>, component
 
 // Built-in
 const RESOLVE_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let collision_resolver = entites.clone().find_map(|e| components.get_component::<ParticleCollisionResolver>(e)).unwrap();
-
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
     let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-    let collisions = entites
+    let mut collisions = entites
         .map(|e| (e, components.get_component::<ParticleCollision>(e)))
         .filter(|(_, c)| c.is_some())
-        .map(|(e, c)| (e, c.unwrap()));
+        .map(|(e, c)| (e, c.unwrap()))
+        .collect::<Vec<_>>();
 
-    // TODO: this seems rather inefficient/stupid... is there a better way of getting an appropriate counter value here?
-    let num_collision_entities = collisions.clone().count();
-    let num_iterations = (collision_resolver.num_iterations_factor * (num_collision_entities as f32)) as usize;
+    collisions.sort_unstable_by(|(_, c0), (_, c1)|
+        calculate_separating_velocity(c0, components)
+            .partial_cmp(&calculate_separating_velocity(c1, components))
+            .unwrap_or(Ordering::Less)
+    );
 
-    // TODO: add capability to prune/exit early when no velocity or interpenetration needs to be resolved
-    for _ in 0..num_iterations {
-        let to_resolve = collisions.clone().min_by(|(_, c0), (_, c1)|
-            calculate_separating_velocity(c0, components).partial_cmp(&calculate_separating_velocity(c1, components)).unwrap_or(Ordering::Less));
-
-        if let Some((_, to_resolve)) = to_resolve {
-            resolve_velocity(to_resolve, components, delta_sec);
-            resolve_interpenetration(to_resolve, components);
-        } else {
-            break;
-        }
+    // NOTE: Since we're not recalculating collisions here, we can't use multiple iterations. Otherwise, resolve_iterpenetration would move
+    //  the particles with every iteration for the same collision, even if they're no longer penetrating after the first iteration. So, just
+    //  sort the collisions by separation velocity, then resolve them each once.
+    for (_, c) in collisions.clone() {
+        resolve_velocity(&c, components, delta_sec);
+        resolve_interpenetration(&c, components);
     }
 
     // TODO: can we reuse ParticleCollision entities frame to frame, or otherwise make this more efficient?
@@ -842,7 +833,7 @@ fn calculate_separating_velocity(collision: &ParticleCollision, components: &Com
 fn resolve_velocity(collision: &ParticleCollision, components: &ComponentManager, delta_sec: f32) {
     let sep_vel = calculate_separating_velocity(collision, components);
 
-    if sep_vel <= 0.0 {
+    if sep_vel < f32::EPSILON {
         let particle_a = components.get_mut_component::<Particle>(&collision.particle_a)
             .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &collision.particle_a));
         let particle_b = collision.particle_b.map(|b| components.get_mut_component::<Particle>(&b)
@@ -874,7 +865,7 @@ fn resolve_velocity(collision: &ParticleCollision, components: &ComponentManager
 }
 
 fn resolve_interpenetration(collision: &ParticleCollision, components: &ComponentManager) {
-    if collision.penetration > 0.0 {
+    if collision.penetration > f32::EPSILON {
         let particle_a = components.get_component::<Particle>(&collision.particle_a)
             .unwrap_or_else(|| panic!("Internal error: no Particle component for entity {:?}", &collision.particle_a));
         let particle_b = collision.particle_b.map(|b| components.get_component::<Particle>(&b)
