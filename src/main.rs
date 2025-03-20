@@ -7,12 +7,12 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use crate::component_bindings::{Mesh, VulkanComponent};
-use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW, BLACK, WHITE, MAGENTA, GREEN, GRAY};
+use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW, BLACK, WHITE, MAGENTA, GREEN, GRAY, BROWN, CYAN};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{Particle, ParticleCollision, ParticleCollisionDetector, ParticleCollisionResolver};
+use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, ParticleCollisionResolver};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
 
@@ -43,6 +43,8 @@ fn init_ecs() -> ECS {
         .with_component::<VulkanComponent>()
         .with_component::<TimeDelta>()
         .with_component::<Particle>()
+        .with_component::<ParticleCable>()
+        .with_component::<ParticleRod>()
         .with_component::<ParticleCollision>()
         .with_component::<ParticleCollisionDetector>()
         .with_component::<ParticleCollisionResolver>()
@@ -250,6 +252,62 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_9_entity, cube_9_color_material);
     ecs.attach_provisional_component(&cube_9_entity, cube_9_particle);
 
+    let cube_10_mesh = Mesh::new(cube_mesh_id);
+    let cube_10_transform = Transform::new(
+        vec3(-5.0, 0.0, 2.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(1.0, 1.0, 1.0),
+    );
+    let cube_10_color_material = ColorMaterial::new(BROWN);
+    let cube_10_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
+    let cube_10_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_10_entity, cube_10_mesh);
+    ecs.attach_provisional_component(&cube_10_entity, cube_10_transform);
+    ecs.attach_provisional_component(&cube_10_entity, cube_10_color_material);
+    ecs.attach_provisional_component(&cube_10_entity, cube_10_particle);
+
+    let cube_11_mesh = Mesh::new(cube_mesh_id);
+    let cube_11_transform = Transform::new(
+        vec3(-5.0, 0.0, -2.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(1.0, 1.0, 1.0),
+    );
+    let cube_11_color_material = ColorMaterial::new(BROWN);
+    let cube_11_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
+    let cube_11_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_11_entity, cube_11_mesh);
+    ecs.attach_provisional_component(&cube_11_entity, cube_11_transform);
+    ecs.attach_provisional_component(&cube_11_entity, cube_11_color_material);
+    ecs.attach_provisional_component(&cube_11_entity, cube_11_particle);
+
+    let cube_12_mesh = Mesh::new(cube_mesh_id);
+    let cube_12_transform = Transform::new(
+        vec3(5.0, 0.0, 3.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(2.0, 2.0, 2.0),
+    );
+    let cube_12_color_material = ColorMaterial::new(CYAN);
+    let cube_12_particle = Particle::new(VEC_3_ZERO, 1.0, 4.0);
+    let cube_12_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_12_entity, cube_12_mesh);
+    ecs.attach_provisional_component(&cube_12_entity, cube_12_transform);
+    ecs.attach_provisional_component(&cube_12_entity, cube_12_color_material);
+    ecs.attach_provisional_component(&cube_12_entity, cube_12_particle);
+
+    let cube_13_mesh = Mesh::new(cube_mesh_id);
+    let cube_13_transform = Transform::new(
+        vec3(5.0, 0.0, -3.0),
+        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        vec3(1.0, 1.0, 1.0),
+    );
+    let cube_13_color_material = ColorMaterial::new(CYAN);
+    let cube_13_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
+    let cube_13_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cube_13_entity, cube_13_mesh);
+    ecs.attach_provisional_component(&cube_13_entity, cube_13_transform);
+    ecs.attach_provisional_component(&cube_13_entity, cube_13_color_material);
+    ecs.attach_provisional_component(&cube_13_entity, cube_13_particle);
+
     let cube_mesh_wrapper = MeshWrapper { my_id: 0, id: cube_mesh_id };
     let cube_mesh_wrapper_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_mesh_wrapper_entity, cube_mesh_wrapper.clone());
@@ -275,6 +333,7 @@ fn create_scene(ecs: &mut ECS) {
     let particle_collision_resolver_entity = ecs.create_entity();
     ecs.attach_provisional_component(&particle_collision_resolver_entity, particle_collision_resolver);
 
+    ecs.register_system(INIT_CABLE_AND_ROD, HashSet::from([ecs.get_system_signature_0().unwrap()]), -10_000);
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
@@ -291,6 +350,8 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
+    ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
+    ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionResolver>().unwrap()]), -99);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
@@ -322,6 +383,29 @@ const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &Compo
             time_delta.timestamp = std::time::SystemTime::now();
         }
     });
+};
+
+// TODO: this is scuffed!
+const INIT_CABLE_AND_ROD: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    if !entites.clone().any(|e| components.get_component::<ParticleCable>(e).is_some()) {
+        let cable_entities = entites.clone()
+            .filter(|e| components.get_component::<ColorMaterial>(e).map(|m| m.color == CYAN).unwrap_or(false))
+            .collect::<Vec<_>>();
+
+        let cable = ParticleCable::new(cable_entities[0].clone(), cable_entities[1].clone(), 8.0, 0.5);
+
+        commands.attach_component(cable_entities[0], cable);
+    }
+
+    if !entites.clone().any(|e| components.get_component::<ParticleRod>(e).is_some()) {
+        let rod_entities = entites.clone()
+            .filter(|e| components.get_component::<ColorMaterial>(e).map(|m| m.color == BROWN).unwrap_or(false))
+            .collect::<Vec<_>>();
+
+        let rod = ParticleRod::new(rod_entities[0].clone(), rod_entities[1].clone(), 4.0);
+
+        commands.attach_component(rod_entities[0], rod);
+    }
 };
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -457,8 +541,8 @@ const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &Compone
 const PUSH_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
-    const PUSH_DIST: f32 = 8.0;
-    const FORCE_FACTOR: f32 = 1.0;
+    const PUSH_DIST: f32 = 2.0;
+    const FORCE_FACTOR: f32 = 75.0;
 
     for (_, transform, particle, material) in get_cubes(entites, components) {
         if material.color != PURPLE && material.color != BLUE && material.color != GRAY {
@@ -483,20 +567,25 @@ const APPLY_GRAVITY: System = |entites: Iter<Entity>, components: &ComponentMana
     }
 };
 
+// TODO: make built in
 const APPLY_DRAG: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     const K1: f32 = 0.05;
     const K2: f32 = 0.05;
 
     for (_, _, particle, material) in get_cubes(entites, components) {
-        if let Ok(speed) = particle.vel.normalized() {
+        let speed = particle.vel.len();
+
+        if let Ok(vel_dir) = particle.vel.normalized() {
             if material.color == PURPLE {
-                particle.force_accum += -particle.vel * (K1 * speed + K2 * speed * speed);
+                particle.force_accum += -vel_dir * (K1 * speed + K2 * speed * speed);
             } else if material.color == GREEN {
-                particle.force_accum += -particle.vel * (20.0 * speed + 20.0 * speed * speed);
+                particle.force_accum += -vel_dir * (2.0 * speed + 2.0 * speed * speed);
             } else if material.color == BLACK || material.color == WHITE {
-                particle.force_accum += -particle.vel * (1.0 * speed + 1.0 * speed * speed);
+                particle.force_accum += -vel_dir * (1.0 * speed + 1.0 * speed * speed);
             } else if material.color == MAGENTA {
-                particle.force_accum += -particle.vel * (10.0 * speed + 10.0 * speed * speed);
+                particle.force_accum += -vel_dir * (1.0 * speed + 1.0 * speed * speed);
+            } else if material.color == BROWN || material.color == CYAN {
+                particle.force_accum += -vel_dir * (0.1 * speed + 0.1 * speed * speed);
             }
         }
     }
@@ -623,6 +712,78 @@ const DETECT_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &
                 let collision_entity = commands.create_entity();
                 commands.attach_provisional_component(&collision_entity, collision);
             }
+        }
+    }
+};
+
+// Built-in
+const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let cables = entites
+        .map(|e| components.get_component::<ParticleCable>(e))
+        .filter(|c| c.is_some())
+        .map(|c| c.unwrap());
+
+    for c in cables {
+        // TODO: something other than panicking here...
+        let transform_a = components.get_component::<Transform>(&c.particle_a)
+            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &c.particle_a));
+        let transform_b = components.get_component::<Transform>(&c.particle_b)
+            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &c.particle_b));
+
+        let delta_pos = transform_b.pos - transform_a.pos;
+        let length = delta_pos.len();
+
+        if length >= c.max_length {
+            if let Ok(normal) = delta_pos.normalized() {
+                let collision = ParticleCollision::new(
+                    c.particle_a,
+                    Some(c.particle_b),
+                    c.restitution,
+                    normal,
+                    length - c.max_length,
+                );
+
+                let collision_entity = commands.create_entity();
+                commands.attach_provisional_component(&collision_entity, collision);
+            }
+        }
+    }
+};
+
+// Built-in
+const DETECT_PARTICLE_ROD_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let rods = entites
+        .map(|e| components.get_component::<ParticleRod>(e))
+        .filter(|r| r.is_some())
+        .map(|r| r.unwrap());
+
+    for r in rods {
+        let transform_a = components.get_component::<Transform>(&r.particle_a)
+            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &r.particle_a));
+        let transform_b = components.get_component::<Transform>(&r.particle_b)
+            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &r.particle_b));
+
+        let delta_pos = transform_b.pos - transform_a.pos;
+        let curr_length = delta_pos.len();
+
+        if let Ok(mut normal) = delta_pos.normalized() {
+            let mut penetration = curr_length - r.length;
+
+            if penetration < 0.0 {
+                normal *= -1.0;
+                penetration *= -1.0;
+            }
+
+            let collision = ParticleCollision::new(
+                r.particle_a,
+                Some(r.particle_b),
+                0.0,
+                normal,
+                penetration,
+            );
+
+            let collision_entity = commands.create_entity();
+            commands.attach_provisional_component(&collision_entity, collision);
         }
     }
 };

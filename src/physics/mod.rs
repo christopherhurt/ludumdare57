@@ -1,5 +1,6 @@
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
+use crate::ecs::ProvisionalEntity;
 use crate::math::{Vec3, VEC_3_ZERO};
 
 // Particle
@@ -42,6 +43,60 @@ impl Default for Particle {
 
 // TODO: remove this module's dependency on the ecs module?
 impl Component for Particle {}
+
+// ParticleCable
+
+// TODO: how to handle this paradigm for ProvisionalEntity??
+#[derive(Clone, Debug)]
+pub struct ParticleCable {
+    pub particle_a: Entity,
+    pub particle_b: Entity,
+    pub max_length: f32,
+    pub restitution: f32,
+}
+
+impl ParticleCable {
+    pub fn new(
+        particle_a: Entity,
+        particle_b: Entity,
+        max_length: f32,
+        restitution: f32,
+    ) -> Self {
+        Self {
+            particle_a,
+            particle_b,
+            max_length,
+            restitution,
+        }
+    }
+}
+
+impl Component for ParticleCable {}
+
+// ParticleRod
+
+#[derive(Clone, Debug)]
+pub struct ParticleRod {
+    pub particle_a: Entity,
+    pub particle_b: Entity,
+    pub length: f32,
+}
+
+impl ParticleRod {
+    pub fn new(
+        particle_a: Entity,
+        particle_b: Entity,
+        length: f32,
+    ) -> Self {
+        Self {
+            particle_a,
+            particle_b,
+            length,
+        }
+    }
+}
+
+impl Component for ParticleRod {}
 
 // ParticleCollision
 

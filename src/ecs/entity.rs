@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::ecs::Signature;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Entity(pub(in crate::ecs) usize);
+pub struct Entity(pub(in crate) usize);
 
 pub(in crate::ecs) struct EntityManager {
     entity_counter: usize,

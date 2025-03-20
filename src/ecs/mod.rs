@@ -16,7 +16,7 @@ pub mod system;
 pub(in crate::ecs) type Signature = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ProvisionalEntity(usize);
+pub struct ProvisionalEntity(pub(in crate) usize);
 
 enum EntityComponentCommandType {
     CreateEntity,
