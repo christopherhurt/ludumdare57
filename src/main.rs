@@ -700,12 +700,12 @@ fn resolve_velocity(collision: &ParticleCollision, components: &ComponentManager
 
         let delta_sep_vel = new_sep_vel - sep_vel;
 
-        let mass_factor_a = particle_b.as_ref().map(|b| particle_a.mass / (particle_a.mass + b.mass)).unwrap_or(1.0);
+        let mass_factor_a = particle_b.as_ref().map(|b| b.mass / (particle_a.mass + b.mass)).unwrap_or(1.0);
 
         particle_a.vel += mass_factor_a * delta_sep_vel * collision.normal;
 
         if let Some(b) = particle_b {
-            let mass_factor_b = b.mass / (particle_a.mass + b.mass);
+            let mass_factor_b = particle_a.mass / (particle_a.mass + b.mass);
 
             b.vel += mass_factor_b * delta_sep_vel * -collision.normal;
         }
