@@ -3,7 +3,6 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
-use std::mem::ManuallyDrop;
 
 use component::{Component, ComponentManager, SystemSignature};
 use entity::{Entity, EntityManager};
@@ -17,6 +16,10 @@ pub(in crate::ecs) type Signature = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProvisionalEntity(pub(in crate) usize);
+
+pub trait ECSActions {
+    fn update_provisional_entities(&self, _provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {}
+}
 
 enum EntityComponentCommandType {
     CreateEntity,
@@ -38,8 +41,8 @@ pub struct ECSCommands {
     provisional_entity_counter: usize,
     to_create: VecDeque<ProvisionalEntity>,
     to_destroy: VecDeque<Entity>,
-    to_attach: VecDeque<(Entity, TypeId, Box<[u8]>)>,
-    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Box<[u8]>)>,
+    to_attach: VecDeque<(Entity, TypeId, Box<dyn ECSActions>)>,
+    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Box<dyn ECSActions>)>,
     to_detach: VecDeque<(Entity, TypeId)>,
     to_register: VecDeque<(System, HashSet<SystemSignature>, i16)>,
     to_unregister: VecDeque<System>,
@@ -82,16 +85,12 @@ impl ECSCommands {
     }
 
     pub fn attach_component<T: Component>(&mut self, entity: &Entity, component: T) {
-        let raw_comp_data = component_to_boxed_slice(component);
-
-        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), raw_comp_data));
+        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), Box::new(component)));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachComponent);
     }
 
     pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: &ProvisionalEntity, component: T) {
-        let raw_comp_data = component_to_boxed_slice(component);
-
-        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), raw_comp_data));
+        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), Box::new(component)));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachProvisionalComponent);
     }
 
@@ -117,24 +116,6 @@ impl ECSCommands {
 
     pub fn is_shutting_down(&self) -> bool {
         self.to_shutdown
-    }
-}
-
-fn component_to_boxed_slice<T: Component>(component: T) -> Box<[u8]> {
-    let comp_size = size_of::<T>();
-
-    unsafe {
-        let ptr = &component as *const T as *const u8;
-        let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
-
-        // TODO: right now we're not actually doing the below... will need to figure out the right way to do this
-        // The Box below takes "ownership" of the component (or rather, its raw bytes), but if we don't wrap it in
-        //  the ManuallyDrop here, the component will still be dropped. Instead, we'll drop the component ourselves
-        //  when it's removed from the ComponentArray. This is safe because after ownership of the component is moved
-        //  to the ComponentArray, it doesn't change owners for the remainder of its lifetime.
-        let _ = ManuallyDrop::new(component);
-
-        Box::from(raw_slice)
     }
 }
 
@@ -277,19 +258,21 @@ fn flush_entity_component_commands(
                 entity_manager.destroy_entity(&entity)?;
             },
             EntityComponentCommandType::AttachComponent => {
-                let (entity, type_id, comp_data) = commands.to_attach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+                let (entity, type_id, component) = commands.to_attach.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
 
-                component_manager.attach_component(&entity, type_id, comp_data)?;
+                component_manager.attach_component(&entity, type_id, component)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
             },
             EntityComponentCommandType::AttachProvisionalComponent => {
-                let (provisional_entity, type_id, comp_data) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+                let (provisional_entity, type_id, component) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+
+                component.as_ref().update_provisional_entities(&provisional_entity_map);
 
                 let entity = *provisional_entity_map.get(&provisional_entity).unwrap_or_else(|| panic!("Internal error: provisional entity {:?} was not created before attaching a component to it", provisional_entity));
 
-                component_manager.attach_component(&entity, type_id, comp_data)?;
+                component_manager.attach_component(&entity, type_id, component)?;
 
                 let component_signature = component_manager.get_signature(type_id)?;
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;

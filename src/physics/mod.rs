@@ -1,3 +1,4 @@
+use crate::ecs::ECSActions;
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
 use crate::math::{Vec3, VEC_3_ZERO};
@@ -42,6 +43,7 @@ impl Default for Particle {
 
 // TODO: remove this module's dependency on the ecs module?
 impl Component for Particle {}
+impl ECSActions for Particle {}
 
 // ParticleCable
 
@@ -71,6 +73,7 @@ impl ParticleCable {
 }
 
 impl Component for ParticleCable {}
+impl ECSActions for ParticleCable {}
 
 // ParticleRod
 
@@ -96,6 +99,7 @@ impl ParticleRod {
 }
 
 impl Component for ParticleRod {}
+impl ECSActions for ParticleRod {}
 
 // ParticleCollision
 
@@ -133,6 +137,7 @@ impl ParticleCollision {
 }
 
 impl Component for ParticleCollision {}
+impl ECSActions for ParticleCollision {}
 
 // ParticleCollisionDetector
 
@@ -148,3 +153,4 @@ impl ParticleCollisionDetector {
 }
 
 impl Component for ParticleCollisionDetector {}
+impl ECSActions for ParticleCollisionDetector {}

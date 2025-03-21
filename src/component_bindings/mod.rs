@@ -1,6 +1,9 @@
+use crate::ecs::ECSActions;
 use crate::ecs::component::Component;
 use crate::render_engine::MeshId;
 use crate::render_engine::vulkan::VulkanRenderEngine;
+
+// TODO: move these bindings to the render module? and just accept the fact that other modules like physics will have a hard dependency on the ecs module/components...
 
 // Mesh
 
@@ -15,6 +18,7 @@ impl Mesh {
 }
 
 impl Component for Mesh {}
+impl ECSActions for Mesh {}
 
 // Vulkan Component
 
@@ -29,3 +33,4 @@ impl VulkanComponent {
 }
 
 impl Component for VulkanComponent {}
+impl ECSActions for VulkanComponent {}

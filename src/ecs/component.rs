@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::mem::ManuallyDrop;
 
-use crate::ecs::Signature;
+use crate::ecs::{ECSActions, Signature};
 use crate::ecs::entity::Entity;
 
-pub trait Component: Sized + 'static {}
+pub trait Component: ECSActions + Sized + 'static {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SystemSignature(pub(in crate::ecs) Signature);
@@ -137,11 +138,13 @@ impl ComponentManager {
         }
     }
 
-    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Box<[u8]>) -> Result<()> {
+    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Box<dyn ECSActions>) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
-        comp_arr.insert_component(entity, component)?;
+        let comp_data = component_to_boxed_slice(component);
+
+        comp_arr.insert_component(entity, comp_data)?;
 
         Ok(())
     }
@@ -234,5 +237,23 @@ impl ComponentManager {
         let sig_d = self.get_signature(TypeId::of::<D>())?;
 
         Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
+    }
+}
+
+fn component_to_boxed_slice(component: Box<dyn ECSActions>) -> Box<[u8]> {
+    let ptr = component.as_ref() as *const dyn ECSActions as *const u8;
+    let comp_size = std::mem::size_of_val(&component);
+
+    unsafe {
+        let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
+
+        // TODO: right now we're not actually doing the below... will need to figure out the right way to do this
+        // The Box below takes "ownership" of the component (or rather, its raw bytes), but if we don't wrap it in
+        //  the ManuallyDrop here, the component will still be dropped. Instead, we'll drop the component ourselves
+        //  when it's removed from the ComponentArray. This is safe because after ownership of the component is moved
+        //  to the ComponentArray, it doesn't change owners for the remainder of its lifetime.
+        let _ = ManuallyDrop::new(component);
+
+        Box::from(raw_slice)
     }
 }

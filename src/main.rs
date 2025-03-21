@@ -11,7 +11,7 @@ use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Vie
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
-use crate::ecs::{ECSBuilder, ECSCommands, ECS};
+use crate::ecs::{ECSActions, ECSBuilder, ECSCommands, ECS};
 use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
@@ -1029,3 +1029,4 @@ struct MeshWrapper {
 }
 
 impl Component for MeshWrapper {}
+impl ECSActions for MeshWrapper {}
