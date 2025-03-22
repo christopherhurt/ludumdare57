@@ -12,20 +12,20 @@ pub struct Particle {
     pub vel: Vec3,
     pub acc: Vec3,
     pub damping: f32,
-    // TODO: consider including gravity value here instead of as its own system?
-    // TODO: make mass an Option<f32> value where None indicates the particle has infinite mass, i.e. immovable
     pub mass: f32,
+    pub gravity: f32,
     pub force_accum: Vec3,
     // TODO: add material which can be used to derive the coefficient of restitution - for now, it's being generated randomly for each collision
 }
 
 impl Particle {
-    pub fn new(vel: Vec3, damping: f32, mass: f32) -> Self {
+    pub fn new(vel: Vec3, damping: f32, mass: f32, gravity: f32) -> Self {
         Self {
             vel,
             acc: VEC_3_ZERO,
             damping,
             mass,
+            gravity,
             force_accum: VEC_3_ZERO,
         }
     }
@@ -38,6 +38,7 @@ impl Default for Particle {
             acc: VEC_3_ZERO,
             damping: 1.0,
             mass: 1.0,
+            gravity: 10.0,
             force_accum: VEC_3_ZERO,
         }
     }
@@ -155,12 +156,6 @@ impl ComponentActions for ParticleRod {
 
 #[derive(Clone, Debug)]
 pub(in crate) struct ParticleCollision {
-    // TODO: Using copies of Entity and not references leaves open the possibility that particle_a or particle_b are destroyed before
-    //  this collision is resolved. To prevent this, we should 1) lift the restriction that particle_a and particle_b must exist at
-    //  collision resolution time, or otherwise panic, or 2) control the ordering of built-in and user defined systems such that
-    //  motion collision resolution, i.e. applied impulses, always happens before user-defined collision resolutions. Though, also,
-    //  the user should not be dumb and destroy the particle_a or particle_b entity without destroying the ParticleCollision entity...
-    //  or 3) maybe some other approach...
     pub(in crate) particle_a: Entity,
     pub(in crate) particle_b: Option<Entity>, // None indicates particle_2 has infinite mass, i.e. immovable
     pub(in crate) restitution: f32,

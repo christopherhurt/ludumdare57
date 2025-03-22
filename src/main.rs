@@ -130,7 +130,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(1.0, 1.0, 1.0),
     );
     let cube_color_material = ColorMaterial::new(YELLOW);
-    let cube_particle = Particle::new(VEC_3_ZERO, DAMPING, 1.0);
+    let cube_particle = Particle::new(VEC_3_ZERO, DAMPING, 1.0, 0.0);
     let cube_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_entity, cube_mesh);
     ecs.attach_provisional_component(&cube_entity, cube_transform);
@@ -144,7 +144,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(3.0, 3.0, 3.0),
     );
     let cube_2_color_material = ColorMaterial::new(ORANGE);
-    let cube_2_particle = Particle::new(VEC_3_ZERO, DAMPING, 5.0);
+    let cube_2_particle = Particle::new(VEC_3_ZERO, DAMPING, 5.0, 0.0);
     let cube_2_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_2_entity, cube_2_mesh);
     ecs.attach_provisional_component(&cube_2_entity, cube_2_transform);
@@ -158,7 +158,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(8.0, 8.0, 8.0),
     );
     let cube_3_color_material = ColorMaterial::new(RED);
-    let cube_3_particle = Particle::new(VEC_3_ZERO, DAMPING, 12.0);
+    let cube_3_particle = Particle::new(VEC_3_ZERO, DAMPING, 12.0, 0.0);
     let cube_3_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_3_entity, cube_3_mesh);
     ecs.attach_provisional_component(&cube_3_entity, cube_3_transform);
@@ -172,7 +172,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(6.0, 6.0, 6.0),
     );
     let cube_4_color_material = ColorMaterial::new(BLACK);
-    let cube_4_particle = Particle::new(VEC_3_ZERO, DAMPING, 10.0);
+    let cube_4_particle = Particle::new(VEC_3_ZERO, DAMPING, 10.0, 25.0);
     let cube_4_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_4_entity, cube_4_mesh);
     ecs.attach_provisional_component(&cube_4_entity, cube_4_transform);
@@ -186,7 +186,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(2.0, 2.0, 2.0),
     );
     let cube_5_color_material = ColorMaterial::new(WHITE);
-    let cube_5_particle = Particle::new(VEC_3_ZERO, DAMPING, 3.0);
+    let cube_5_particle = Particle::new(VEC_3_ZERO, DAMPING, 3.0, 25.0);
     let cube_5_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_5_entity, cube_5_mesh);
     ecs.attach_provisional_component(&cube_5_entity, cube_5_transform);
@@ -200,7 +200,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(1.0, 1.0, 1.0),
     );
     let cube_6_color_material = ColorMaterial::new(GREEN);
-    let cube_6_particle = Particle::new(VEC_3_ZERO, DAMPING, 6.0);
+    let cube_6_particle = Particle::new(VEC_3_ZERO, DAMPING, 6.0, 25.0);
     let cube_6_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_6_entity, cube_6_mesh);
     ecs.attach_provisional_component(&cube_6_entity, cube_6_transform);
@@ -214,7 +214,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(3.0, 3.0, 3.0),
     );
     let cube_7_color_material = ColorMaterial::new(MAGENTA);
-    let cube_7_particle = Particle::new(VEC_3_ZERO, DAMPING, 5.0);
+    let cube_7_particle = Particle::new(VEC_3_ZERO, DAMPING, 5.0, 25.0);
     let cube_7_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_7_entity, cube_7_mesh);
     ecs.attach_provisional_component(&cube_7_entity, cube_7_transform);
@@ -228,7 +228,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(8.0, 8.0, 8.0),
     );
     let cube_8_color_material = ColorMaterial::new(MAGENTA);
-    let cube_8_particle = Particle::new(VEC_3_ZERO, DAMPING, 18.0);
+    let cube_8_particle = Particle::new(VEC_3_ZERO, DAMPING, 18.0, 25.0);
     let cube_8_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_8_entity, cube_8_mesh);
     ecs.attach_provisional_component(&cube_8_entity, cube_8_transform);
@@ -242,7 +242,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(6.0, 6.0, 6.0),
     );
     let cube_9_color_material = ColorMaterial::new(GRAY);
-    let cube_9_particle = Particle::new(VEC_3_ZERO, 1.0, 10.0);
+    let cube_9_particle = Particle::new(VEC_3_ZERO, 1.0, 10.0, 0.0);
     let cube_9_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_9_entity, cube_9_mesh);
     ecs.attach_provisional_component(&cube_9_entity, cube_9_transform);
@@ -256,7 +256,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(1.0, 1.0, 1.0),
     );
     let cube_10_color_material = ColorMaterial::new(BROWN);
-    let cube_10_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
+    let cube_10_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0, 0.0);
     let cube_10_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_10_entity, cube_10_mesh);
     ecs.attach_provisional_component(&cube_10_entity, cube_10_transform);
@@ -270,7 +270,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(1.0, 1.0, 1.0),
     );
     let cube_11_color_material = ColorMaterial::new(BROWN);
-    let cube_11_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
+    let cube_11_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0, 0.0);
     let cube_11_entity = ecs.create_entity();
     let cube_11_rod = ParticleRod::new_provisional(cube_10_entity.clone(), cube_11_entity.clone(), 4.0);
     ecs.attach_provisional_component(&cube_11_entity, cube_11_mesh);
@@ -286,7 +286,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(2.0, 2.0, 2.0),
     );
     let cube_12_color_material = ColorMaterial::new(CYAN);
-    let cube_12_particle = Particle::new(VEC_3_ZERO, 1.0, 4.0);
+    let cube_12_particle = Particle::new(VEC_3_ZERO, 1.0, 4.0, 0.0);
     let cube_12_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cube_12_entity, cube_12_mesh);
     ecs.attach_provisional_component(&cube_12_entity, cube_12_transform);
@@ -300,7 +300,7 @@ fn create_scene(ecs: &mut ECS) {
         vec3(1.0, 1.0, 1.0),
     );
     let cube_13_color_material = ColorMaterial::new(CYAN);
-    let cube_13_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
+    let cube_13_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0, 0.0);
     let cube_13_entity = ecs.create_entity();
     let cube_13_cable = ParticleCable::new_provisional(cube_12_entity.clone(), cube_13_entity.clone(), 8.0, 0.5);
     ecs.attach_provisional_component(&cube_13_entity, cube_13_mesh);
@@ -334,7 +334,6 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
     ecs.register_system(PUSH_CUBES, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
-    ecs.register_system(APPLY_GRAVITY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
@@ -451,7 +450,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         let mesh = Mesh::new(mesh_id);
         let color_material = ColorMaterial::new(PURPLE);
         let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), vec3(1.0, 1.0, 1.0));
-        let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0);
+        let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
 
         let proj_entity = commands.create_entity();
         commands.attach_provisional_component(&proj_entity, mesh);
@@ -464,7 +463,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         let mesh = Mesh::new(mesh_id);
         let color_material = ColorMaterial::new(BLUE);
         let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), vec3(3.0, 3.0, 3.0));
-        let particle = Particle::new(cam_dir_norm * 5.0, 0.9, 1.0);
+        let particle = Particle::new(cam_dir_norm * 5.0, 0.9, 1.0, -0.6);
 
         let proj_entity = commands.create_entity();
         commands.attach_provisional_component(&proj_entity, mesh);
@@ -474,6 +473,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
     }
 };
 
+// TODO: formalize force generator functions and move and generalize them to the physics module as I see fit
 // Built-in
 const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
@@ -488,7 +488,10 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
             let particle = particle.unwrap();
 
             transform.pos += particle.vel * delta;
+
             particle.acc = particle.force_accum / particle.mass;
+            particle.acc.y -= particle.gravity;
+
             particle.vel += particle.acc * delta;
             // Raising to the delta power makes the damping more realistic when frame times are inconsistent, especially when damping
             //  is not terribly close to 0. However, this operation is expensive, so we wouldn't want to do it when we're applying this
@@ -522,19 +525,6 @@ const PUSH_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager
             if diff.len() <= PUSH_DIST {
                 particle.force_accum += diff / PUSH_DIST * FORCE_FACTOR;
             }
-        }
-    }
-};
-
-// TODO: formalize force generator functions and move and generalize them to the physics module as I see fit
-const APPLY_GRAVITY: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    for (_, _, particle, material) in get_cubes(entites, components) {
-        if material.color == PURPLE {
-            particle.force_accum.y += particle.mass * -5.0;
-        } else if material.color == BLUE {
-            particle.force_accum.y += particle.mass * 0.6;
-        } else if material.color == BLACK || material.color == WHITE || material.color == MAGENTA || material.color == GREEN {
-            particle.force_accum.y += particle.mass * -25.0;
         }
     }
 };
@@ -938,7 +928,7 @@ const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &ComponentMa
                 let mesh = Mesh::new(mesh_id.clone());
                 let color_material = ColorMaterial::new(PURPLE);
                 let transform = Transform::new(pos.clone(), Quat::from_axis_spin(&VEC_3_Y_AXIS, 45.0).unwrap(), vec3(1.0, 1.0, 1.0));
-                let particle = Particle::new(VEC_3_Y_AXIS * 10.0, 0.9999999, 0.1);
+                let particle = Particle::new(VEC_3_Y_AXIS * 10.0, 0.9999999, 0.1, 5.0);
 
                 let proj_entity = commands.create_entity();
                 commands.attach_provisional_component(&proj_entity, mesh);
