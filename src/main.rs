@@ -694,33 +694,37 @@ const DETECT_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &
 // Built-in
 const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let cables = entites
-        .map(|e| components.get_component::<ParticleCable>(e))
-        .filter(|c| c.is_some())
-        .map(|c| c.unwrap());
+        .map(|e| (e, components.get_component::<ParticleCable>(e)))
+        .filter(|(_, c)| c.is_some())
+        .map(|(e, c)| (e, c.unwrap()));
 
-    for c in cables {
-        // TODO: something other than panicking here...
-        let transform_a = components.get_component::<Transform>(&c.particle_a)
-            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &c.particle_a));
-        let transform_b = components.get_component::<Transform>(&c.particle_b)
-            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &c.particle_b));
+    for (e, c) in cables {
+        let transform_a = components.get_component::<Transform>(&c.particle_a);
+        let transform_b = components.get_component::<Transform>(&c.particle_b);
 
-        let delta_pos = transform_b.pos - transform_a.pos;
-        let length = delta_pos.len();
+        if transform_a.is_some() && transform_b.is_some() {
+            let transform_a = transform_a.unwrap();
+            let transform_b = transform_b.unwrap();
 
-        if length >= c.max_length {
-            if let Ok(normal) = delta_pos.normalized() {
-                let collision = ParticleCollision::new(
-                    c.particle_a,
-                    Some(c.particle_b),
-                    c.restitution,
-                    normal,
-                    length - c.max_length,
-                );
+            let delta_pos = transform_b.pos - transform_a.pos;
+            let length = delta_pos.len();
 
-                let collision_entity = commands.create_entity();
-                commands.attach_provisional_component(&collision_entity, collision);
+            if length >= c.max_length {
+                if let Ok(normal) = delta_pos.normalized() {
+                    let collision = ParticleCollision::new(
+                        c.particle_a,
+                        Some(c.particle_b),
+                        c.restitution,
+                        normal,
+                        length - c.max_length,
+                    );
+
+                    let collision_entity = commands.create_entity();
+                    commands.attach_provisional_component(&collision_entity, collision);
+                }
             }
+        } else {
+            commands.destroy_entity(e);
         }
     }
 };
@@ -728,37 +732,42 @@ const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, compone
 // Built-in
 const DETECT_PARTICLE_ROD_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let rods = entites
-        .map(|e| components.get_component::<ParticleRod>(e))
-        .filter(|r| r.is_some())
-        .map(|r| r.unwrap());
+        .map(|e| (e, components.get_component::<ParticleRod>(e)))
+        .filter(|(_, r)| r.is_some())
+        .map(|(e, r)| (e, r.unwrap()));
 
-    for r in rods {
-        let transform_a = components.get_component::<Transform>(&r.particle_a)
-            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &r.particle_a));
-        let transform_b = components.get_component::<Transform>(&r.particle_b)
-            .unwrap_or_else(|| panic!("Internal error: no Transform component for entity {:?}", &r.particle_b));
+    for (e, r) in rods {
+        let transform_a = components.get_component::<Transform>(&r.particle_a);
+        let transform_b = components.get_component::<Transform>(&r.particle_b);
 
-        let delta_pos = transform_b.pos - transform_a.pos;
-        let curr_length = delta_pos.len();
+        if transform_a.is_some() && transform_b.is_some() {
+            let transform_a = transform_a.unwrap();
+            let transform_b = transform_b.unwrap();
 
-        if let Ok(mut normal) = delta_pos.normalized() {
-            let mut penetration = curr_length - r.length;
+            let delta_pos = transform_b.pos - transform_a.pos;
+            let curr_length = delta_pos.len();
 
-            if penetration < 0.0 {
-                normal *= -1.0;
-                penetration *= -1.0;
+            if let Ok(mut normal) = delta_pos.normalized() {
+                let mut penetration = curr_length - r.length;
+
+                if penetration < 0.0 {
+                    normal *= -1.0;
+                    penetration *= -1.0;
+                }
+
+                let collision = ParticleCollision::new(
+                    r.particle_a,
+                    Some(r.particle_b),
+                    0.0,
+                    normal,
+                    penetration,
+                );
+
+                let collision_entity = commands.create_entity();
+                commands.attach_provisional_component(&collision_entity, collision);
             }
-
-            let collision = ParticleCollision::new(
-                r.particle_a,
-                Some(r.particle_b),
-                0.0,
-                normal,
-                penetration,
-            );
-
-            let collision_entity = commands.create_entity();
-            commands.attach_provisional_component(&collision_entity, collision);
+        } else {
+            commands.destroy_entity(e);
         }
     }
 };
@@ -768,10 +777,20 @@ const RESOLVE_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: 
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
     let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-    let mut collisions = entites
+    let collisions = entites
         .map(|e| (e, components.get_component::<ParticleCollision>(e)))
         .filter(|(_, c)| c.is_some())
         .map(|(e, c)| (e, c.unwrap()))
+        .into_iter();
+
+    for (e, c) in collisions.clone() {
+        if !is_particle_collision_valid(c, components) {
+            commands.destroy_entity(e);
+        }
+    }
+
+    let mut collisions = collisions
+        .filter(|(_, c)| is_particle_collision_valid(c, components))
         .collect::<Vec<_>>();
 
     collisions.sort_unstable_by(|(_, c0), (_, c1)|
@@ -788,11 +807,15 @@ const RESOLVE_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: 
         resolve_interpenetration(&c, components);
     }
 
-    // TODO: can we reuse ParticleCollision entities frame to frame, or otherwise make this more efficient?
     for (e, _) in collisions {
         commands.destroy_entity(e);
     }
 };
+
+fn is_particle_collision_valid(collision: &ParticleCollision, components: &ComponentManager) -> bool {
+    components.get_component::<Particle>(&collision.particle_a).is_some()
+        && (collision.particle_b.is_none() || components.get_component::<Particle>(&collision.particle_b.unwrap()).is_some())
+}
 
 fn calculate_separating_velocity(collision: &ParticleCollision, components: &ComponentManager) -> f32 {
     let particle_a = components.get_component::<Particle>(&collision.particle_a)
