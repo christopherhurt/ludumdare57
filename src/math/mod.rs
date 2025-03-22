@@ -583,6 +583,147 @@ impl PartialEq<Quat> for Quat {
 impl Eq for Quat {}
 
 /////////////////////////////////////////////////////////////////////////////
+/// Mat3
+/////////////////////////////////////////////////////////////////////////////
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct Mat3 {
+    // See the comment on Mat4 regarding this memory layout
+    pub _00: f32,
+    pub _10: f32,
+    pub _20: f32,
+    pub _01: f32,
+    pub _11: f32,
+    pub _21: f32,
+    pub _02: f32,
+    pub _12: f32,
+    pub _22: f32,
+}
+
+#[inline]
+pub const fn mat3(
+    _00: f32, _01: f32, _02: f32,
+    _10: f32, _11: f32, _12: f32,
+    _20: f32, _21: f32, _22: f32,
+) -> Mat3 {
+    Mat3 {
+        _00, _01, _02,
+        _10, _11, _12,
+        _20, _21, _22,
+    }
+}
+
+pub const MAT_3_IDENTITY: Mat3 = mat3(
+    1.0, 0.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 0.0, 1.0,
+);
+
+impl Mat3 {
+    #[inline]
+    pub fn transposed(&self) -> Mat3 {
+        mat3(
+            self._00, self._10, self._20,
+            self._01, self._11, self._21,
+            self._02, self._12, self._22,
+        )
+    }
+
+    #[inline]
+    pub fn inverted(&self) -> Result<Mat3> {
+        // https://stackoverflow.com/questions/983999/simple-3x3-matrix-inverse-code-c
+
+        let det = self._00 * (self._11 * self._22 - self._21 * self._12)
+            - self._01 * (self._10 * self._22 - self._12 * self._20)
+            + self._02 * (self._10 * self._21 - self._11 * self._20);
+
+        if det < EQUALITY_THRESHOLD {
+            return Err(anyhow!("Matrix is not invertible"));
+        }
+
+        let inv_det = 1.0 / det;
+
+        Ok(
+            Mat3 {
+                _00: (self._11 * self._22 - self._21 * self._12) * inv_det,
+                _01: (self._02 * self._21 - self._01 * self._22) * inv_det,
+                _02: (self._01 * self._12 - self._02 * self._11) * inv_det,
+                _10: (self._12 * self._20 - self._10 * self._22) * inv_det,
+                _11: (self._00 * self._22 - self._02 * self._20) * inv_det,
+                _12: (self._10 * self._02 - self._00 * self._12) * inv_det,
+                _20: (self._10 * self._21 - self._20 * self._11) * inv_det,
+                _21: (self._20 * self._01 - self._00 * self._21) * inv_det,
+                _22: (self._00 * self._11 - self._10 * self._01) * inv_det,
+            }
+        )
+    }
+}
+
+impl ops::Mul for Mat3 {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        Mat3 {
+            _00: self._00 * rhs._00 + self._01 * rhs._10 + self._02 * rhs._20,
+            _01: self._00 * rhs._01 + self._01 * rhs._11 + self._02 * rhs._21,
+            _02: self._00 * rhs._02 + self._01 * rhs._12 + self._02 * rhs._22,
+            _10: self._10 * rhs._00 + self._11 * rhs._10 + self._12 * rhs._20,
+            _11: self._10 * rhs._01 + self._11 * rhs._11 + self._12 * rhs._21,
+            _12: self._10 * rhs._02 + self._11 * rhs._12 + self._12 * rhs._22,
+            _20: self._20 * rhs._00 + self._21 * rhs._10 + self._22 * rhs._20,
+            _21: self._20 * rhs._01 + self._21 * rhs._11 + self._22 * rhs._21,
+            _22: self._20 * rhs._02 + self._21 * rhs._12 + self._22 * rhs._22,
+        }
+    }
+}
+
+impl ops::MulAssign for Mat3 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        self._00 = self._00 * rhs._00 + self._01 * rhs._10 + self._02 * rhs._20;
+        self._01 = self._00 * rhs._01 + self._01 * rhs._11 + self._02 * rhs._21;
+        self._02 = self._00 * rhs._02 + self._01 * rhs._12 + self._02 * rhs._22;
+        self._10 = self._10 * rhs._00 + self._11 * rhs._10 + self._12 * rhs._20;
+        self._11 = self._10 * rhs._01 + self._11 * rhs._11 + self._12 * rhs._21;
+        self._12 = self._10 * rhs._02 + self._11 * rhs._12 + self._12 * rhs._22;
+        self._20 = self._20 * rhs._00 + self._21 * rhs._10 + self._22 * rhs._20;
+        self._21 = self._20 * rhs._01 + self._21 * rhs._11 + self._22 * rhs._21;
+        self._22 = self._20 * rhs._02 + self._21 * rhs._12 + self._22 * rhs._22;
+    }
+}
+
+impl ops::Mul<Vec3> for Mat3 {
+    type Output = Vec3;
+
+    #[inline]
+    fn mul(self, rhs: Vec3) -> Vec3 {
+        Vec3 {
+            x: self._00 * rhs.x + self._01 * rhs.y + self._02 * rhs.z,
+            y: self._10 * rhs.x + self._11 * rhs.y + self._12 * rhs.z,
+            z: self._20 * rhs.x + self._21 * rhs.y + self._22 * rhs.z,
+        }
+    }
+}
+
+impl PartialEq<Mat3> for Mat3 {
+    fn eq(&self, other: &Mat3) -> bool {
+        (self._00 - other._00).abs() < EQUALITY_THRESHOLD
+            && (self._01 - other._01).abs() < EQUALITY_THRESHOLD
+            && (self._02 - other._02).abs() < EQUALITY_THRESHOLD
+            && (self._10 - other._10).abs() < EQUALITY_THRESHOLD
+            && (self._11 - other._11).abs() < EQUALITY_THRESHOLD
+            && (self._12 - other._12).abs() < EQUALITY_THRESHOLD
+            && (self._20 - other._20).abs() < EQUALITY_THRESHOLD
+            && (self._21 - other._21).abs() < EQUALITY_THRESHOLD
+            && (self._22 - other._22).abs() < EQUALITY_THRESHOLD
+    }
+}
+
+impl Eq for Mat3 {}
+
+/////////////////////////////////////////////////////////////////////////////
 /// Mat4
 /////////////////////////////////////////////////////////////////////////////
 
@@ -789,14 +930,12 @@ impl PartialEq<Mat4> for Mat4 {
 impl Eq for Mat4 {}
 
 pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Result<Mat4> {
-    let translation = mat4(
-        1.0, 0.0, 0.0, pos.x,
-        0.0, 1.0, 0.0, pos.y,
-        0.0, 0.0, 1.0, pos.z,
-        0.0, 0.0, 0.0, 1.0,
-    );
+    let mut rotation_translation = rot.to_rotation_matrix()?;
 
-    let rotation = rot.to_rotation_matrix()?;
+    // Translation
+    rotation_translation._03 = pos.x;
+    rotation_translation._13 = pos.y;
+    rotation_translation._23 = pos.z;
 
     let scale = mat4(
         scl.x,  0.0,    0.0,    0.0,
@@ -805,7 +944,7 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Result<Mat4> {
         0.0,    0.0,    0.0,    1.0,
     );
 
-    Ok(translation * rotation * scale)
+    Ok(rotation_translation * scale)
 }
 
 pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Result<Mat4> {
