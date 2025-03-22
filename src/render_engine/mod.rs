@@ -27,13 +27,13 @@ pub struct WindowInitProps {
 }
 
 pub trait RenderEngine<W: Window, D: Device>: Sized {
-    unsafe fn new(init_props: RenderEngineInitProps) -> Result<Self>;
+    fn new(init_props: RenderEngineInitProps) -> Result<Self>;
     fn sync_state(&mut self, state: RenderState) -> Result<()>;
     fn get_window(&self) -> Result<&W>;
     fn get_window_mut(&mut self) -> Result<&mut W>;
     fn get_device(&self) -> Result<&D>;
     fn get_device_mut(&mut self) -> Result<&mut D>;
-    unsafe fn join_render_thread(&mut self) -> Result<()>;
+    fn join_render_thread(&mut self) -> Result<()>;
 }
 
 pub trait Window {
@@ -118,6 +118,7 @@ pub enum VirtualKey {
     Left,
     Down,
     Right,
+    Escape,
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]

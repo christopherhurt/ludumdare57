@@ -366,7 +366,7 @@ unsafe fn update_uniforms(
 }
 
 impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine {
-    unsafe fn new(init_props: RenderEngineInitProps) -> Result<Self> {
+    fn new(init_props: RenderEngineInitProps) -> Result<Self> {
         // TODO: update this so we can overwrite the buffered state(s), rather than block the sender, if the sender gets ahead of the receiver
         let (state_sender, state_receiver) = mpsc::sync_channel::<RenderState>(1);
         let (mesh_sender, mesh_receiver) = mpsc::channel();
@@ -450,8 +450,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         Ok(self)
     }
 
-    unsafe fn join_render_thread(&mut self) -> Result<()> {
-        // TODO: issue here - this doesn't actually trigger a window close, so the join below just hangs
+    fn join_render_thread(&mut self) -> Result<()> {
         self.is_closing.store(true, Ordering::SeqCst);
 
         if let Some(join_handle) = self.render_thread_join_handle.take() {
@@ -666,6 +665,14 @@ impl VulkanApplication {
             Ok(())
         }
     }
+
+    fn shutdown(&mut self, event_loop: &ActiveEventLoop) {
+        self.is_closing.store(true, Ordering::SeqCst);
+        if let Some(c) = self.context.take() {
+            unsafe { c.destroy().unwrap(); }
+        }
+        event_loop.exit();
+    }
 }
 
 impl ApplicationHandler for VulkanApplication {
@@ -688,35 +695,33 @@ impl ApplicationHandler for VulkanApplication {
         _: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        match event {
-            WindowEvent::RedrawRequested if !self.is_closing.load(Ordering::SeqCst) && !self.is_minimized =>
-                unsafe { self.render() }.unwrap_or_else(|e| panic!("Internal render error: {}", e)),
-            WindowEvent::Resized(size) => {
-                self.is_minimized = size.width == 0 || size.height == 0;
-                self.is_resized = true;
-            },
-            WindowEvent::CloseRequested => {
-                self.is_closing.store(true, Ordering::SeqCst);
-                if let Some(c) = self.context.take() {
-                    unsafe { c.destroy().unwrap(); }
-                }
-                event_loop.exit();
-            },
-            WindowEvent::KeyboardInput { event: key_event, .. } => {
-                let vk_state = get_vk_state_for_winit_key_state(key_event.state);
+        if self.is_closing.load(Ordering::SeqCst) {
+            self.shutdown(event_loop);
+        } else {
+            match event {
+                WindowEvent::RedrawRequested if !self.is_minimized =>
+                    unsafe { self.render() }.unwrap_or_else(|e| panic!("Internal render error: {}", e)),
+                WindowEvent::Resized(size) => {
+                    self.is_minimized = size.width == 0 || size.height == 0;
+                    self.is_resized = true;
+                },
+                WindowEvent::CloseRequested => self.shutdown(event_loop),
+                WindowEvent::KeyboardInput { event: key_event, .. } => {
+                    let vk_state = get_vk_state_for_winit_key_state(key_event.state);
 
-                let vk = get_vk_for_winit_physical_key(key_event.physical_key);
-                if vk != VirtualKey::Unknown {
-                    self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send physical key"));
-                }
+                    let vk = get_vk_for_winit_physical_key(key_event.physical_key);
+                    if vk != VirtualKey::Unknown {
+                        self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send physical key"));
+                    }
 
-                let vk = get_vk_for_winit_logical_key(key_event.logical_key);
-                if vk != VirtualKey::Unknown {
-                    self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send logical key"));
-                }
-            },
-            _ => {},
-        };
+                    let vk = get_vk_for_winit_logical_key(key_event.logical_key);
+                    if vk != VirtualKey::Unknown {
+                        self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send logical key"));
+                    }
+                },
+                _ => {},
+            };
+        }
     }
 }
 
@@ -757,6 +762,7 @@ const fn get_vk_for_winit_physical_key(key_code: PhysicalKey) -> VirtualKey {
         PhysicalKey::Code(KeyCode::KeyX) => VirtualKey::X,
         PhysicalKey::Code(KeyCode::KeyY) => VirtualKey::Y,
         PhysicalKey::Code(KeyCode::KeyZ) => VirtualKey::Z,
+        PhysicalKey::Code(KeyCode::Escape) => VirtualKey::Escape,
         _ => VirtualKey::Unknown,
     }
 }
@@ -769,6 +775,7 @@ fn get_vk_for_winit_logical_key(named_key: Key) -> VirtualKey {
         Key::Named(NamedKey::ArrowLeft) => VirtualKey::Left,
         Key::Named(NamedKey::ArrowDown) => VirtualKey::Down,
         Key::Named(NamedKey::ArrowRight) => VirtualKey::Right,
+        Key::Named(NamedKey::Escape) => VirtualKey::Escape,
         _ => VirtualKey::Unknown,
     }
 }

@@ -64,7 +64,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
         window_props,
     };
 
-    unsafe { VulkanRenderEngine::new(render_engine_props) }
+    VulkanRenderEngine::new(render_engine_props)
 }
 
 fn create_scene(ecs: &mut ECS) {
@@ -380,7 +380,7 @@ const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &Compo
     });
 };
 
-const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
 
@@ -435,6 +435,10 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 }
             }
         }
+    }
+
+    if render_engine.is_key_pressed(VirtualKey::Escape) {
+        commands.shutdown();
     }
 };
 
@@ -989,10 +993,7 @@ const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &Comp
         entites.for_each(|e| {
             let render_engine = components.get_mut_component::<VulkanRenderEngine>(e).unwrap();
 
-            unsafe {
-                render_engine.join_render_thread()
-                    .unwrap_or_else(|e| panic!("{}", e));
-            }
+            render_engine.join_render_thread().unwrap_or_else(|e| panic!("{}", e));
         });
     }
 };
