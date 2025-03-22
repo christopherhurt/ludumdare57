@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::time::{Duration, SystemTime};
 
-use crate::ecs::ECSActions;
+use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
 use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
@@ -116,7 +116,7 @@ impl Default for Viewport2D {
 
 // TODO: move this and other Component impls to bindings module? thinking about how the dependency tree is organized...
 impl Component for Viewport2D {}
-impl ECSActions for Viewport2D {}
+impl ComponentActions for Viewport2D {}
 
 // Transform
 
@@ -148,7 +148,7 @@ impl Default for Transform {
 }
 
 impl Component for Transform {}
-impl ECSActions for Transform {}
+impl ComponentActions for Transform {}
 
 // ColorMaterial
 
@@ -171,7 +171,7 @@ impl Default for ColorMaterial {
 }
 
 impl Component for ColorMaterial {}
-impl ECSActions for ColorMaterial {}
+impl ComponentActions for ColorMaterial {}
 
 // TimeDelta
 
@@ -192,7 +192,7 @@ impl Default for TimeDelta {
 }
 
 impl Component for TimeDelta {}
-impl ECSActions for TimeDelta {}
+impl ComponentActions for TimeDelta {}
 
 // Timer
 
@@ -256,4 +256,4 @@ fn get_remaining_duration(start_value: f32, end_value: f32, initial_duration: Du
 }
 
 impl Component for Timer {}
-impl ECSActions for Timer {}
+impl ComponentActions for Timer {}

@@ -3,10 +3,10 @@ use std::any::TypeId;
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 
-use crate::ecs::{ECSActions, Signature};
+use crate::ecs::{ComponentActions, Signature};
 use crate::ecs::entity::Entity;
 
-pub trait Component: ECSActions + Sized + 'static {}
+pub trait Component: ComponentActions + Sized + 'static {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SystemSignature(pub(in crate::ecs) Signature);
@@ -138,7 +138,7 @@ impl ComponentManager {
         }
     }
 
-    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Box<dyn ECSActions>) -> Result<()> {
+    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Box<dyn ComponentActions>) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
@@ -240,8 +240,8 @@ impl ComponentManager {
     }
 }
 
-fn component_to_boxed_slice(component: Box<dyn ECSActions>) -> Box<[u8]> {
-    let ptr = component.as_ref() as *const dyn ECSActions as *const u8;
+fn component_to_boxed_slice(component: Box<dyn ComponentActions>) -> Box<[u8]> {
+    let ptr = component.as_ref() as *const dyn ComponentActions as *const u8;
     let comp_size = std::mem::size_of_val(component.as_ref());
 
     unsafe {

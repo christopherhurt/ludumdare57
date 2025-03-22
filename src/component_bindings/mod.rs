@@ -1,4 +1,4 @@
-use crate::ecs::ECSActions;
+use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
 use crate::render_engine::MeshId;
 use crate::render_engine::vulkan::VulkanRenderEngine;
@@ -18,7 +18,7 @@ impl Mesh {
 }
 
 impl Component for Mesh {}
-impl ECSActions for Mesh {}
+impl ComponentActions for Mesh {}
 
 // Vulkan Component
 
@@ -33,4 +33,4 @@ impl VulkanComponent {
 }
 
 impl Component for VulkanComponent {}
-impl ECSActions for VulkanComponent {}
+impl ComponentActions for VulkanComponent {}

@@ -1,4 +1,6 @@
-use crate::ecs::ECSActions;
+use std::collections::HashMap;
+
+use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
 use crate::math::{Vec3, VEC_3_ZERO};
@@ -43,7 +45,7 @@ impl Default for Particle {
 
 // TODO: remove this module's dependency on the ecs module?
 impl Component for Particle {}
-impl ECSActions for Particle {}
+impl ComponentActions for Particle {}
 
 // ParticleCable
 
@@ -52,6 +54,8 @@ impl ECSActions for Particle {}
 pub struct ParticleCable {
     pub particle_a: Entity,
     pub particle_b: Entity,
+    pub particle_a_prov: ProvisionalEntity,
+    pub particle_b_prov: ProvisionalEntity,
     pub max_length: f32,
     pub restitution: f32,
 }
@@ -66,6 +70,24 @@ impl ParticleCable {
         Self {
             particle_a,
             particle_b,
+            particle_a_prov: ProvisionalEntity(0),
+            particle_b_prov: ProvisionalEntity(0),
+            max_length,
+            restitution,
+        }
+    }
+
+    pub fn new_provisional(
+        particle_a: ProvisionalEntity,
+        particle_b: ProvisionalEntity,
+        max_length: f32,
+        restitution: f32,
+    ) -> Self {
+        Self {
+            particle_a: Entity(0),
+            particle_b: Entity(0),
+            particle_a_prov: particle_a,
+            particle_b_prov: particle_b,
             max_length,
             restitution,
         }
@@ -73,7 +95,13 @@ impl ParticleCable {
 }
 
 impl Component for ParticleCable {}
-impl ECSActions for ParticleCable {}
+
+impl ComponentActions for ParticleCable {
+    fn update_provisional_entities(&mut self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
+        self.particle_a = provisional_to_entities.get(&self.particle_a_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_a_prov)).clone();
+        self.particle_b = provisional_to_entities.get(&self.particle_b_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_b_prov)).clone();
+    }
+}
 
 // ParticleRod
 
@@ -81,6 +109,8 @@ impl ECSActions for ParticleCable {}
 pub struct ParticleRod {
     pub particle_a: Entity,
     pub particle_b: Entity,
+    pub particle_a_prov: ProvisionalEntity,
+    pub particle_b_prov: ProvisionalEntity,
     pub length: f32,
 }
 
@@ -93,13 +123,35 @@ impl ParticleRod {
         Self {
             particle_a,
             particle_b,
+            particle_a_prov: ProvisionalEntity(0),
+            particle_b_prov: ProvisionalEntity(0),
+            length,
+        }
+    }
+
+    pub fn new_provisional(
+        particle_a: ProvisionalEntity,
+        particle_b: ProvisionalEntity,
+        length: f32,
+    ) -> Self {
+        Self {
+            particle_a: Entity(0),
+            particle_b: Entity(0),
+            particle_a_prov: particle_a,
+            particle_b_prov: particle_b,
             length,
         }
     }
 }
 
 impl Component for ParticleRod {}
-impl ECSActions for ParticleRod {}
+
+impl ComponentActions for ParticleRod {
+    fn update_provisional_entities(&mut self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
+        self.particle_a = provisional_to_entities.get(&self.particle_a_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_a_prov)).clone();
+        self.particle_b = provisional_to_entities.get(&self.particle_b_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_b_prov)).clone();
+    }
+}
 
 // ParticleCollision
 
@@ -137,7 +189,7 @@ impl ParticleCollision {
 }
 
 impl Component for ParticleCollision {}
-impl ECSActions for ParticleCollision {}
+impl ComponentActions for ParticleCollision {}
 
 // ParticleCollisionDetector
 
@@ -153,4 +205,4 @@ impl ParticleCollisionDetector {
 }
 
 impl Component for ParticleCollisionDetector {}
-impl ECSActions for ParticleCollisionDetector {}
+impl ComponentActions for ParticleCollisionDetector {}

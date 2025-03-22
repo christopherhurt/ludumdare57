@@ -17,8 +17,8 @@ pub(in crate::ecs) type Signature = u64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProvisionalEntity(pub(in crate) usize);
 
-pub trait ECSActions {
-    fn update_provisional_entities(&self, _provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {}
+pub trait ComponentActions {
+    fn update_provisional_entities(&mut self, _provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {}
 }
 
 enum EntityComponentCommandType {
@@ -41,8 +41,8 @@ pub struct ECSCommands {
     provisional_entity_counter: usize,
     to_create: VecDeque<ProvisionalEntity>,
     to_destroy: VecDeque<Entity>,
-    to_attach: VecDeque<(Entity, TypeId, Box<dyn ECSActions>)>,
-    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Box<dyn ECSActions>)>,
+    to_attach: VecDeque<(Entity, TypeId, Box<dyn ComponentActions>)>,
+    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Box<dyn ComponentActions>)>,
     to_detach: VecDeque<(Entity, TypeId)>,
     to_register: VecDeque<(System, HashSet<SystemSignature>, i16)>,
     to_unregister: VecDeque<System>,
@@ -266,9 +266,9 @@ fn flush_entity_component_commands(
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
             },
             EntityComponentCommandType::AttachProvisionalComponent => {
-                let (provisional_entity, type_id, component) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+                let (provisional_entity, type_id, mut component) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
 
-                component.as_ref().update_provisional_entities(&provisional_entity_map);
+                component.as_mut().update_provisional_entities(&provisional_entity_map);
 
                 let entity = *provisional_entity_map.get(&provisional_entity).unwrap_or_else(|| panic!("Internal error: provisional entity {:?} was not created before attaching a component to it", provisional_entity));
 

@@ -11,7 +11,7 @@ use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Vie
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
-use crate::ecs::{ECSActions, ECSBuilder, ECSCommands, ECS};
+use crate::ecs::{ComponentActions, ECSBuilder, ECSCommands, ECS};
 use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
@@ -274,10 +274,12 @@ fn create_scene(ecs: &mut ECS) {
     let cube_11_color_material = ColorMaterial::new(BROWN);
     let cube_11_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
     let cube_11_entity = ecs.create_entity();
+    let cube_11_rod = ParticleRod::new_provisional(cube_10_entity.clone(), cube_11_entity.clone(), 4.0);
     ecs.attach_provisional_component(&cube_11_entity, cube_11_mesh);
     ecs.attach_provisional_component(&cube_11_entity, cube_11_transform);
     ecs.attach_provisional_component(&cube_11_entity, cube_11_color_material);
     ecs.attach_provisional_component(&cube_11_entity, cube_11_particle);
+    ecs.attach_provisional_component(&cube_11_entity, cube_11_rod);
 
     let cube_12_mesh = Mesh::new(cube_mesh_id);
     let cube_12_transform = Transform::new(
@@ -302,10 +304,12 @@ fn create_scene(ecs: &mut ECS) {
     let cube_13_color_material = ColorMaterial::new(CYAN);
     let cube_13_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0);
     let cube_13_entity = ecs.create_entity();
+    let cube_13_cable = ParticleCable::new_provisional(cube_12_entity.clone(), cube_13_entity.clone(), 8.0, 0.5);
     ecs.attach_provisional_component(&cube_13_entity, cube_13_mesh);
     ecs.attach_provisional_component(&cube_13_entity, cube_13_transform);
     ecs.attach_provisional_component(&cube_13_entity, cube_13_color_material);
     ecs.attach_provisional_component(&cube_13_entity, cube_13_particle);
+    ecs.attach_provisional_component(&cube_12_entity, cube_13_cable);
 
     let cube_mesh_wrapper = MeshWrapper { my_id: 0, id: cube_mesh_id };
     let cube_mesh_wrapper_entity = ecs.create_entity();
@@ -328,7 +332,6 @@ fn create_scene(ecs: &mut ECS) {
     let particle_collision_detector_entity = ecs.create_entity();
     ecs.attach_provisional_component(&particle_collision_detector_entity, particle_collision_detector);
 
-    ecs.register_system(INIT_CABLE_AND_ROD, HashSet::from([ecs.get_system_signature_0().unwrap()]), -10_000);
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
@@ -378,29 +381,6 @@ const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &Compo
             time_delta.timestamp = std::time::SystemTime::now();
         }
     });
-};
-
-// TODO: this is scuffed!
-const INIT_CABLE_AND_ROD: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    if !entites.clone().any(|e| components.get_component::<ParticleCable>(e).is_some()) {
-        let cable_entities = entites.clone()
-            .filter(|e| components.get_component::<ColorMaterial>(e).map(|m| m.color == CYAN).unwrap_or(false))
-            .collect::<Vec<_>>();
-
-        let cable = ParticleCable::new(cable_entities[0].clone(), cable_entities[1].clone(), 8.0, 0.5);
-
-        commands.attach_component(cable_entities[0], cable);
-    }
-
-    if !entites.clone().any(|e| components.get_component::<ParticleRod>(e).is_some()) {
-        let rod_entities = entites.clone()
-            .filter(|e| components.get_component::<ColorMaterial>(e).map(|m| m.color == BROWN).unwrap_or(false))
-            .collect::<Vec<_>>();
-
-        let rod = ParticleRod::new(rod_entities[0].clone(), rod_entities[1].clone(), 4.0);
-
-        commands.attach_component(rod_entities[0], rod);
-    }
 };
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -1029,4 +1009,4 @@ struct MeshWrapper {
 }
 
 impl Component for MeshWrapper {}
-impl ECSActions for MeshWrapper {}
+impl ComponentActions for MeshWrapper {}
