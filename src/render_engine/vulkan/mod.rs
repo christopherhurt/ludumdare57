@@ -54,7 +54,6 @@ const MAX_FRAMES_IN_FLIGHT: usize = 3;
 const NUM_UNIFORM_DESCRIPTORS: usize = 4096;
 
 pub struct VulkanRenderEngine {
-    init_props: RenderEngineInitProps,
     mesh_id_counter: usize,
     state_sender: SyncSender<RenderState>,
     mesh_sender: Sender<(MeshId, Vec<Vertex>, Vec<u32>)>,
@@ -62,6 +61,8 @@ pub struct VulkanRenderEngine {
     keys_pressed: HashMap<VirtualKey, bool>,
     keys_released: HashMap<VirtualKey, bool>,
     keys_receiver: Receiver<(VirtualKey, VirtualKeyState)>,
+    window_extent: vk::Extent2D,
+    window_extent_receiver: Receiver<vk::Extent2D>,
     is_closing: Arc<AtomicBool>,
     render_thread_join_handle: Option<JoinHandle<()>>,
 }
@@ -74,8 +75,10 @@ struct VulkanApplication {
     state_receiver: Receiver<RenderState>,
     mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
     is_minimized: bool,
+    is_resized: bool,
     is_closing: Arc<AtomicBool>,
     keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
+    window_extent_sender: SyncSender<vk::Extent2D>,
     context: Option<VulkanContext>,
     swapchain_fences: Vec<vk::Fence>,
     frame: usize,
@@ -127,7 +130,7 @@ impl VulkanContext {
         let window_attribs = WindowAttributes::default()
             .with_title(win_properties.title.clone())
             .with_inner_size(LogicalSize::new(win_properties.width, win_properties.height))
-            .with_resizable(false);
+            .with_resizable(win_properties.is_resizable);
         let winit_window = event_loop.create_window(window_attribs).unwrap_or_else(|_| panic!("Failed to create winit window!"));
 
         unsafe {
@@ -368,6 +371,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let (state_sender, state_receiver) = mpsc::sync_channel::<RenderState>(1);
         let (mesh_sender, mesh_receiver) = mpsc::channel();
         let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualKeyState)>(256);
+        let (window_extent_sender, window_extent_receiver) = mpsc::sync_channel::<vk::Extent2D>(256);
 
         let is_closing = Arc::new(AtomicBool::new(false));
 
@@ -377,13 +381,15 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let join_handle: JoinHandle<()> = thread::spawn(move || {
             // TODO: clean up Windows-specific module dependency
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
-            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, moved_is_closing).unwrap();
+            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, window_extent_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
 
+        let width = init_props.window_props.width;
+        let height = init_props.window_props.height;
+
         Ok(
             Self {
-                init_props,
                 mesh_id_counter: 0,
                 state_sender,
                 mesh_sender,
@@ -391,6 +397,8 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
                 keys_pressed: create_empty_vk_map(),
                 keys_released: create_empty_vk_map(),
                 keys_receiver,
+                window_extent: vk::Extent2D { width, height },
+                window_extent_receiver,
                 is_closing,
                 render_thread_join_handle: Some(join_handle),
             }
@@ -418,6 +426,10 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         });
 
         self.keys_down = new_keys_down;
+
+        while let Ok(window_extent) = self.window_extent_receiver.try_recv() {
+            self.window_extent = window_extent;
+        }
 
         Ok(self.state_sender.try_send(state)?)
     }
@@ -464,13 +476,11 @@ fn create_empty_vk_map() -> HashMap<VirtualKey, bool> {
 
 impl Window for VulkanRenderEngine {
     fn get_width(&self) -> u32 {
-        // TODO: need to get this dynamically when resizing is allowed
-        self.init_props.window_props.width
+        self.window_extent.width
     }
 
     fn get_height(&self) -> u32 {
-        // TODO: need to get this dynamically when resizing is allowed
-        self.init_props.window_props.height
+        self.window_extent.height
     }
 
     fn is_key_down(&self, key: VirtualKey) -> bool {
@@ -514,6 +524,7 @@ impl VulkanApplication {
         state_receiver: Receiver<RenderState>,
         mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
         keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
+        window_extent_sender: SyncSender<vk::Extent2D>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
         Ok(
@@ -522,8 +533,10 @@ impl VulkanApplication {
                 state_receiver,
                 mesh_receiver,
                 is_minimized: false,
+                is_resized: false,
                 is_closing,
                 keys_sender,
+                window_extent_sender,
                 context: None,
                 swapchain_fences: (0..MAX_FRAMES_IN_FLIGHT).map(|_| vk::Fence::null()).collect(),
                 frame: 0,
@@ -551,7 +564,7 @@ impl VulkanApplication {
 
                 let image_index = match result {
                     Ok((image_index, _)) => image_index as usize,
-                    Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return context.recreate_swapchain(),
+                    Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(),
                     Err(e) => return Err(anyhow!(e)),
                 };
 
@@ -621,10 +634,15 @@ impl VulkanApplication {
 
                 let result = context.device.queue_present_khr(context.present_queue, &present_info);
 
-                let should_recreate_swapchain = result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR) || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
+                let should_recreate_swapchain =
+                    result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
+                    || result == Err(vk::ErrorCode::OUT_OF_DATE_KHR)
+                    || self.is_resized;
 
                 if should_recreate_swapchain {
-                    context.recreate_swapchain()?;
+                    self.is_resized = false;
+
+                    self.recreate_swapchain()?;
                 } else if let Err(e) = result {
                     return Err(anyhow!(e));
                 }
@@ -634,6 +652,18 @@ impl VulkanApplication {
                 Ok(())
             },
             None => Err(anyhow!("No Vulkan context to render")),
+        }
+    }
+
+    unsafe fn recreate_swapchain(&mut self) -> Result<()> {
+        if let Some(context) = self.context.as_mut() {
+            context.recreate_swapchain()?;
+
+            self.window_extent_sender.send(context.swapchain.extent)?;
+
+            Ok(())
+        } else {
+            Ok(())
         }
     }
 }
@@ -661,8 +691,10 @@ impl ApplicationHandler for VulkanApplication {
         match event {
             WindowEvent::RedrawRequested if !self.is_closing.load(Ordering::SeqCst) && !self.is_minimized =>
                 unsafe { self.render() }.unwrap_or_else(|e| panic!("Internal render error: {}", e)),
-            WindowEvent::Resized(size) =>
-                self.is_minimized = size.width == 0 || size.height == 0,
+            WindowEvent::Resized(size) => {
+                self.is_minimized = size.width == 0 || size.height == 0;
+                self.is_resized = true;
+            },
             WindowEvent::CloseRequested => {
                 self.is_closing.store(true, Ordering::SeqCst);
                 if let Some(c) = self.context.take() {

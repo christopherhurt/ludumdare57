@@ -23,6 +23,7 @@ pub struct WindowInitProps {
     pub width: u32,
     pub height: u32,
     pub title: String,
+    pub is_resizable: bool,
 }
 
 pub trait RenderEngine<W: Window, D: Device>: Sized {

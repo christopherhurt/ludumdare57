@@ -55,6 +55,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
         width: 1600,
         height: 1200,
         title: String::from("My Cool Game"),
+        is_resizable: true,
     };
 
     let render_engine_props = RenderEngineInitProps {
