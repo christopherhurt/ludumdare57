@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
-use std::thread;
+use std::{thread, usize};
 use std::thread::JoinHandle;
-use strum::IntoEnumIterator;
+use strum::{EnumCount, IntoEnumIterator};
 use vulkanalia::Device as vk_Device;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
@@ -23,7 +23,7 @@ use winit::window::{Window as winit_Window, WindowAttributes};
 use crate::core::Color;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, Vertex, VirtualKey, Window};
+use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, Vertex, VirtualKey, VirtualKeyState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
     pick_physical_device,
@@ -58,8 +58,10 @@ pub struct VulkanRenderEngine {
     mesh_id_counter: usize,
     state_sender: SyncSender<RenderState>,
     mesh_sender: Sender<(MeshId, Vec<Vertex>, Vec<u32>)>,
-    keys_down_mirror: Option<HashMap<VirtualKey, bool>>,
-    keys_receiver: Receiver<HashMap<VirtualKey, bool>>,
+    keys_down: HashMap<VirtualKey, bool>,
+    keys_pressed: HashMap<VirtualKey, bool>,
+    keys_released: HashMap<VirtualKey, bool>,
+    keys_receiver: Receiver<(VirtualKey, VirtualKeyState)>,
     is_closing: Arc<AtomicBool>,
     render_thread_join_handle: Option<JoinHandle<()>>,
 }
@@ -73,8 +75,7 @@ struct VulkanApplication {
     mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
     is_minimized: bool,
     is_closing: Arc<AtomicBool>,
-    keys_down: HashMap<VirtualKey, bool>,
-    keys_sender: SyncSender<HashMap<VirtualKey, bool>>,
+    keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
     context: Option<VulkanContext>,
     swapchain_fences: Vec<vk::Fence>,
     frame: usize,
@@ -366,7 +367,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         // TODO: update this so we can overwrite the buffered state(s), rather than block the sender, if the sender gets ahead of the receiver
         let (state_sender, state_receiver) = mpsc::sync_channel::<RenderState>(1);
         let (mesh_sender, mesh_receiver) = mpsc::channel();
-        let (keys_sender, keys_receiver) = mpsc::sync_channel::<HashMap<VirtualKey, bool>>(1);
+        let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualKeyState)>(256);
 
         let is_closing = Arc::new(AtomicBool::new(false));
 
@@ -386,7 +387,9 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
                 mesh_id_counter: 0,
                 state_sender,
                 mesh_sender,
-                keys_down_mirror: None,
+                keys_down: create_empty_vk_map(),
+                keys_pressed: create_empty_vk_map(),
+                keys_released: create_empty_vk_map(),
                 keys_receiver,
                 is_closing,
                 render_thread_join_handle: Some(join_handle),
@@ -395,9 +398,26 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
     }
 
     fn sync_state(&mut self, state: RenderState) -> Result<()> {
-        if let Ok(keys_down) = self.keys_receiver.try_recv() {
-            self.keys_down_mirror = Some(keys_down);
+        let mut new_keys_down = self.keys_down.clone();
+
+        while let Ok((vk, vk_state)) = self.keys_receiver.try_recv() {
+            match vk_state {
+                VirtualKeyState::Pressed => new_keys_down.insert(vk, true),
+                VirtualKeyState::Released => new_keys_down.insert(vk, false),
+            };
         }
+
+        VirtualKey::iter().for_each(|vk| {
+            if vk != VirtualKey::Unknown {
+                let was_down = *self.keys_down.get(&vk).unwrap_or_else(|| panic!("Invalid key {:?}", &vk));
+                let is_down = *new_keys_down.get(&vk).unwrap_or_else(|| panic!("Invalid key {:?}", &vk));
+
+                self.keys_pressed.insert(vk, !was_down && is_down);
+                self.keys_released.insert(vk, was_down && !is_down);
+            }
+        });
+
+        self.keys_down = new_keys_down;
 
         Ok(self.state_sender.try_send(state)?)
     }
@@ -430,6 +450,18 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
     }
 }
 
+fn create_empty_vk_map() -> HashMap<VirtualKey, bool> {
+    let mut vk_map = HashMap::with_capacity(VirtualKey::COUNT);
+
+    VirtualKey::iter().for_each(|vk| {
+        if vk != VirtualKey::Unknown {
+            vk_map.insert(vk, false);
+        }
+    });
+
+    vk_map
+}
+
 impl Window for VulkanRenderEngine {
     fn get_width(&self) -> u32 {
         // TODO: need to get this dynamically when resizing is allowed
@@ -442,10 +474,15 @@ impl Window for VulkanRenderEngine {
     }
 
     fn is_key_down(&self, key: VirtualKey) -> bool {
-        match &self.keys_down_mirror {
-            Some(keys_down) => *keys_down.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key)),
-            None => false,
-        }
+        *self.keys_down.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))
+    }
+
+    fn is_key_pressed(&self, key: VirtualKey) -> bool {
+        *self.keys_pressed.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))
+    }
+
+    fn is_key_released(&self, key: VirtualKey) -> bool {
+        *self.keys_released.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))
     }
 
     fn is_closing(&self) -> bool {
@@ -476,16 +513,9 @@ impl VulkanApplication {
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
         mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
-        keys_sender: SyncSender<HashMap<VirtualKey, bool>>,
+        keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
-        let mut keys_down = HashMap::new();
-        VirtualKey::iter().for_each(|vk| {
-            if vk != VirtualKey::Unknown {
-                keys_down.insert(vk, false);
-            }
-        });
-
         Ok(
             Self {
                 init_props,
@@ -493,7 +523,6 @@ impl VulkanApplication {
                 mesh_receiver,
                 is_minimized: false,
                 is_closing,
-                keys_down,
                 keys_sender,
                 context: None,
                 swapchain_fences: (0..MAX_FRAMES_IN_FLIGHT).map(|_| vk::Fence::null()).collect(),
@@ -642,22 +671,17 @@ impl ApplicationHandler for VulkanApplication {
                 event_loop.exit();
             },
             WindowEvent::KeyboardInput { event: key_event, .. } => {
-                let is_down = get_is_key_down_for_state(key_event.state);
+                let vk_state = get_vk_state_for_winit_key_state(key_event.state);
 
                 let vk = get_vk_for_winit_physical_key(key_event.physical_key);
                 if vk != VirtualKey::Unknown {
-                    self.keys_down.insert(vk, is_down).unwrap_or_else(||
-                        panic!("Internal error: key {:?} was not initialized in keys_down map!", vk));
+                    self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send physical key"));
                 }
 
                 let vk = get_vk_for_winit_logical_key(key_event.logical_key);
                 if vk != VirtualKey::Unknown {
-                    self.keys_down.insert(vk, is_down).unwrap_or_else(||
-                        panic!("Internal error: key {:?} was not initialized in keys_down map!", vk));
+                    self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send logical key"));
                 }
-
-                // TODO: prob don't need to copy this for every input
-                self.keys_sender.send(self.keys_down.clone()).unwrap_or_default();
             },
             _ => {},
         };
@@ -666,10 +690,10 @@ impl ApplicationHandler for VulkanApplication {
 
 // User Input
 
-const fn get_is_key_down_for_state(state: ElementState) -> bool {
+const fn get_vk_state_for_winit_key_state(state: ElementState) -> VirtualKeyState {
     match state {
-        ElementState::Pressed => true,
-        ElementState::Released => false,
+        ElementState::Pressed => VirtualKeyState::Pressed,
+        ElementState::Released => VirtualKeyState::Released,
     }
 }
 

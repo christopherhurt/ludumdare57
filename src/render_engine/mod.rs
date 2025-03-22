@@ -1,5 +1,5 @@
 use anyhow::Result;
-use strum_macros::EnumIter;
+use strum_macros::{EnumCount, EnumIter};
 
 use crate::core::Color;
 use crate::ecs::ComponentActions;
@@ -39,6 +39,8 @@ pub trait Window {
     fn get_width(&self) -> u32;
     fn get_height(&self) -> u32;
     fn is_key_down(&self, key: VirtualKey) -> bool;
+    fn is_key_pressed(&self, key: VirtualKey) -> bool;
+    fn is_key_released(&self, key: VirtualKey) -> bool;
     fn is_closing(&self) -> bool;
 }
 
@@ -80,7 +82,7 @@ impl Mesh {
 impl Component for Mesh {}
 impl ComponentActions for Mesh {}
 
-#[derive(Debug, Clone, Copy, EnumIter, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]
 pub enum VirtualKey {
     Unknown,
     A,
@@ -115,4 +117,10 @@ pub enum VirtualKey {
     Left,
     Down,
     Right,
+}
+
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]
+pub enum VirtualKeyState {
+    Pressed,
+    Released,
 }

@@ -457,7 +457,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
-    } else if render_engine.is_key_down(VirtualKey::Enter) {
+    } else if render_engine.is_key_pressed(VirtualKey::Enter) || render_engine.is_key_released(VirtualKey::Enter) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
         let mesh = Mesh::new(mesh_id);
