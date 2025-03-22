@@ -242,7 +242,7 @@ impl ComponentManager {
 
 fn component_to_boxed_slice(component: Box<dyn ECSActions>) -> Box<[u8]> {
     let ptr = component.as_ref() as *const dyn ECSActions as *const u8;
-    let comp_size = std::mem::size_of_val(&component);
+    let comp_size = std::mem::size_of_val(component.as_ref());
 
     unsafe {
         let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
