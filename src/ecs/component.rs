@@ -16,22 +16,26 @@ pub struct ComponentArray {
     index_to_entity: Vec<Entity>,
     components: Vec<u8>,
     component_size: usize,
+    // TODO: There HAS to be a proper way of dropping these without needing to use double memory... surely Rust
+    //  provides a way to drop components directly from the component Vec... but this approach will work for a while,
+    //  especially since memory consumption here is probably fairly light, even with a relatively large number of entities
+    droppables: Vec<ManuallyDrop<Box<dyn ComponentActions>>>,
 }
 
 const INVALID_COMPONENT_INDEX: usize = usize::MAX;
-const INITIAL_BYTES_PER_CAPACITY: usize = 16;
 
 impl ComponentArray {
     pub(in crate::ecs) fn new(initial_capacity: usize, component_size: usize) -> Self {
         Self {
             entity_to_index: vec![INVALID_COMPONENT_INDEX; initial_capacity],
             index_to_entity: Vec::with_capacity(initial_capacity),
-            components: Vec::with_capacity(initial_capacity * INITIAL_BYTES_PER_CAPACITY),
+            components: Vec::with_capacity(initial_capacity * component_size),
             component_size,
+            droppables: Vec::with_capacity(initial_capacity * component_size),
         }
     }
 
-    pub(in crate::ecs) fn insert_component(&mut self, entity: &Entity, component: Box<[u8]>) -> Result<()> {
+    pub(in crate::ecs) fn insert_component(&mut self, entity: &Entity, component: Box<dyn ComponentActions>) -> Result<()> {
         if entity.0 < self.entity_to_index.len() && self.entity_to_index[entity.0] != INVALID_COMPONENT_INDEX {
             return Err(anyhow!("Component already exists for entity {:?}", entity));
         }
@@ -44,11 +48,15 @@ impl ComponentArray {
 
         self.index_to_entity.push(entity.clone());
 
-        if self.components.len() > self.components.capacity() - component.len() {
+        let (comp_data, droppable) = component_to_boxed_slice(component);
+
+        if self.components.len() > self.components.capacity() - comp_data.len() {
             self.components.reserve(self.components.len());
         }
 
-        self.components.extend_from_slice(&component.as_ref());
+        self.components.extend_from_slice(&comp_data.as_ref());
+
+        self.droppables.push(droppable);
 
         Ok(())
     }
@@ -61,19 +69,22 @@ impl ComponentArray {
         let dst_index = self.entity_to_index[entity.0];
         self.entity_to_index[entity.0] = INVALID_COMPONENT_INDEX;
 
-        let moved_entity = self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity array is empty"));
+        let to_drop = &mut self.droppables[dst_index];
+        unsafe { ManuallyDrop::drop(to_drop); }
+
+        let moved_entity = self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity Vec is empty"));
+        let moved_droppable = self.droppables.pop().unwrap_or_else(|| panic!("Internal error: droppables Vec is empty"));
         let should_move = moved_entity != *entity;
 
         if should_move {
             self.index_to_entity[dst_index] = moved_entity;
+            self.droppables[dst_index] = moved_droppable;
             self.entity_to_index[moved_entity.0] = dst_index;
         }
 
-        // TODO: need to manually drop the component being removed
-
         let comp_index = dst_index * self.component_size;
         for i in (0..self.component_size).rev() {
-            let moved_comp_byte = self.components.pop().unwrap_or_else(|| panic!("Internal error: components array is empty"));
+            let moved_comp_byte = self.components.pop().unwrap_or_else(|| panic!("Internal error: components Vec is empty"));
 
             if should_move {
                 self.components[comp_index + i] = moved_comp_byte;
@@ -115,7 +126,7 @@ impl ComponentArray {
 
 impl Drop for ComponentArray {
     fn drop(&mut self) {
-        // TODO: need to drop all components in the array
+        self.droppables.iter_mut().for_each(|d| unsafe { ManuallyDrop::drop(d); });
     }
 }
 
@@ -142,9 +153,7 @@ impl ComponentManager {
         let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
-        let comp_data = component_to_boxed_slice(component);
-
-        comp_arr.insert_component(entity, comp_data)?;
+        comp_arr.insert_component(entity, component)?;
 
         Ok(())
     }
@@ -240,20 +249,19 @@ impl ComponentManager {
     }
 }
 
-fn component_to_boxed_slice(component: Box<dyn ComponentActions>) -> Box<[u8]> {
+fn component_to_boxed_slice(component: Box<dyn ComponentActions>) -> (Box<[u8]>, ManuallyDrop<Box<dyn ComponentActions>>) {
     let ptr = component.as_ref() as *const dyn ComponentActions as *const u8;
     let comp_size = std::mem::size_of_val(component.as_ref());
 
     unsafe {
         let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
 
-        // TODO: right now we're not actually doing the below... will need to figure out the right way to do this
         // The Box below takes "ownership" of the component (or rather, its raw bytes), but if we don't wrap it in
         //  the ManuallyDrop here, the component will still be dropped. Instead, we'll drop the component ourselves
         //  when it's removed from the ComponentArray. This is safe because after ownership of the component is moved
         //  to the ComponentArray, it doesn't change owners for the remainder of its lifetime.
-        let _ = ManuallyDrop::new(component);
+        let droppable = ManuallyDrop::new(component);
 
-        Box::from(raw_slice)
+        (Box::from(raw_slice), droppable)
     }
 }

@@ -505,7 +505,7 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
 
 const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     for (e, transform, _, _) in get_cubes(entites, components) {
-        let game_bounds = 250.0;
+        let game_bounds = 100.0;
 
         if transform.pos.len() > game_bounds {
             commands.destroy_entity(e);
