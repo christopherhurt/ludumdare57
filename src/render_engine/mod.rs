@@ -2,6 +2,8 @@ use anyhow::Result;
 use strum_macros::EnumIter;
 
 use crate::core::Color;
+use crate::ecs::ComponentActions;
+use crate::ecs::component::Component;
 use crate::math::{Mat4, Vec3};
 
 pub mod vulkan;
@@ -64,6 +66,19 @@ pub struct Vertex {
     pub pos: Vec3,
     pub norm: Vec3,
 }
+
+pub struct Mesh {
+    pub id: MeshId,
+}
+
+impl Mesh {
+    pub fn new(id: MeshId) -> Self {
+        Self { id }
+    }
+}
+
+impl Component for Mesh {}
+impl ComponentActions for Mesh {}
 
 #[derive(Debug, Clone, Copy, EnumIter, Eq, Hash, PartialEq)]
 pub enum VirtualKey {

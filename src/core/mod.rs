@@ -114,7 +114,6 @@ impl Default for Viewport2D {
     }
 }
 
-// TODO: move this and other Component impls to bindings module? thinking about how the dependency tree is organized...
 impl Component for Viewport2D {}
 impl ComponentActions for Viewport2D {}
 

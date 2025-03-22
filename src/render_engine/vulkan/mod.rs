@@ -21,6 +21,8 @@ use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
 use crate::core::Color;
+use crate::ecs::ComponentActions;
+use crate::ecs::component::Component;
 use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, Vertex, VirtualKey, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
@@ -61,6 +63,9 @@ pub struct VulkanRenderEngine {
     is_closing: Arc<AtomicBool>,
     render_thread_join_handle: Option<JoinHandle<()>>,
 }
+
+impl Component for VulkanRenderEngine {}
+impl ComponentActions for VulkanRenderEngine {}
 
 struct VulkanApplication {
     init_props: RenderEngineInitProps,

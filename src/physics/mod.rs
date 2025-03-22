@@ -43,13 +43,11 @@ impl Default for Particle {
     }
 }
 
-// TODO: remove this module's dependency on the ecs module?
 impl Component for Particle {}
 impl ComponentActions for Particle {}
 
 // ParticleCable
 
-// TODO: how to handle this paradigm for ProvisionalEntity??
 #[derive(Clone, Debug)]
 pub struct ParticleCable {
     pub particle_a: Entity,

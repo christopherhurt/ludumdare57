@@ -6,7 +6,6 @@ use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use crate::component_bindings::{Mesh, VulkanComponent};
 use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW, BLACK, WHITE, MAGENTA, GREEN, GRAY, BROWN, CYAN};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
@@ -14,9 +13,8 @@ use crate::ecs::system::System;
 use crate::ecs::{ComponentActions, ECSBuilder, ECSCommands, ECS};
 use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{Device, EntityRenderState, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, Mesh, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
 
-pub mod component_bindings;
 pub mod core;
 pub mod ecs;
 pub mod math;
@@ -40,7 +38,7 @@ fn init_ecs() -> ECS {
         .with_component::<Transform>()
         .with_component::<Mesh>()
         .with_component::<ColorMaterial>()
-        .with_component::<VulkanComponent>()
+        .with_component::<VulkanRenderEngine>()
         .with_component::<TimeDelta>()
         .with_component::<Particle>()
         .with_component::<ParticleCable>()
@@ -320,9 +318,8 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&firework_spawner_entity, Timer::for_initial_duration(Duration::from_secs(3)));
     ecs.attach_provisional_component(&firework_spawner_entity, Transform::new(vec3(20.0, 0.0, 0.0), Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), VEC_3_ZERO));
 
-    let vulkan = VulkanComponent::new(render_engine);
     let vulkan_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&vulkan_entity, vulkan);
+    ecs.attach_provisional_component(&vulkan_entity, render_engine);
 
     let time_delta = TimeDelta::default();
     let time_delta_entity = ecs.create_entity();
@@ -332,9 +329,9 @@ fn create_scene(ecs: &mut ECS) {
     let particle_collision_detector_entity = ecs.create_entity();
     ecs.attach_provisional_component(&particle_collision_detector_entity, particle_collision_detector);
 
-    ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), -999);
+    ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
-    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
+    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
     ecs.register_system(PUSH_CUBES, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_GRAVITY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
@@ -343,9 +340,9 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_DAMPED_HARMONIC_MOTION, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -350);
-    ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
+    ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
     ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
-    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
+    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
@@ -353,15 +350,15 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -99);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
-    ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanComponent>().unwrap()]), 999);
+    ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
 }
 
 // Built-in
 const SHUTDOWN_ECS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     entites.for_each(|e| {
-        let vulkan = components.get_component::<VulkanComponent>(e).unwrap();
+        let render_engine = components.get_component::<VulkanRenderEngine>(e).unwrap();
 
-        if vulkan.render_engine.get_window().map_or(true, |w| w.is_closing()) {
+        if render_engine.get_window().map_or(true, |w| w.is_closing()) {
             commands.shutdown();
         }
     });
@@ -384,10 +381,10 @@ const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &Compo
 };
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
 
-    if let Ok(window) = vulkan.render_engine.get_window() {
+    if let Ok(window) = render_engine.get_window() {
         for e in entites {
             if let Some(viewport) = components.get_mut_component::<Viewport2D>(e) {
                 let cam = &mut viewport.cam;
@@ -442,13 +439,13 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
 };
 
 const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let mesh_id = entites.clone().find_map(|e|
         components.get_component::<MeshWrapper>(e).filter(|m| m.my_id == 0)
     ).unwrap().id;
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
-    if vulkan.render_engine.is_key_down(VirtualKey::Space) {
+    if render_engine.is_key_down(VirtualKey::Space) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
         let mesh = Mesh::new(mesh_id);
@@ -461,7 +458,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
-    } else if vulkan.render_engine.is_key_down(VirtualKey::Enter) {
+    } else if render_engine.is_key_down(VirtualKey::Enter) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
         let mesh = Mesh::new(mesh_id);
@@ -894,10 +891,10 @@ fn resolve_interpenetration(collision: &ParticleCollision, components: &Componen
 }
 
 const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let vulkan = entites.clone().find_map(|e| components.get_component::<VulkanComponent>(e)).unwrap();
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
 
-    if let Ok(window) = vulkan.render_engine.get_window() {
+    if let Ok(window) = render_engine.get_window() {
         for e in entites {
             if let Some(transform) = components.get_mut_component::<Transform>(e) {
                 let rot_speed = 90.0 * time_delta.since_last_frame.as_secs_f32();
@@ -957,7 +954,7 @@ const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &ComponentMa
 
 // Built-in
 const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let vulkan = entites.clone().find_map(|e| components.get_mut_component::<VulkanComponent>(e)).unwrap();
+    let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
     let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
 
     let entity_states = entites.clone().filter(|e|
@@ -970,7 +967,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
         color: components.get_component::<ColorMaterial>(e).unwrap().color,
     }).collect();
 
-    let aspect_ratio = vulkan.render_engine.get_window().and_then(|w| {
+    let aspect_ratio = render_engine.get_window().and_then(|w| {
         Ok((w.get_width() as f32) / (w.get_height() as f32))
     }).unwrap_or(1.0);
     let proj = get_proj_matrix(0.01, 1000.0, viewport.cam.fov_deg, aspect_ratio).unwrap();
@@ -981,7 +978,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
         entity_states,
     };
 
-    vulkan.render_engine.sync_state(render_state).unwrap_or_default();
+    render_engine.sync_state(render_state).unwrap_or_default();
 };
 
 // Built-in
@@ -999,10 +996,10 @@ const UPDATE_TIMERS: System = |entites: Iter<Entity>, components: &ComponentMana
 const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     if commands.is_shutting_down() {
         entites.for_each(|e| {
-            let vulkan = components.get_mut_component::<VulkanComponent>(e).unwrap();
+            let render_engine = components.get_mut_component::<VulkanRenderEngine>(e).unwrap();
 
             unsafe {
-                vulkan.render_engine.join_render_thread()
+                render_engine.join_render_thread()
                     .unwrap_or_else(|e| panic!("{}", e));
             }
         });
