@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 /////////////////////////////////////////////////////////////////////////////
 /// Common
@@ -131,7 +131,7 @@ impl Transform {
         Self { pos, rot, scl }
     }
 
-    pub(in crate) fn to_world_mat(&self) -> Result<Mat4> {
+    pub(in crate) fn to_world_mat(&self) -> Mat4 {
         get_world_matrix(self.pos, self.rot, self.scl)
     }
 }
@@ -140,7 +140,7 @@ impl Default for Transform {
     fn default() -> Self {
         Self {
             pos: VEC_3_ZERO,
-            rot: Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(),
+            rot: QUAT_IDENTITY,
             scl: vec3(1.0, 1.0, 1.0),
         }
     }

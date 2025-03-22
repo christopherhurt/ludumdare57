@@ -491,6 +491,8 @@ pub const fn quat(w: f32, i: f32, j: f32, k: f32) -> Quat {
     Quat { w, i, j, k }
 }
 
+pub const QUAT_IDENTITY: Quat = quat(1.0, 0.0, 0.0, 0.0);
+
 impl Quat {
     #[inline]
     pub fn len(&self) -> f32 {
@@ -498,13 +500,13 @@ impl Quat {
     }
 
     #[inline]
-    pub fn normalized(&self) -> Result<Quat> {
+    pub fn normalized(&self) -> Quat {
         let len = self.len();
 
         if len < EQUALITY_THRESHOLD {
-            Err(anyhow!("Cannot normalize a zero length quaternion!"))
+            QUAT_IDENTITY
         } else {
-            Ok(quat(self.w / len, self.i / len, self.j / len, self.k / len))
+            quat(self.w / len, self.i / len, self.j / len, self.k / len)
         }
     }
 
@@ -529,16 +531,14 @@ impl Quat {
     }
 
     #[inline]
-    pub fn to_rotation_matrix(&self) -> Result<Mat4> {
-        let norm = self.normalized()?;
+    pub fn to_rotation_matrix(&self) -> Mat4 {
+        let norm = self.normalized();
 
-        Ok(
-            mat4(
-                1.0 - 2.0 * (norm.j * norm.j + norm.k * norm.k),    2.0 * (norm.i * norm.j + norm.k * norm.w),          2.0 * (norm.i * norm.k - norm.j * norm.w),          0.0,
-                2.0 * (norm.i * norm.j - norm.k * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.k * norm.k),    2.0 * (norm.j * norm.k + norm.i * norm.w),          0.0,
-                2.0 * (norm.i * norm.k + norm.j * norm.w),          2.0 * (norm.j * norm.k - norm.i * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.j * norm.j),    0.0,
-                0.0,                                                0.0,                                                0.0,                                                1.0,
-            )
+        mat4(
+            1.0 - 2.0 * (norm.j * norm.j + norm.k * norm.k),    2.0 * (norm.i * norm.j + norm.k * norm.w),          2.0 * (norm.i * norm.k - norm.j * norm.w),          0.0,
+            2.0 * (norm.i * norm.j - norm.k * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.k * norm.k),    2.0 * (norm.j * norm.k + norm.i * norm.w),          0.0,
+            2.0 * (norm.i * norm.k + norm.j * norm.w),          2.0 * (norm.j * norm.k - norm.i * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.j * norm.j),    0.0,
+            0.0,                                                0.0,                                                0.0,                                                1.0,
         )
     }
 }
@@ -929,8 +929,8 @@ impl PartialEq<Mat4> for Mat4 {
 
 impl Eq for Mat4 {}
 
-pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Result<Mat4> {
-    let mut rotation_translation = rot.to_rotation_matrix()?;
+pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
+    let mut rotation_translation = rot.to_rotation_matrix();
 
     // Translation
     rotation_translation._03 = pos.x;
@@ -944,7 +944,7 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Result<Mat4> {
         0.0,    0.0,    0.0,    1.0,
     );
 
-    Ok(rotation_translation * scale)
+    rotation_translation * scale
 }
 
 pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Result<Mat4> {

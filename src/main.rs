@@ -1,5 +1,5 @@
 use anyhow::Result;
-use math::{get_proj_matrix, vec2, vec3, Quat, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Quat, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
@@ -127,7 +127,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_mesh = Mesh::new(cube_mesh_id);
     let cube_transform = Transform::new(
         vec3(-10.0, 0.0, 10.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(1.0, 1.0, 1.0),
     );
     let cube_color_material = ColorMaterial::new(YELLOW);
@@ -141,7 +141,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_2_mesh = Mesh::new(cube_mesh_id);
     let cube_2_transform = Transform::new(
         vec3(0.0, 0.0, 10.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(3.0, 3.0, 3.0),
     );
     let cube_2_color_material = ColorMaterial::new(ORANGE);
@@ -155,7 +155,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_3_mesh = Mesh::new(cube_mesh_id);
     let cube_3_transform = Transform::new(
         vec3(10.0, 0.0, 10.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(8.0, 8.0, 8.0),
     );
     let cube_3_color_material = ColorMaterial::new(RED);
@@ -169,7 +169,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_4_mesh = Mesh::new(cube_mesh_id);
     let cube_4_transform = Transform::new(
         vec3(-10.0, 10.0, -10.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(6.0, 6.0, 6.0),
     );
     let cube_4_color_material = ColorMaterial::new(BLACK);
@@ -183,7 +183,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_5_mesh = Mesh::new(cube_mesh_id);
     let cube_5_transform = Transform::new(
         vec3(0.0, 10.0, -10.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(2.0, 2.0, 2.0),
     );
     let cube_5_color_material = ColorMaterial::new(WHITE);
@@ -197,7 +197,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_6_mesh = Mesh::new(cube_mesh_id);
     let cube_6_transform = Transform::new(
         vec3(0.0, 0.0, 0.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(1.0, 1.0, 1.0),
     );
     let cube_6_color_material = ColorMaterial::new(GREEN);
@@ -211,7 +211,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_7_mesh = Mesh::new(cube_mesh_id);
     let cube_7_transform = Transform::new(
         vec3(10.0, 40.0, -10.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(3.0, 3.0, 3.0),
     );
     let cube_7_color_material = ColorMaterial::new(MAGENTA);
@@ -225,7 +225,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_8_mesh = Mesh::new(cube_mesh_id);
     let cube_8_transform = Transform::new(
         vec3(10.0, -40.0, -25.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(8.0, 8.0, 8.0),
     );
     let cube_8_color_material = ColorMaterial::new(MAGENTA);
@@ -239,7 +239,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_9_mesh = Mesh::new(cube_mesh_id);
     let cube_9_transform = Transform::new(
         vec3(-10.0, 10.0, 30.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(6.0, 6.0, 6.0),
     );
     let cube_9_color_material = ColorMaterial::new(GRAY);
@@ -253,7 +253,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_10_mesh = Mesh::new(cube_mesh_id);
     let cube_10_transform = Transform::new(
         vec3(-5.0, 0.0, 2.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(1.0, 1.0, 1.0),
     );
     let cube_10_color_material = ColorMaterial::new(BROWN);
@@ -267,7 +267,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_11_mesh = Mesh::new(cube_mesh_id);
     let cube_11_transform = Transform::new(
         vec3(-5.0, 0.0, -2.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(1.0, 1.0, 1.0),
     );
     let cube_11_color_material = ColorMaterial::new(BROWN);
@@ -283,7 +283,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_12_mesh = Mesh::new(cube_mesh_id);
     let cube_12_transform = Transform::new(
         vec3(5.0, 0.0, 3.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(2.0, 2.0, 2.0),
     );
     let cube_12_color_material = ColorMaterial::new(CYAN);
@@ -297,7 +297,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_13_mesh = Mesh::new(cube_mesh_id);
     let cube_13_transform = Transform::new(
         vec3(5.0, 0.0, -3.0),
-        Quat::from_axis_spin(&VEC_3_Y_AXIS, 0.0).unwrap(),
+        QUAT_IDENTITY,
         vec3(1.0, 1.0, 1.0),
     );
     let cube_13_color_material = ColorMaterial::new(CYAN);
@@ -317,7 +317,7 @@ fn create_scene(ecs: &mut ECS) {
     let firework_spawner_entity = ecs.create_entity();
     ecs.attach_provisional_component(&firework_spawner_entity, cube_mesh_wrapper);
     ecs.attach_provisional_component(&firework_spawner_entity, Timer::for_initial_duration(Duration::from_secs(3)));
-    ecs.attach_provisional_component(&firework_spawner_entity, Transform::new(vec3(20.0, 0.0, 0.0), Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), VEC_3_ZERO));
+    ecs.attach_provisional_component(&firework_spawner_entity, Transform::new(vec3(20.0, 0.0, 0.0), QUAT_IDENTITY, VEC_3_ZERO));
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -454,7 +454,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
 
         let mesh = Mesh::new(mesh_id);
         let color_material = ColorMaterial::new(PURPLE);
-        let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), vec3(1.0, 1.0, 1.0));
+        let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(1.0, 1.0, 1.0));
         let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
 
         let proj_entity = commands.create_entity();
@@ -467,7 +467,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
 
         let mesh = Mesh::new(mesh_id);
         let color_material = ColorMaterial::new(BLUE);
-        let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, Quat::from_axis_spin(&VEC_3_X_AXIS, 0.0).unwrap(), vec3(3.0, 3.0, 3.0));
+        let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(3.0, 3.0, 3.0));
         let particle = Particle::new(cam_dir_norm * 5.0, 0.9, 1.0, -0.6);
 
         let proj_entity = commands.create_entity();
@@ -896,27 +896,27 @@ const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager
 
                 if window.is_key_down(VirtualKey::J) && !window.is_key_down(VirtualKey::L) {
                     let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                    transform.rot = (transform.rot * spin).normalized();
                 }
                 if window.is_key_down(VirtualKey::L) && !window.is_key_down(VirtualKey::J) {
                     let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                    transform.rot = (transform.rot * spin).normalized();
                 }
                 if window.is_key_down(VirtualKey::I) && !window.is_key_down(VirtualKey::K) {
                     let spin = Quat::from_axis_spin(&VEC_3_X_AXIS, -rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                    transform.rot = (transform.rot * spin).normalized();
                 }
                 if window.is_key_down(VirtualKey::K) && !window.is_key_down(VirtualKey::I) {
                     let spin = Quat::from_axis_spin(&VEC_3_X_AXIS, rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                    transform.rot = (transform.rot * spin).normalized();
                 }
                 if window.is_key_down(VirtualKey::U) && !window.is_key_down(VirtualKey::O) {
                     let spin = Quat::from_axis_spin(&VEC_3_Z_AXIS, -rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                    transform.rot = (transform.rot * spin).normalized();
                 }
                 if window.is_key_down(VirtualKey::O) && !window.is_key_down(VirtualKey::U) {
                     let spin = Quat::from_axis_spin(&VEC_3_Z_AXIS, rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized().unwrap();
+                    transform.rot = (transform.rot * spin).normalized();
                 }
             }
         }
@@ -957,7 +957,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
         && components.get_component::<Mesh>(e).is_some()
         && components.get_component::<ColorMaterial>(e).is_some())
     .map(|e| EntityRenderState {
-        world: components.get_component::<Transform>(e).unwrap().to_world_mat().unwrap(),
+        world: components.get_component::<Transform>(e).unwrap().to_world_mat(),
         mesh_id: components.get_component::<Mesh>(e).unwrap().id,
         color: components.get_component::<ColorMaterial>(e).unwrap().color,
     }).collect();
