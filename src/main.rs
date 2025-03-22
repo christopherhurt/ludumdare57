@@ -411,12 +411,12 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                     move_dir -= cam.up.normalized().unwrap();
                 }
 
-                let move_speed = 10.0 * time_delta.since_last_frame.as_secs_f32();
+                let move_speed = 25.0 * time_delta.since_last_frame.as_secs_f32();
                 if let Ok(dir) = move_dir.normalized() {
                     cam.pos += dir * move_speed;
                 }
 
-                let rot_speed = 150.0 * time_delta.since_last_frame.as_secs_f32();
+                let rot_speed = 240.0 * time_delta.since_last_frame.as_secs_f32();
                 if window.is_key_down(VirtualKey::Left) && !window.is_key_down(VirtualKey::Right) {
                     cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_speed).unwrap().normalized().unwrap();
                     cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_speed).unwrap().normalized().unwrap();
@@ -892,7 +892,7 @@ const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager
     if let Ok(window) = render_engine.get_window() {
         for e in entites {
             if let Some(transform) = components.get_mut_component::<Transform>(e) {
-                let rot_speed = 90.0 * time_delta.since_last_frame.as_secs_f32();
+                let rot_speed = 360.0 * time_delta.since_last_frame.as_secs_f32();
 
                 if window.is_key_down(VirtualKey::J) && !window.is_key_down(VirtualKey::L) {
                     let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
