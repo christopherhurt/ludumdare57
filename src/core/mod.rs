@@ -62,12 +62,12 @@ pub struct Camera {
     pub pos: Vec3,
     pub dir: Vec3,
     pub up: Vec3,
-    pub fov_deg: f32,
+    pub fov_rads: f32,
 }
 
 impl Camera {
-    pub fn new(pos: Vec3, dir: Vec3, up: Vec3, fov_deg: f32) -> Self {
-        Self { pos, dir, up, fov_deg }
+    pub fn new(pos: Vec3, dir: Vec3, up: Vec3, fov_rads: f32) -> Self {
+        Self { pos, dir, up, fov_rads }
     }
 
     pub(in crate) fn to_view_mat(&self) -> Result<Mat4> {
@@ -81,7 +81,7 @@ impl Default for Camera {
             pos: VEC_3_ZERO,
             dir: VEC_3_Z_AXIS,
             up: VEC_3_Y_AXIS,
-            fov_deg: 45.0,
+            fov_rads: 45.0_f32.to_radians(),
         }
     }
 }

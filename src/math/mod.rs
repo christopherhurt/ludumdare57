@@ -234,28 +234,28 @@ impl Vec3 {
     }
 
     #[inline]
-    pub fn angle_deg_from(&self, vec: &Vec3) -> Result<f32> {
+    pub fn angle_rads_from(&self, vec: &Vec3) -> Result<f32> {
         let self_len = self.len();
         let vec_len = vec.len();
 
         if self_len < EQUALITY_THRESHOLD || vec_len < EQUALITY_THRESHOLD {
             Err(anyhow!("Cannot get angle from a zero length vector!"))
         } else {
-            Ok((self.dot(vec) / (self_len * vec_len)).acos().to_degrees())
+            Ok((self.dot(vec) / (self_len * vec_len)).acos())
         }
     }
 
     #[inline]
-    pub fn rotated(&self, axis: &Vec3, spin_deg: f32) -> Result<Vec3> {
+    pub fn rotated(&self, axis: &Vec3, spin_rads: f32) -> Result<Vec3> {
         // https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation
         let axis_norm = match axis.normalized() {
             Ok(a) => Ok(a),
             Err(_) => Err(anyhow!("Cannot rotate vector about a zero length axis!")),
         }?;
 
-        let half_spin_rad = (spin_deg / 2.0).to_radians();
-        let cos_half_spin = half_spin_rad.cos();
-        let sin_half_spin = half_spin_rad.sin();
+        let half_spin_rads = spin_rads / 2.0;
+        let cos_half_spin = half_spin_rads.cos();
+        let sin_half_spin = half_spin_rads.sin();
         let crossed = axis_norm.cross(self);
 
         Ok(*self + (2.0 * cos_half_spin * sin_half_spin * crossed) + (2.0 * sin_half_spin * sin_half_spin * axis_norm.cross(&crossed)))
@@ -511,9 +511,9 @@ impl Quat {
     }
 
     #[inline]
-    pub fn from_axis_spin(axis: &Vec3, spin_deg: f32) -> Result<Self> {
-        let sin_half = (spin_deg / 2.0).to_radians().sin();
-        let cos_half = (spin_deg / 2.0).to_radians().cos();
+    pub fn from_axis_spin(axis: &Vec3, spin_rads: f32) -> Result<Self> {
+        let sin_half = (spin_rads / 2.0).sin();
+        let cos_half = (spin_rads / 2.0).cos();
 
         let axis_norm = match axis.normalized() {
             Ok(a) => Ok(a),
@@ -978,7 +978,7 @@ pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Result<Mat4> {
     Ok(rotation * translation)
 }
 
-pub fn get_proj_matrix(near: f32, far: f32, fov_deg: f32, aspect_ratio: f32) -> Result<Mat4> {
+pub fn get_proj_matrix(near: f32, far: f32, fov_rads: f32, aspect_ratio: f32) -> Result<Mat4> {
     if near <= 0.0 || far <= 0.0 {
         return Err(anyhow!("Near and far values must be positive!"));
     }
@@ -989,7 +989,7 @@ pub fn get_proj_matrix(near: f32, far: f32, fov_deg: f32, aspect_ratio: f32) -> 
         return Err(anyhow!("Aspect ratio must be positive!"));
     }
 
-    let tan_half_fov = (fov_deg / 2.0).to_radians().tan();
+    let tan_half_fov = (fov_rads / 2.0).tan();
 
     Ok(
         mat4(

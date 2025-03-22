@@ -70,7 +70,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 fn create_scene(ecs: &mut ECS) {
     let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
 
-    let cam = Camera::new(VEC_3_ZERO, VEC_3_Z_AXIS, VEC_3_Y_AXIS, 70.0);
+    let cam = Camera::new(VEC_3_ZERO, VEC_3_Z_AXIS, VEC_3_Y_AXIS, 70.0_f32.to_radians());
     let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
@@ -416,7 +416,7 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                     cam.pos += dir * move_speed;
                 }
 
-                let rot_speed = 240.0 * time_delta.since_last_frame.as_secs_f32();
+                let rot_speed = (240.0 * time_delta.since_last_frame.as_secs_f32()).to_radians();
                 if window.is_key_down(VirtualKey::Left) && !window.is_key_down(VirtualKey::Right) {
                     cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_speed).unwrap().normalized().unwrap();
                     cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_speed).unwrap().normalized().unwrap();
@@ -892,7 +892,7 @@ const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager
     if let Ok(window) = render_engine.get_window() {
         for e in entites {
             if let Some(transform) = components.get_mut_component::<Transform>(e) {
-                let rot_speed = 360.0 * time_delta.since_last_frame.as_secs_f32();
+                let rot_speed = (360.0 * time_delta.since_last_frame.as_secs_f32()).to_radians();
 
                 if window.is_key_down(VirtualKey::J) && !window.is_key_down(VirtualKey::L) {
                     let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
@@ -965,7 +965,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
     let aspect_ratio = render_engine.get_window().and_then(|w| {
         Ok((w.get_width() as f32) / (w.get_height() as f32))
     }).unwrap_or(1.0);
-    let proj = get_proj_matrix(0.01, 1000.0, viewport.cam.fov_deg, aspect_ratio).unwrap();
+    let proj = get_proj_matrix(0.01, 1000.0, viewport.cam.fov_rads, aspect_ratio).unwrap();
 
     let render_state = RenderState {
         view: viewport.cam.to_view_mat().unwrap(),
