@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{Vec3, VEC_3_ZERO};
+use crate::math::{Mat3, Vec3, VEC_3_ZERO};
 
 // Particle
 
@@ -199,3 +199,12 @@ impl ParticleCollisionDetector {
 
 impl Component for ParticleCollisionDetector {}
 impl ComponentActions for ParticleCollisionDetector {}
+
+// RigidBody
+
+pub struct RigidBody {
+    pub mass: f32,
+    pub vel: Vec3,
+    pub ang_vel: Vec3,
+    pub inertia_tensor: Mat3,
+}

@@ -558,6 +558,7 @@ const APPLY_DRAG: System = |entites: Iter<Entity>, components: &ComponentManager
     }
 };
 
+// TODO: make a struct for particle springs
 const APPLY_CEILING_SPRING: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     const CEIL_HEIGHT: f32 = 10.0;
     const REST_LENGTH: f32 = 3.0;
