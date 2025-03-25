@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
+use std::pin::Pin;
 
 use crate::ecs::{ComponentActions, Signature};
 use crate::ecs::entity::Entity;
@@ -19,7 +20,7 @@ pub struct ComponentArray {
     // TODO: There HAS to be a proper way of dropping these without needing to use double memory... surely Rust
     //  provides a way to drop components directly from the component Vec... but this approach will work for a while,
     //  especially since memory consumption here is probably fairly light, even with a relatively large number of entities
-    droppables: Vec<ManuallyDrop<Box<dyn ComponentActions>>>,
+    droppables: Vec<ManuallyDrop<Pin<Box<dyn ComponentActions>>>>,
 }
 
 const INVALID_COMPONENT_INDEX: usize = usize::MAX;
@@ -35,7 +36,7 @@ impl ComponentArray {
         }
     }
 
-    pub(in crate::ecs) fn insert_component(&mut self, entity: &Entity, component: Box<dyn ComponentActions>) -> Result<()> {
+    pub(in crate::ecs) fn insert_component(&mut self, entity: &Entity, component: Pin<Box<dyn ComponentActions>>) -> Result<()> {
         if entity.0 < self.entity_to_index.len() && self.entity_to_index[entity.0] != INVALID_COMPONENT_INDEX {
             return Err(anyhow!("Component already exists for entity {:?}", entity));
         }
@@ -149,7 +150,7 @@ impl ComponentManager {
         }
     }
 
-    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Box<dyn ComponentActions>) -> Result<()> {
+    pub(in crate::ecs) fn attach_component(&mut self, entity: &Entity, type_id: TypeId, component: Pin<Box<dyn ComponentActions>>) -> Result<()> {
         let comp_arr = self.component_types_to_arrays.get_mut(&type_id).map(|c| Ok(c))
             .unwrap_or(Err(anyhow!("No such component has been registered")))?;
 
@@ -249,9 +250,9 @@ impl ComponentManager {
     }
 }
 
-fn component_to_boxed_slice(component: Box<dyn ComponentActions>) -> (Box<[u8]>, ManuallyDrop<Box<dyn ComponentActions>>) {
-    let ptr = component.as_ref() as *const dyn ComponentActions as *const u8;
-    let comp_size = std::mem::size_of_val(component.as_ref());
+fn component_to_boxed_slice(component: Pin<Box<dyn ComponentActions>>) -> (Box<[u8]>, ManuallyDrop<Pin<Box<dyn ComponentActions>>>) {
+    let ptr = component.as_ref().get_ref() as *const dyn ComponentActions as *const u8;
+    let comp_size = std::mem::size_of_val(component.as_ref().get_ref());
 
     unsafe {
         let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
