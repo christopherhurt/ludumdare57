@@ -126,6 +126,13 @@ impl ComponentArray {
 
 impl Drop for ComponentArray {
     fn drop(&mut self) {
+        // TODO: Something is still not right here - I'm getting memory errors upon exiting... seems to be when the Vulkan component's render thread join
+        //  handle is dropped, and it may have to do with it not being pinned memory.
+        //  We can probably get around all this garbage by using a Box allocation for each component, with some sort of assurance that Box is allocating
+        //  from similar regions of heap memory, so I can still get decent locality. That would help me get rid of a LOT of unsafe code and fix these dumb
+        //  issues... look more into options with the Box class/heap allocation options.
+        //  It's probably as simple as using Box::new_in() with a custom allocator implementation that guarantees contiguous memory... I can likely even
+        //  control the exact allocation sizes and memory index for each Box since I know the size/alignment of the components being stored...
         self.droppables.iter_mut().for_each(|d| unsafe { ManuallyDrop::drop(d); });
     }
 }
