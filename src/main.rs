@@ -8,7 +8,7 @@ use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 
 use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, PURPLE, BLACK, WHITE, MAGENTA, GREEN, BROWN, CYAN};
-use crate::core::mesh::{Mesh, MeshBinding, Vertex};
+use crate::core::mesh::{Mesh, MeshBinding, Vertex, load_obj_mesh};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
@@ -134,6 +134,15 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
+    let bunny_mesh = load_obj_mesh("res/bunny.obj").unwrap();
+    let bunny_mesh_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let bunny_mesh_entity = ecs.create_entity();
+    let bunny_mesh_binding = MeshBinding::new_provisional(Some(bunny_mesh_id), Some(bunny_mesh_entity));
+    ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh);
+    ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh_binding.clone());
+
     let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
     let test_cube_material = ColorMaterial::new(RED);
     let test_cube_entity = ecs.create_entity();
@@ -141,6 +150,13 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
+
+    let test_bunny_transform = Transform::new(vec3(20.0, 0.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 40.0);
+    let test_bunny_material = ColorMaterial::new(RED);
+    let test_bunny_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_transform);
+    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
+    ecs.attach_provisional_component(&test_bunny_entity, bunny_mesh_binding.clone());
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
