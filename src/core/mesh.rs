@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -15,18 +14,18 @@ use crate::math::{vec3, Vec3, VEC_3_ZERO};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderMeshId(pub(in crate) usize);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MeshBinding {
-    pub mesh_wrapper: RefCell<Option<Entity>>,
+    pub mesh_wrapper: Option<Entity>,
     pub id: Option<RenderMeshId>,
-    pub(in crate) provisional_mesh_wrapper: Option<ProvisionalEntity>, // TODO REAL!!!!!
+    provisional_mesh_wrapper: Option<ProvisionalEntity>,
 }
 
 impl MeshBinding {
     pub fn new(id: Option<RenderMeshId>, mesh_wrapper: Option<Entity>) -> Self {
         Self {
             id,
-            mesh_wrapper: RefCell::new(mesh_wrapper),
+            mesh_wrapper,
             provisional_mesh_wrapper: None,
         }
     }
@@ -34,7 +33,7 @@ impl MeshBinding {
     pub fn new_provisional(id: Option<RenderMeshId>, provisional_mesh_wrapper: Option<ProvisionalEntity>) -> Self {
         Self {
             id,
-            mesh_wrapper: RefCell::new(None),
+            mesh_wrapper: None,
             provisional_mesh_wrapper
         }
     }
@@ -43,9 +42,11 @@ impl MeshBinding {
 impl Component for MeshBinding {}
 
 impl ComponentActions for MeshBinding {
-    fn update_provisional_entities(&self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
-        if let Some(p) = self.provisional_mesh_wrapper.as_ref() {
-            *self.mesh_wrapper.borrow_mut() = Some(provisional_to_entities.get(p).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &p)).clone());
+    fn update_provisional_entities(&mut self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
+        if let Some(p) = self.provisional_mesh_wrapper.take() {
+            self.mesh_wrapper = Some(
+                provisional_to_entities.get(&p).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &p)).clone()
+            );
         }
     }
 }

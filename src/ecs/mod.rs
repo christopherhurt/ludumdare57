@@ -3,7 +3,6 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
-use std::pin::Pin;
 
 use component::{Component, ComponentManager, SystemSignature};
 use entity::{Entity, EntityManager};
@@ -19,7 +18,7 @@ pub(in crate::ecs) type Signature = u64;
 pub struct ProvisionalEntity(pub(in crate) usize);
 
 pub trait ComponentActions {
-    fn update_provisional_entities(&self, _provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {}
+    fn update_provisional_entities(&mut self, _provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {}
 }
 
 enum EntityComponentCommandType {
@@ -42,8 +41,8 @@ pub struct ECSCommands {
     provisional_entity_counter: usize,
     to_create: VecDeque<ProvisionalEntity>,
     to_destroy: VecDeque<Entity>,
-    to_attach: VecDeque<(Entity, TypeId, Pin<Box<dyn ComponentActions>>)>,
-    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Pin<Box<dyn ComponentActions>>)>,
+    to_attach: VecDeque<(Entity, TypeId, Box<dyn ComponentActions>)>,
+    to_attach_provisional: VecDeque<(ProvisionalEntity, TypeId, Box<dyn ComponentActions>)>,
     to_detach: VecDeque<(Entity, TypeId)>,
     to_register: VecDeque<(System, HashSet<SystemSignature>, i16)>,
     to_unregister: VecDeque<System>,
@@ -86,12 +85,12 @@ impl ECSCommands {
     }
 
     pub fn attach_component<T: Component>(&mut self, entity: &Entity, component: T) {
-        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), Box::pin(component)));
+        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), Box::new(component)));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachComponent);
     }
 
     pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: &ProvisionalEntity, component: T) {
-        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), Box::pin(component)));
+        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), Box::new(component)));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachProvisionalComponent);
     }
 
@@ -267,9 +266,9 @@ fn flush_entity_component_commands(
                 apply_entity_signature_update(entity, component_signature, entity_manager, system_managers)?;
             },
             EntityComponentCommandType::AttachProvisionalComponent => {
-                let (provisional_entity, type_id, component) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
+                let (provisional_entity, type_id, mut component) = commands.to_attach_provisional.pop_front().unwrap_or_else(|| panic!("Internal error: expected a component to attach"));
 
-                component.as_ref().update_provisional_entities(&provisional_entity_map);
+                component.as_mut().update_provisional_entities(&provisional_entity_map);
 
                 let entity = *provisional_entity_map.get(&provisional_entity).unwrap_or_else(|| panic!("Internal error: provisional entity {:?} was not created before attaching a component to it", provisional_entity));
 

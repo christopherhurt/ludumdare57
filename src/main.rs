@@ -2,7 +2,6 @@ use anyhow::Result;
 use ecs::ComponentActions;
 use math::{get_proj_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
-use core::mesh::load_obj_mesh;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
@@ -132,31 +131,16 @@ fn create_scene(ecs: &mut ECS) {
     let cube_mesh_entity = ecs.create_entity();
     let cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh);
-    ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding.clone());
+    ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
-    let bunny_mesh = load_obj_mesh("res/bunny.obj").unwrap();
-    let bunny_mesh_id = render_engine.get_device_mut()
-        .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
-        .unwrap_or_else(|e| panic!("{}", e));
-    let bunny_mesh_entity = ecs.create_entity();
-    let bunny_mesh_binding = MeshBinding::new_provisional(Some(bunny_mesh_id), Some(bunny_mesh_entity));
-    ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh);
-    ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh_binding.clone());
-
     let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
-    let test_cube_material = ColorMaterial::new(WHITE);
+    let test_cube_material = ColorMaterial::new(RED);
     let test_cube_entity = ecs.create_entity();
+    let test_cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
-    ecs.attach_provisional_component(&test_cube_entity, bunny_mesh_binding.clone());
-
-    let test_bunny_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
-    let test_bunny_material = ColorMaterial::new(RED);
-    let test_bunny_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_transform);
-    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
-    ecs.attach_provisional_component(&test_bunny_entity, cube_mesh_binding.clone());
+    ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -281,13 +265,9 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let mesh_binding = &entites.clone()
         .find(|e| components.get_component::<CubeMeshOwner>(e).is_some())
-        .map(|e| components.get_component::<MeshBinding>(e).unwrap())
+        .map(|e| *components.get_component::<MeshBinding>(e).unwrap())
         .unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
-
-    // TODO???
-    let mut mesh_binding = (*mesh_binding).clone();
-    mesh_binding.provisional_mesh_wrapper = None;
 
     if render_engine.is_key_down(VirtualKey::Space) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
@@ -297,7 +277,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
 
         let proj_entity = commands.create_entity();
-        commands.attach_provisional_component(&proj_entity, mesh_binding.clone());
+        commands.attach_provisional_component(&proj_entity, *mesh_binding);
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
@@ -309,7 +289,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         let particle = Particle::new(cam_dir_norm * 5.0, 0.9, 1.0, -0.6);
 
         let proj_entity = commands.create_entity();
-        commands.attach_provisional_component(&proj_entity, mesh_binding.clone());
+        commands.attach_provisional_component(&proj_entity, *mesh_binding);
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
@@ -477,8 +457,8 @@ const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, compone
         .map(|(e, c)| (e, c.unwrap()));
 
     for (e, c) in cables {
-        let transform_a = components.get_component::<Transform>(&c.particle_a.borrow().clone());
-        let transform_b = components.get_component::<Transform>(&c.particle_b.borrow().clone());
+        let transform_a = components.get_component::<Transform>(&c.particle_a);
+        let transform_b = components.get_component::<Transform>(&c.particle_b);
 
         if transform_a.is_some() && transform_b.is_some() {
             let transform_a = transform_a.unwrap();
@@ -490,8 +470,8 @@ const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, compone
             if length >= c.max_length {
                 if let Ok(normal) = delta_pos.normalized() {
                     let collision = ParticleCollision::new(
-                        c.particle_a.borrow().clone(),
-                        Some(c.particle_b.borrow().clone()),
+                        c.particle_a,
+                        Some(c.particle_b),
                         c.restitution,
                         normal,
                         length - c.max_length,
@@ -515,8 +495,8 @@ const DETECT_PARTICLE_ROD_COLLISIONS: System = |entites: Iter<Entity>, component
         .map(|(e, r)| (e, r.unwrap()));
 
     for (e, r) in rods {
-        let transform_a = components.get_component::<Transform>(&r.particle_a.borrow().clone());
-        let transform_b = components.get_component::<Transform>(&r.particle_b.borrow().clone());
+        let transform_a = components.get_component::<Transform>(&r.particle_a);
+        let transform_b = components.get_component::<Transform>(&r.particle_b);
 
         if transform_a.is_some() && transform_b.is_some() {
             let transform_a = transform_a.unwrap();
@@ -534,8 +514,8 @@ const DETECT_PARTICLE_ROD_COLLISIONS: System = |entites: Iter<Entity>, component
                 }
 
                 let collision = ParticleCollision::new(
-                    r.particle_a.borrow().clone(),
-                    Some(r.particle_b.borrow().clone()),
+                    r.particle_a,
+                    Some(r.particle_b),
                     0.0,
                     normal,
                     penetration,

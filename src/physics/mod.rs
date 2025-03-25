@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::core::mesh::Mesh;
@@ -54,10 +53,10 @@ impl ComponentActions for Particle {}
 
 #[derive(Clone, Debug)]
 pub struct ParticleCable {
-    pub particle_a: RefCell<Entity>,
-    pub particle_b: RefCell<Entity>,
-    particle_a_prov: ProvisionalEntity,
-    particle_b_prov: ProvisionalEntity,
+    pub particle_a: Entity,
+    pub particle_b: Entity,
+    pub particle_a_prov: ProvisionalEntity,
+    pub particle_b_prov: ProvisionalEntity,
     pub max_length: f32,
     pub restitution: f32,
 }
@@ -70,8 +69,8 @@ impl ParticleCable {
         restitution: f32,
     ) -> Self {
         Self {
-            particle_a: RefCell::new(particle_a),
-            particle_b: RefCell::new(particle_b),
+            particle_a,
+            particle_b,
             particle_a_prov: ProvisionalEntity(0),
             particle_b_prov: ProvisionalEntity(0),
             max_length,
@@ -86,8 +85,8 @@ impl ParticleCable {
         restitution: f32,
     ) -> Self {
         Self {
-            particle_a: RefCell::new(Entity(0)),
-            particle_b: RefCell::new(Entity(0)),
+            particle_a: Entity(0),
+            particle_b: Entity(0),
             particle_a_prov: particle_a,
             particle_b_prov: particle_b,
             max_length,
@@ -99,9 +98,9 @@ impl ParticleCable {
 impl Component for ParticleCable {}
 
 impl ComponentActions for ParticleCable {
-    fn update_provisional_entities(&self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
-        *self.particle_a.borrow_mut() = provisional_to_entities.get(&self.particle_a_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_a_prov)).clone();
-        *self.particle_b.borrow_mut() = provisional_to_entities.get(&self.particle_b_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_b_prov)).clone();
+    fn update_provisional_entities(&mut self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
+        self.particle_a = provisional_to_entities.get(&self.particle_a_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_a_prov)).clone();
+        self.particle_b = provisional_to_entities.get(&self.particle_b_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_b_prov)).clone();
     }
 }
 
@@ -109,10 +108,10 @@ impl ComponentActions for ParticleCable {
 
 #[derive(Clone, Debug)]
 pub struct ParticleRod {
-    pub particle_a: RefCell<Entity>,
-    pub particle_b: RefCell<Entity>,
-    particle_a_prov: ProvisionalEntity,
-    particle_b_prov: ProvisionalEntity,
+    pub particle_a: Entity,
+    pub particle_b: Entity,
+    pub particle_a_prov: ProvisionalEntity,
+    pub particle_b_prov: ProvisionalEntity,
     pub length: f32,
 }
 
@@ -123,8 +122,8 @@ impl ParticleRod {
         length: f32,
     ) -> Self {
         Self {
-            particle_a: RefCell::new(particle_a),
-            particle_b: RefCell::new(particle_b),
+            particle_a,
+            particle_b,
             particle_a_prov: ProvisionalEntity(0),
             particle_b_prov: ProvisionalEntity(0),
             length,
@@ -137,8 +136,8 @@ impl ParticleRod {
         length: f32,
     ) -> Self {
         Self {
-            particle_a: RefCell::new(Entity(0)),
-            particle_b: RefCell::new(Entity(0)),
+            particle_a: Entity(0),
+            particle_b: Entity(0),
             particle_a_prov: particle_a,
             particle_b_prov: particle_b,
             length,
@@ -149,9 +148,9 @@ impl ParticleRod {
 impl Component for ParticleRod {}
 
 impl ComponentActions for ParticleRod {
-    fn update_provisional_entities(&self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
-        *self.particle_a.borrow_mut() = provisional_to_entities.get(&self.particle_a_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_a_prov)).clone();
-        *self.particle_b.borrow_mut() = provisional_to_entities.get(&self.particle_b_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_b_prov)).clone();
+    fn update_provisional_entities(&mut self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
+        self.particle_a = provisional_to_entities.get(&self.particle_a_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_a_prov)).clone();
+        self.particle_b = provisional_to_entities.get(&self.particle_b_prov).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &self.particle_b_prov)).clone();
     }
 }
 
