@@ -21,9 +21,10 @@ use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
 use crate::core::Color;
+use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::render_engine::{Device, MeshId, RenderEngine, RenderEngineInitProps, RenderState, Vertex, VirtualKey, VirtualKeyState, Window};
+use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, VirtualKeyState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
     pick_physical_device,
@@ -43,7 +44,7 @@ use crate::render_engine::vulkan::vulkan_resources::{
     create_vertex_buffer,
     create_index_buffer,
 };
-use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Mesh, Pipeline, Swapchain, UniformBufferObject};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, VulkanMesh, Pipeline, Swapchain, UniformBufferObject};
 
 mod vulkan_resources;
 mod vulkan_structs;
@@ -56,7 +57,7 @@ const NUM_UNIFORM_DESCRIPTORS: usize = 4096;
 pub struct VulkanRenderEngine {
     mesh_id_counter: usize,
     state_sender: SyncSender<RenderState>,
-    mesh_sender: Sender<(MeshId, Vec<Vertex>, Vec<u32>)>,
+    mesh_sender: Sender<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
     keys_down: HashMap<VirtualKey, bool>,
     keys_pressed: HashMap<VirtualKey, bool>,
     keys_released: HashMap<VirtualKey, bool>,
@@ -73,7 +74,7 @@ impl ComponentActions for VulkanRenderEngine {}
 struct VulkanApplication {
     init_props: RenderEngineInitProps,
     state_receiver: Receiver<RenderState>,
-    mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
+    mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
     is_minimized: bool,
     is_resized: bool,
     is_closing: Arc<AtomicBool>,
@@ -115,7 +116,7 @@ struct VulkanContext {
     per_frame_command_buffers: Vec<vk::CommandBuffer>,
     sync_objects: Vec<FrameSyncObjects>,
 
-    meshes: HashMap<MeshId, Mesh>,
+    meshes: HashMap<RenderMeshId, VulkanMesh>,
 }
 
 impl VulkanContext {
@@ -500,17 +501,17 @@ impl Window for VulkanRenderEngine {
 }
 
 impl Device for VulkanRenderEngine {
-    unsafe fn create_mesh(&mut self, vertices: Vec<Vertex>, vertex_indexes: Vec<u32>) -> Result<MeshId> {
+    fn create_mesh(&mut self, vertices: Arc<Vec<Vertex>>, vertex_indexes: Arc<Vec<u32>>) -> Result<RenderMeshId> {
         if vertices.is_empty() || vertex_indexes.is_empty() {
             Err(anyhow!("Can't create a mesh with empty vertex data arrays"))
         } else if vertex_indexes.len() % 3 != 0 {
             Err(anyhow!("Can't create a mesh with an invalid number of indices"))
         } else {
-            let mesh_id = MeshId(self.mesh_id_counter);
+            let mesh_id = RenderMeshId(self.mesh_id_counter);
 
             self.mesh_id_counter += 1;
 
-            self.mesh_sender.send((mesh_id, vertices, vertex_indexes))?;
+            self.mesh_sender.send((mesh_id, vertices.clone(), vertex_indexes.clone()))?;
 
             Ok(mesh_id)
         }
@@ -521,7 +522,7 @@ impl VulkanApplication {
     fn new(
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
-        mesh_receiver: Receiver<(MeshId, Vec<Vertex>, Vec<u32>)>,
+        mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
         keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
         window_extent_sender: SyncSender<vk::Extent2D>,
         is_closing: Arc<AtomicBool>,
@@ -581,14 +582,16 @@ impl VulkanApplication {
                 //  Also, it prob does not even make sense to do the expensive pieces like buffer creation on the render thread...
                 let render_state = self.state_receiver.recv()?;
                 while let Ok((mesh_id, vertices, vertex_indexes)) = self.mesh_receiver.try_recv() {
-                    let vertex_buffer = create_vertex_buffer(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, &vertices)?;
-                    let index_buffer = create_index_buffer(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, &vertex_indexes)?;
+                    let index_count = vertex_indexes.len();
 
-                    let mesh = Mesh {
+                    let vertex_buffer = create_vertex_buffer(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, vertices)?;
+                    let index_buffer = create_index_buffer(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, vertex_indexes)?;
+
+                    let mesh = VulkanMesh {
                         mesh_id,
                         vertex_buffer,
                         index_buffer,
-                        index_count: vertex_indexes.len(),
+                        index_count,
                     };
 
                     context.meshes.insert(mesh.mesh_id, mesh);

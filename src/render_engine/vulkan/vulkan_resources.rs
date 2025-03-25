@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use std::collections::HashSet;
+use std::sync::Arc;
 use vulkanalia::Device as vk_Device;
 use vulkanalia::bytecode::Bytecode;
 use vulkanalia::prelude::v1_0::*;
@@ -457,8 +458,8 @@ pub(in crate::render_engine::vulkan) unsafe fn create_pipeline(
         .rasterizer_discard_enable(false)
         .polygon_mode(vk::PolygonMode::FILL)
         .line_width(1.0)
-        .cull_mode(vk::CullModeFlags::NONE)
-        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .cull_mode(vk::CullModeFlags::BACK)
+        .front_face(vk::FrontFace::CLOCKWISE)
         .depth_bias_enable(false);
 
     let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
@@ -629,7 +630,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_vertex_buffer(
     physical_device: vk::PhysicalDevice,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
-    vertices: &Vec<Vertex>,
+    vertices: Arc<Vec<Vertex>>,
 ) -> Result<BufferResources> {
     let size = (size_of::<Vertex>() * vertices.len()) as u64;
 
@@ -675,7 +676,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_index_buffer(
     physical_device: vk::PhysicalDevice,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
-    indices: &Vec<u32>,
+    indices: Arc<Vec<u32>>,
 ) -> Result<BufferResources> {
     let size = (size_of::<u32>() * indices.len()) as u64;
 

@@ -5,6 +5,8 @@ use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
 use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
+pub mod mesh;
+
 /////////////////////////////////////////////////////////////////////////////
 /// Common
 /////////////////////////////////////////////////////////////////////////////
@@ -148,6 +150,8 @@ impl Default for Transform {
 
 impl Component for Transform {}
 impl ComponentActions for Transform {}
+
+pub const IDENTITY_SCALE_VEC: Vec3 = vec3(1.0, 1.0, 1.0);
 
 // ColorMaterial
 

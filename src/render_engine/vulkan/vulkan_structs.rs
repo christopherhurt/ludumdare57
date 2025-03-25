@@ -2,7 +2,7 @@ use vulkanalia::vk;
 
 use crate::core::Color;
 use crate::math::Mat4;
-use crate::render_engine::MeshId;
+use crate::render_engine::RenderMeshId;
 
 #[derive(Clone, Debug)]
 pub(in crate::render_engine::vulkan) struct BufferResources {
@@ -24,8 +24,8 @@ pub(in crate::render_engine::vulkan) struct ImageResources {
 }
 
 #[derive(Clone, Debug)]
-pub(in crate::render_engine::vulkan) struct Mesh {
-    pub(in crate::render_engine::vulkan) mesh_id: MeshId,
+pub(in crate::render_engine::vulkan) struct VulkanMesh {
+    pub(in crate::render_engine::vulkan) mesh_id: RenderMeshId,
     pub(in crate::render_engine::vulkan) vertex_buffer: BufferResources,
     pub(in crate::render_engine::vulkan) index_buffer: BufferResources,
     pub(in crate::render_engine::vulkan) index_count: usize,

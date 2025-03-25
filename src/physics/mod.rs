@@ -1,5 +1,7 @@
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use crate::core::mesh::Mesh;
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
@@ -206,5 +208,18 @@ pub struct RigidBody {
     pub mass: f32,
     pub vel: Vec3,
     pub ang_vel: Vec3,
+}
+
+pub struct PhysicsMeshProperties {
+    pub volume: f32,
     pub inertia_tensor: Mat3,
+    pub center_of_mass_offset: Vec3,
+}
+
+impl Component for PhysicsMeshProperties {}
+impl ComponentActions for PhysicsMeshProperties {}
+
+pub fn generate_physics_mesh(_mesh: Mesh) -> Result<(Mesh, PhysicsMeshProperties)> {
+    // TODO REAL
+    Err(anyhow!("not implemented"))
 }

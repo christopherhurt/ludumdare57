@@ -460,6 +460,7 @@ dependencies = [
  "rand 0.9.0",
  "strum",
  "strum_macros",
+ "tobj",
  "uuid",
  "vulkanalia",
  "winit",
@@ -1346,6 +1347,15 @@ dependencies = [
  "arrayref",
  "bytemuck",
  "strict-num",
+]
+
+[[package]]
+name = "tobj"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04aca6092e5978e708ee784e8ab9b5cf3cdb598b28f99a2f257446e7081a7025"
+dependencies = [
+ "ahash",
 ]
 
 [[package]]

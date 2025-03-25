@@ -1,15 +1,12 @@
 use anyhow::Result;
+use std::sync::Arc;
 use strum_macros::{EnumCount, EnumIter};
 
 use crate::core::Color;
-use crate::ecs::ComponentActions;
-use crate::ecs::component::Component;
-use crate::math::{Mat4, Vec3};
+use crate::core::mesh::{RenderMeshId, Vertex};
+use crate::math::Mat4;
 
 pub mod vulkan;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MeshId(pub(in crate::render_engine) usize);
 
 #[derive(Clone, Debug)]
 pub struct RenderEngineInitProps {
@@ -46,7 +43,7 @@ pub trait Window {
 }
 
 pub trait Device {
-    unsafe fn create_mesh(&mut self, vertices: Vec<Vertex>, vertex_indexes: Vec<u32>) -> Result<MeshId>;
+    fn create_mesh(&mut self, vertices: Arc<Vec<Vertex>>, vertex_indexes: Arc<Vec<u32>>) -> Result<RenderMeshId>;
 }
 
 #[derive(Clone, Debug)]
@@ -59,29 +56,9 @@ pub struct RenderState {
 #[derive(Clone, Debug)]
 pub struct EntityRenderState {
     pub world: Mat4,
-    pub mesh_id: MeshId,
+    pub mesh_id: RenderMeshId,
     pub color: Color,
 }
-
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-pub struct Vertex {
-    pub pos: Vec3,
-    pub norm: Vec3,
-}
-
-pub struct Mesh {
-    pub id: MeshId,
-}
-
-impl Mesh {
-    pub fn new(id: MeshId) -> Self {
-        Self { id }
-    }
-}
-
-impl Component for Mesh {}
-impl ComponentActions for Mesh {}
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]
 pub enum VirtualKey {

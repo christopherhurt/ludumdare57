@@ -1,19 +1,21 @@
 use anyhow::Result;
-use math::{get_proj_matrix, vec2, vec3, Quat, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use ecs::ComponentActions;
+use math::{get_proj_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
+use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
-use std::time::Duration;
 
-use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, ORANGE, PURPLE, RED, YELLOW, BLACK, WHITE, MAGENTA, GREEN, GRAY, BROWN, CYAN};
+use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, PURPLE, BLACK, WHITE, MAGENTA, GREEN, BROWN, CYAN};
+use crate::core::mesh::{Mesh, MeshBinding, Vertex};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
-use crate::ecs::{ComponentActions, ECSBuilder, ECSCommands, ECS};
+use crate::ecs::{ECSBuilder, ECSCommands, ECS};
 use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{Device, EntityRenderState, Mesh, MeshId, RenderEngine, RenderState, Window, RenderEngineInitProps, Vertex, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
 
 pub mod core;
 pub mod ecs;
@@ -37,6 +39,7 @@ fn init_ecs() -> ECS {
         .with_component::<Viewport2D>()
         .with_component::<Transform>()
         .with_component::<Mesh>()
+        .with_component::<MeshBinding>()
         .with_component::<ColorMaterial>()
         .with_component::<VulkanRenderEngine>()
         .with_component::<TimeDelta>()
@@ -46,7 +49,7 @@ fn init_ecs() -> ECS {
         .with_component::<ParticleCollision>()
         .with_component::<ParticleCollisionDetector>()
         .with_component::<Timer>()
-        .with_component::<MeshWrapper>()
+        .with_component::<CubeMeshOwner>()
         .build()
 }
 
@@ -121,203 +124,23 @@ fn create_scene(ecs: &mut ECS) {
         // Down
         20, 21, 22, 22, 23, 20,
     ];
+    let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes);
     let cube_mesh_id = render_engine.get_device_mut()
-        .and_then(|d| unsafe { d.create_mesh(cube_vertices, cube_indexes) })
+        .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
-    let cube_mesh = Mesh::new(cube_mesh_id);
-    let cube_transform = Transform::new(
-        vec3(-10.0, 0.0, 10.0),
-        QUAT_IDENTITY,
-        vec3(1.0, 1.0, 1.0),
-    );
-    let cube_color_material = ColorMaterial::new(YELLOW);
-    let cube_particle = Particle::new(VEC_3_ZERO, DAMPING, 1.0, 0.0);
-    let cube_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_entity, cube_mesh);
-    ecs.attach_provisional_component(&cube_entity, cube_transform);
-    ecs.attach_provisional_component(&cube_entity, cube_color_material);
-    ecs.attach_provisional_component(&cube_entity, cube_particle);
+    let cube_mesh_entity = ecs.create_entity();
+    let cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
+    ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh);
+    ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
+    ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
-    let cube_2_mesh = Mesh::new(cube_mesh_id);
-    let cube_2_transform = Transform::new(
-        vec3(0.0, 0.0, 10.0),
-        QUAT_IDENTITY,
-        vec3(3.0, 3.0, 3.0),
-    );
-    let cube_2_color_material = ColorMaterial::new(ORANGE);
-    let cube_2_particle = Particle::new(VEC_3_ZERO, DAMPING, 5.0, 0.0);
-    let cube_2_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_2_entity, cube_2_mesh);
-    ecs.attach_provisional_component(&cube_2_entity, cube_2_transform);
-    ecs.attach_provisional_component(&cube_2_entity, cube_2_color_material);
-    ecs.attach_provisional_component(&cube_2_entity, cube_2_particle);
-
-    let cube_3_mesh = Mesh::new(cube_mesh_id);
-    let cube_3_transform = Transform::new(
-        vec3(10.0, 0.0, 10.0),
-        QUAT_IDENTITY,
-        vec3(8.0, 8.0, 8.0),
-    );
-    let cube_3_color_material = ColorMaterial::new(RED);
-    let cube_3_particle = Particle::new(VEC_3_ZERO, DAMPING, 12.0, 0.0);
-    let cube_3_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_3_entity, cube_3_mesh);
-    ecs.attach_provisional_component(&cube_3_entity, cube_3_transform);
-    ecs.attach_provisional_component(&cube_3_entity, cube_3_color_material);
-    ecs.attach_provisional_component(&cube_3_entity, cube_3_particle);
-
-    let cube_4_mesh = Mesh::new(cube_mesh_id);
-    let cube_4_transform = Transform::new(
-        vec3(-10.0, 10.0, -10.0),
-        QUAT_IDENTITY,
-        vec3(6.0, 6.0, 6.0),
-    );
-    let cube_4_color_material = ColorMaterial::new(BLACK);
-    let cube_4_particle = Particle::new(VEC_3_ZERO, DAMPING, 10.0, 25.0);
-    let cube_4_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_4_entity, cube_4_mesh);
-    ecs.attach_provisional_component(&cube_4_entity, cube_4_transform);
-    ecs.attach_provisional_component(&cube_4_entity, cube_4_color_material);
-    ecs.attach_provisional_component(&cube_4_entity, cube_4_particle);
-
-    let cube_5_mesh = Mesh::new(cube_mesh_id);
-    let cube_5_transform = Transform::new(
-        vec3(0.0, 10.0, -10.0),
-        QUAT_IDENTITY,
-        vec3(2.0, 2.0, 2.0),
-    );
-    let cube_5_color_material = ColorMaterial::new(WHITE);
-    let cube_5_particle = Particle::new(VEC_3_ZERO, DAMPING, 3.0, 25.0);
-    let cube_5_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_5_entity, cube_5_mesh);
-    ecs.attach_provisional_component(&cube_5_entity, cube_5_transform);
-    ecs.attach_provisional_component(&cube_5_entity, cube_5_color_material);
-    ecs.attach_provisional_component(&cube_5_entity, cube_5_particle);
-
-    let cube_6_mesh = Mesh::new(cube_mesh_id);
-    let cube_6_transform = Transform::new(
-        vec3(0.0, 0.0, 0.0),
-        QUAT_IDENTITY,
-        vec3(1.0, 1.0, 1.0),
-    );
-    let cube_6_color_material = ColorMaterial::new(GREEN);
-    let cube_6_particle = Particle::new(VEC_3_ZERO, DAMPING, 6.0, 25.0);
-    let cube_6_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_6_entity, cube_6_mesh);
-    ecs.attach_provisional_component(&cube_6_entity, cube_6_transform);
-    ecs.attach_provisional_component(&cube_6_entity, cube_6_color_material);
-    ecs.attach_provisional_component(&cube_6_entity, cube_6_particle);
-
-    let cube_7_mesh = Mesh::new(cube_mesh_id);
-    let cube_7_transform = Transform::new(
-        vec3(10.0, 40.0, -10.0),
-        QUAT_IDENTITY,
-        vec3(3.0, 3.0, 3.0),
-    );
-    let cube_7_color_material = ColorMaterial::new(MAGENTA);
-    let cube_7_particle = Particle::new(VEC_3_ZERO, DAMPING, 5.0, 25.0);
-    let cube_7_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_7_entity, cube_7_mesh);
-    ecs.attach_provisional_component(&cube_7_entity, cube_7_transform);
-    ecs.attach_provisional_component(&cube_7_entity, cube_7_color_material);
-    ecs.attach_provisional_component(&cube_7_entity, cube_7_particle);
-
-    let cube_8_mesh = Mesh::new(cube_mesh_id);
-    let cube_8_transform = Transform::new(
-        vec3(10.0, -40.0, -25.0),
-        QUAT_IDENTITY,
-        vec3(8.0, 8.0, 8.0),
-    );
-    let cube_8_color_material = ColorMaterial::new(MAGENTA);
-    let cube_8_particle = Particle::new(VEC_3_ZERO, DAMPING, 18.0, 25.0);
-    let cube_8_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_8_entity, cube_8_mesh);
-    ecs.attach_provisional_component(&cube_8_entity, cube_8_transform);
-    ecs.attach_provisional_component(&cube_8_entity, cube_8_color_material);
-    ecs.attach_provisional_component(&cube_8_entity, cube_8_particle);
-
-    let cube_9_mesh = Mesh::new(cube_mesh_id);
-    let cube_9_transform = Transform::new(
-        vec3(-10.0, 10.0, 30.0),
-        QUAT_IDENTITY,
-        vec3(6.0, 6.0, 6.0),
-    );
-    let cube_9_color_material = ColorMaterial::new(GRAY);
-    let cube_9_particle = Particle::new(VEC_3_ZERO, 1.0, 10.0, 0.0);
-    let cube_9_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_9_entity, cube_9_mesh);
-    ecs.attach_provisional_component(&cube_9_entity, cube_9_transform);
-    ecs.attach_provisional_component(&cube_9_entity, cube_9_color_material);
-    ecs.attach_provisional_component(&cube_9_entity, cube_9_particle);
-
-    let cube_10_mesh = Mesh::new(cube_mesh_id);
-    let cube_10_transform = Transform::new(
-        vec3(-5.0, 0.0, 2.0),
-        QUAT_IDENTITY,
-        vec3(1.0, 1.0, 1.0),
-    );
-    let cube_10_color_material = ColorMaterial::new(BROWN);
-    let cube_10_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0, 0.0);
-    let cube_10_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_10_entity, cube_10_mesh);
-    ecs.attach_provisional_component(&cube_10_entity, cube_10_transform);
-    ecs.attach_provisional_component(&cube_10_entity, cube_10_color_material);
-    ecs.attach_provisional_component(&cube_10_entity, cube_10_particle);
-
-    let cube_11_mesh = Mesh::new(cube_mesh_id);
-    let cube_11_transform = Transform::new(
-        vec3(-5.0, 0.0, -2.0),
-        QUAT_IDENTITY,
-        vec3(1.0, 1.0, 1.0),
-    );
-    let cube_11_color_material = ColorMaterial::new(BROWN);
-    let cube_11_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0, 0.0);
-    let cube_11_entity = ecs.create_entity();
-    let cube_11_rod = ParticleRod::new_provisional(cube_10_entity.clone(), cube_11_entity.clone(), 4.0);
-    ecs.attach_provisional_component(&cube_11_entity, cube_11_mesh);
-    ecs.attach_provisional_component(&cube_11_entity, cube_11_transform);
-    ecs.attach_provisional_component(&cube_11_entity, cube_11_color_material);
-    ecs.attach_provisional_component(&cube_11_entity, cube_11_particle);
-    ecs.attach_provisional_component(&cube_11_entity, cube_11_rod);
-
-    let cube_12_mesh = Mesh::new(cube_mesh_id);
-    let cube_12_transform = Transform::new(
-        vec3(5.0, 0.0, 3.0),
-        QUAT_IDENTITY,
-        vec3(2.0, 2.0, 2.0),
-    );
-    let cube_12_color_material = ColorMaterial::new(CYAN);
-    let cube_12_particle = Particle::new(VEC_3_ZERO, 1.0, 4.0, 0.0);
-    let cube_12_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_12_entity, cube_12_mesh);
-    ecs.attach_provisional_component(&cube_12_entity, cube_12_transform);
-    ecs.attach_provisional_component(&cube_12_entity, cube_12_color_material);
-    ecs.attach_provisional_component(&cube_12_entity, cube_12_particle);
-
-    let cube_13_mesh = Mesh::new(cube_mesh_id);
-    let cube_13_transform = Transform::new(
-        vec3(5.0, 0.0, -3.0),
-        QUAT_IDENTITY,
-        vec3(1.0, 1.0, 1.0),
-    );
-    let cube_13_color_material = ColorMaterial::new(CYAN);
-    let cube_13_particle = Particle::new(VEC_3_ZERO, 1.0, 1.0, 0.0);
-    let cube_13_entity = ecs.create_entity();
-    let cube_13_cable = ParticleCable::new_provisional(cube_12_entity.clone(), cube_13_entity.clone(), 8.0, 0.5);
-    ecs.attach_provisional_component(&cube_13_entity, cube_13_mesh);
-    ecs.attach_provisional_component(&cube_13_entity, cube_13_transform);
-    ecs.attach_provisional_component(&cube_13_entity, cube_13_color_material);
-    ecs.attach_provisional_component(&cube_13_entity, cube_13_particle);
-    ecs.attach_provisional_component(&cube_12_entity, cube_13_cable);
-
-    let cube_mesh_wrapper = MeshWrapper { my_id: 0, id: cube_mesh_id };
-    let cube_mesh_wrapper_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&cube_mesh_wrapper_entity, cube_mesh_wrapper.clone());
-
-    let firework_spawner_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&firework_spawner_entity, cube_mesh_wrapper);
-    ecs.attach_provisional_component(&firework_spawner_entity, Timer::for_initial_duration(Duration::from_secs(3)));
-    ecs.attach_provisional_component(&firework_spawner_entity, Transform::new(vec3(20.0, 0.0, 0.0), QUAT_IDENTITY, VEC_3_ZERO));
+    let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
+    let test_cube_material = ColorMaterial::new(RED);
+    let test_cube_entity = ecs.create_entity();
+    let test_cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
+    ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
+    ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
+    ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -334,15 +157,11 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
-    ecs.register_system(PUSH_CUBES, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_DAMPED_HARMONIC_MOTION, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -350);
-    ecs.register_system(TURN_CUBES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Transform>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -300);
-    ecs.register_system(SHOOT_FIREWORKS, HashSet::from([ecs.get_system_signature_3::<Timer, MeshWrapper, Transform>().unwrap()]), -299);
-    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshWrapper>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -250);
+    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
@@ -444,34 +263,33 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
 
 const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-    let mesh_id = entites.clone().find_map(|e|
-        components.get_component::<MeshWrapper>(e).filter(|m| m.my_id == 0)
-    ).unwrap().id;
+    let mesh_binding = &entites.clone()
+        .find(|e| components.get_component::<CubeMeshOwner>(e).is_some())
+        .map(|e| *components.get_component::<MeshBinding>(e).unwrap())
+        .unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
     if render_engine.is_key_down(VirtualKey::Space) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
-        let mesh = Mesh::new(mesh_id);
         let color_material = ColorMaterial::new(PURPLE);
         let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(1.0, 1.0, 1.0));
         let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
 
         let proj_entity = commands.create_entity();
-        commands.attach_provisional_component(&proj_entity, mesh);
+        commands.attach_provisional_component(&proj_entity, *mesh_binding);
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
     } else if render_engine.is_key_pressed(VirtualKey::Enter) || render_engine.is_key_released(VirtualKey::Enter) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
-        let mesh = Mesh::new(mesh_id);
         let color_material = ColorMaterial::new(BLUE);
         let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(3.0, 3.0, 3.0));
         let particle = Particle::new(cam_dir_norm * 5.0, 0.9, 1.0, -0.6);
 
         let proj_entity = commands.create_entity();
-        commands.attach_provisional_component(&proj_entity, mesh);
+        commands.attach_provisional_component(&proj_entity, *mesh_binding);
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
@@ -514,22 +332,6 @@ const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &Compone
 
         if transform.pos.len() > game_bounds {
             commands.destroy_entity(e);
-        }
-    }
-};
-
-const PUSH_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
-
-    const PUSH_DIST: f32 = 2.0;
-    const FORCE_FACTOR: f32 = 75.0;
-
-    for (_, transform, particle, material) in get_cubes(entites, components) {
-        if material.color != PURPLE && material.color != BLUE && material.color != GRAY {
-            let diff = transform.pos - cam.pos;
-            if diff.len() <= PUSH_DIST {
-                particle.force_accum += diff / PUSH_DIST * FORCE_FACTOR;
-            }
         }
     }
 };
@@ -597,6 +399,7 @@ const APPLY_BUNGEE_SPRING: System = |entites: Iter<Entity>, components: &Compone
     }
 };
 
+// TODO: make built-in
 const APPLY_BUOYANCY: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     const DENSITY: f32 = 10.0;
     const WATER_HEIGHT: f32 = 0.0;
@@ -609,44 +412,6 @@ const APPLY_BUOYANCY: System = |entites: Iter<Entity>, components: &ComponentMan
             let d = ((transform.pos.y - WATER_HEIGHT - submersion_depth) / (2.0 * submersion_depth)).max(0.0).min(1.0);
 
             particle.force_accum += vec3(0.0, d * DENSITY * volume, 0.0);
-        }
-    }
-};
-
-// TODO: this is really just for demonstration purposes and prob shouldn't make it into the actual engine, or only some minimally used version of it
-//  This also seems to be EXTREMELY unstable for high frame rates because the calculated accereleration is huge. We might be able to mitigate it by
-//  applying a large multiplier to delta like below and finding the right K value, but the whole thing seemed pretty scuffed. They also don't really
-//  work at all when combined with any other forces, like gravity, because those are not included in the target position calculation. Best thing is
-//  probably just to avoid these types of forces calculated by target destination. Note though that the point of this type of force calculation is
-//  to avoid issues related to very high K values, i.e. "stiff springs". A trivial spring force implementation would also likely have issues caused
-//  by very large acceleration values when K values are high. From book - "When the action of the spring is faster than the time between simulated
-//  frames, then the spring can get unruly and out of control."
-const APPLY_DAMPED_HARMONIC_MOTION: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
-    let delta = time_delta.since_last_frame.as_secs_f32();
-
-    let delta = delta * 1000.0; // YIKES
-
-    const DAMPING: f32 = 0.995;
-    const K: f32 = 100.0;
-
-    if delta > 0.0 {
-        for (_, transform, particle, material) in get_cubes(entites, components) {
-            if material.color == GRAY {
-                let anchor_pos = vec3(-10.0, 12.0, 30.0);
-                let rel_pos = transform.pos - anchor_pos;
-
-                let gamma = 0.5 * (4.0 * K - DAMPING * DAMPING).sqrt();
-
-                if gamma != 0.0 {
-                    let c = rel_pos * (DAMPING / (2.0 * gamma)) + particle.vel / gamma;
-
-                    let target = (rel_pos * (gamma * delta).cos() + c * (gamma * delta).sin()) * std::f32::consts::E.powf(-0.5 * delta * DAMPING);
-
-                    let acceleration = (target - rel_pos) / (delta * delta) - particle.vel * delta;
-                    particle.force_accum += acceleration * particle.mass;
-                }
-            }
         }
     }
 };
@@ -886,68 +651,6 @@ fn resolve_interpenetration(collision: &ParticleCollision, components: &Componen
     }
 }
 
-const TURN_CUBES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
-
-    if let Ok(window) = render_engine.get_window() {
-        for e in entites {
-            if let Some(transform) = components.get_mut_component::<Transform>(e) {
-                let rot_speed = (360.0 * time_delta.since_last_frame.as_secs_f32()).to_radians();
-
-                if window.is_key_down(VirtualKey::J) && !window.is_key_down(VirtualKey::L) {
-                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, -rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized();
-                }
-                if window.is_key_down(VirtualKey::L) && !window.is_key_down(VirtualKey::J) {
-                    let spin = Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized();
-                }
-                if window.is_key_down(VirtualKey::I) && !window.is_key_down(VirtualKey::K) {
-                    let spin = Quat::from_axis_spin(&VEC_3_X_AXIS, -rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized();
-                }
-                if window.is_key_down(VirtualKey::K) && !window.is_key_down(VirtualKey::I) {
-                    let spin = Quat::from_axis_spin(&VEC_3_X_AXIS, rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized();
-                }
-                if window.is_key_down(VirtualKey::U) && !window.is_key_down(VirtualKey::O) {
-                    let spin = Quat::from_axis_spin(&VEC_3_Z_AXIS, -rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized();
-                }
-                if window.is_key_down(VirtualKey::O) && !window.is_key_down(VirtualKey::U) {
-                    let spin = Quat::from_axis_spin(&VEC_3_Z_AXIS, rot_speed).unwrap();
-                    transform.rot = (transform.rot * spin).normalized();
-                }
-            }
-        }
-    }
-};
-
-const SHOOT_FIREWORKS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let pos = &entites.clone().find_map(|e| components.get_component::<Transform>(e)).unwrap().pos;
-    let mesh_id = &entites.clone().find_map(|e| components.get_component::<MeshWrapper>(e).filter(|m| m.my_id == 0)).unwrap().id;
-
-    for e in entites {
-        if let Some(timer) = components.get_mut_component::<Timer>(e) {
-            if timer.remaining_duration.is_none() {
-                let mesh = Mesh::new(mesh_id.clone());
-                let color_material = ColorMaterial::new(PURPLE);
-                let transform = Transform::new(pos.clone(), Quat::from_axis_spin(&VEC_3_Y_AXIS, 45.0).unwrap(), vec3(1.0, 1.0, 1.0));
-                let particle = Particle::new(VEC_3_Y_AXIS * 10.0, 0.9999999, 0.1, 5.0);
-
-                let proj_entity = commands.create_entity();
-                commands.attach_provisional_component(&proj_entity, mesh);
-                commands.attach_provisional_component(&proj_entity, color_material);
-                commands.attach_provisional_component(&proj_entity, transform);
-                commands.attach_provisional_component(&proj_entity, particle);
-
-                timer.reset();
-            }
-        }
-    }
-};
-
 // Built-in
 const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
@@ -955,11 +658,11 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
 
     let entity_states = entites.clone().filter(|e|
         components.get_component::<Transform>(e).is_some()
-        && components.get_component::<Mesh>(e).is_some()
+        && components.get_component::<MeshBinding>(e).is_some()
         && components.get_component::<ColorMaterial>(e).is_some())
     .map(|e| EntityRenderState {
         world: components.get_component::<Transform>(e).unwrap().to_world_mat(),
-        mesh_id: components.get_component::<Mesh>(e).unwrap().id,
+        mesh_id: components.get_component::<MeshBinding>(e).unwrap().id.unwrap(),
         color: components.get_component::<ColorMaterial>(e).unwrap().color,
     }).collect();
 
@@ -1015,11 +718,9 @@ fn get_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -
     .map(|e| e.unwrap())
 }
 
-#[derive(Debug, Clone)]
-struct MeshWrapper {
-    my_id: u16,
-    id: MeshId,
-}
+// CubeMeshOwner
 
-impl Component for MeshWrapper {}
-impl ComponentActions for MeshWrapper {}
+struct CubeMeshOwner {}
+
+impl Component for CubeMeshOwner {}
+impl ComponentActions for CubeMeshOwner {}
