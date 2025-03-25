@@ -151,8 +151,8 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
 
-    let test_bunny_transform = Transform::new(vec3(20.0, 0.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 40.0);
-    let test_bunny_material = ColorMaterial::new(RED);
+    let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 100.0);
+    let test_bunny_material = ColorMaterial::new(WHITE);
     let test_bunny_entity = ecs.create_entity();
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_transform);
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
