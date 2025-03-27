@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
-use std::any::TypeId;
+use std::any::{Any, TypeId};
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem::ManuallyDrop;
 
 use crate::ecs::{ComponentActions, Signature};
 use crate::ecs::entity::Entity;
@@ -14,24 +14,17 @@ pub struct SystemSignature(pub(in crate::ecs) Signature);
 pub struct ComponentArray {
     entity_to_index: Vec<usize>,
     index_to_entity: Vec<Entity>,
-    components: Vec<u8>,
-    component_size: usize,
-    // TODO: There HAS to be a proper way of dropping these without needing to use double memory... surely Rust
-    //  provides a way to drop components directly from the component Vec... but this approach will work for a while,
-    //  especially since memory consumption here is probably fairly light, even with a relatively large number of entities
-    droppables: Vec<ManuallyDrop<Box<dyn ComponentActions>>>,
+    components: Vec<RefCell<Box<dyn Any>>>,
 }
 
 const INVALID_COMPONENT_INDEX: usize = usize::MAX;
 
 impl ComponentArray {
-    pub(in crate::ecs) fn new(initial_capacity: usize, component_size: usize) -> Self {
+    pub(in crate::ecs) fn new(initial_capacity: usize) -> Self {
         Self {
             entity_to_index: vec![INVALID_COMPONENT_INDEX; initial_capacity],
             index_to_entity: Vec::with_capacity(initial_capacity),
-            components: Vec::with_capacity(initial_capacity * component_size),
-            component_size,
-            droppables: Vec::with_capacity(initial_capacity * component_size),
+            components: Vec::with_capacity(initial_capacity),
         }
     }
 
@@ -48,15 +41,7 @@ impl ComponentArray {
 
         self.index_to_entity.push(entity.clone());
 
-        let (comp_data, droppable) = component_to_boxed_slice(component);
-
-        if self.components.len() > self.components.capacity() - comp_data.len() {
-            self.components.reserve(self.components.len());
-        }
-
-        self.components.extend_from_slice(&comp_data.as_ref());
-
-        self.droppables.push(droppable);
+        self.components.push(RefCell::new(component.as_any_box()));
 
         Ok(())
     }
@@ -69,26 +54,14 @@ impl ComponentArray {
         let dst_index = self.entity_to_index[entity.0];
         self.entity_to_index[entity.0] = INVALID_COMPONENT_INDEX;
 
-        let to_drop = &mut self.droppables[dst_index];
-        unsafe { ManuallyDrop::drop(to_drop); }
-
         let moved_entity = self.index_to_entity.pop().unwrap_or_else(|| panic!("Internal error: index_to_entity Vec is empty"));
-        let moved_droppable = self.droppables.pop().unwrap_or_else(|| panic!("Internal error: droppables Vec is empty"));
+        let moved_component = self.components.pop().unwrap_or_else(|| panic!("Internal error: components Vec is empty"));
         let should_move = moved_entity != *entity;
 
         if should_move {
             self.index_to_entity[dst_index] = moved_entity;
-            self.droppables[dst_index] = moved_droppable;
+            self.components[dst_index] = moved_component;
             self.entity_to_index[moved_entity.0] = dst_index;
-        }
-
-        let comp_index = dst_index * self.component_size;
-        for i in (0..self.component_size).rev() {
-            let moved_comp_byte = self.components.pop().unwrap_or_else(|| panic!("Internal error: components Vec is empty"));
-
-            if should_move {
-                self.components[comp_index + i] = moved_comp_byte;
-            }
         }
 
         Ok(())
@@ -101,11 +74,7 @@ impl ComponentArray {
 
         let index = self.entity_to_index[entity.0];
 
-        unsafe {
-            let comp_raw = (self.components.as_ptr() as *const T).add(index);
-
-            Some(&*comp_raw)
-        }
+        unsafe { Some(&*(self.components[index].borrow().as_ref().downcast_ref::<T>().unwrap_or_else(|| panic!("Internal error: Failed to downcast component")) as *const T)) }
     }
 
     pub fn get_mut_component<T: Component>(&self, entity: &Entity) -> Option<&mut T> {
@@ -115,25 +84,8 @@ impl ComponentArray {
 
         let index = self.entity_to_index[entity.0];
 
-        unsafe {
-            // TODO: should enforce proper interior mutability here like RefCell, i.e. panic on more than one borrow with at least one mutable borrow
-            let comp_raw = (self.components.as_ptr() as *mut T).add(index);
-
-            Some(&mut *comp_raw)
-        }
-    }
-}
-
-impl Drop for ComponentArray {
-    fn drop(&mut self) {
-        // TODO: Something is still not right here - I'm getting memory errors upon exiting... seems to be when the Vulkan component's render thread join
-        //  handle is dropped, and it may have to do with it not being pinned memory.
-        //  We can probably get around all this garbage by using a Box allocation for each component, with some sort of assurance that Box is allocating
-        //  from similar regions of heap memory, so I can still get decent locality. That would help me get rid of a LOT of unsafe code and fix these dumb
-        //  issues... look more into options with the Box class/heap allocation options.
-        //  It's probably as simple as using Box::new_in() with a custom allocator implementation that guarantees contiguous memory... I can likely even
-        //  control the exact allocation sizes and memory index for each Box since I know the size/alignment of the components being stored...
-        self.droppables.iter_mut().for_each(|d| unsafe { ManuallyDrop::drop(d); });
+        // I luv Rust...
+        unsafe { Some(&mut *(self.components[index].borrow_mut().as_mut().downcast_mut::<T>().unwrap_or_else(|| panic!("Internal error: Failed to downcast component")) as *mut T)) }
     }
 }
 
@@ -195,7 +147,7 @@ impl ComponentManager {
         let component_signature = self.component_registration_bit;
         self.component_registration_bit <<= 1;
 
-        self.component_types_to_arrays.insert(type_id, ComponentArray::new(self.initial_capacity, size_of::<T>()));
+        self.component_types_to_arrays.insert(type_id, ComponentArray::new(self.initial_capacity));
         self.component_types_to_signatures.insert(type_id, component_signature);
 
         Ok(())
@@ -253,22 +205,5 @@ impl ComponentManager {
         let sig_d = self.get_signature(TypeId::of::<D>())?;
 
         Ok(SystemSignature(sig_a | sig_b | sig_c | sig_d))
-    }
-}
-
-fn component_to_boxed_slice(component: Box<dyn ComponentActions>) -> (Box<[u8]>, ManuallyDrop<Box<dyn ComponentActions>>) {
-    let ptr = component.as_ref() as *const dyn ComponentActions as *const u8;
-    let comp_size = std::mem::size_of_val(component.as_ref());
-
-    unsafe {
-        let raw_slice = std::slice::from_raw_parts(ptr, comp_size);
-
-        // The Box below takes "ownership" of the component (or rather, its raw bytes), but if we don't wrap it in
-        //  the ManuallyDrop here, the component will still be dropped. Instead, we'll drop the component ourselves
-        //  when it's removed from the ComponentArray. This is safe because after ownership of the component is moved
-        //  to the ComponentArray, it doesn't change owners for the remainder of its lifetime.
-        let droppable = ManuallyDrop::new(component);
-
-        (Box::from(raw_slice), droppable)
     }
 }

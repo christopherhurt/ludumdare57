@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error, Result};
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
@@ -17,7 +17,15 @@ pub(in crate::ecs) type Signature = u64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProvisionalEntity(pub(in crate) usize);
 
-pub trait ComponentActions {
+pub trait AsAnyBox {
+    fn as_any_box(self: Box<Self>) -> Box<dyn Any>;
+}
+
+impl<T: 'static> AsAnyBox for T {
+    fn as_any_box(self: Box<Self>) -> Box<dyn Any> { self }
+}
+
+pub trait ComponentActions: AsAnyBox {
     fn update_provisional_entities(&mut self, _provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {}
 }
 
@@ -85,12 +93,12 @@ impl ECSCommands {
     }
 
     pub fn attach_component<T: Component>(&mut self, entity: &Entity, component: T) {
-        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), Box::new(component)));
+        self.to_attach.push_back((entity.clone(), TypeId::of::<T>(), self.component_to_box(component)));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachComponent);
     }
 
     pub fn attach_provisional_component<T: Component>(&mut self, provisional_entity: &ProvisionalEntity, component: T) {
-        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), Box::new(component)));
+        self.to_attach_provisional.push_back((provisional_entity.clone(), TypeId::of::<T>(), self.component_to_box(component)));
         self.entity_component_command_order.push_back(EntityComponentCommandType::AttachProvisionalComponent);
     }
 
@@ -116,6 +124,11 @@ impl ECSCommands {
 
     pub fn is_shutting_down(&self) -> bool {
         self.to_shutdown
+    }
+
+    pub fn component_to_box<T: Component>(&self, component: T) -> Box<T> {
+        // TODO: allocate from a per-component custom allocator for better cache locality
+        Box::new(component)
     }
 }
 
