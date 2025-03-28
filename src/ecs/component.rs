@@ -84,6 +84,7 @@ impl ComponentArray {
 
         let index = self.entity_to_index[entity.0];
 
+        // TODO: ensure actual borrow checking here... there could be a way to do it with no unsafe code
         // I luv Rust...
         unsafe { Some(&mut *(self.components[index].borrow_mut().as_mut().downcast_mut::<T>().unwrap_or_else(|| panic!("Internal error: Failed to downcast component")) as *mut T)) }
     }
