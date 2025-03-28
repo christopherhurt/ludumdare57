@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-use crate::core::mesh::Mesh;
+use crate::core::mesh::{Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{Mat3, Vec3, VEC_3_ZERO};
+use crate::math::{mat3, Mat3, Vec3, VEC_3_ZERO};
 
 // Particle
 
@@ -212,6 +212,7 @@ pub struct RigidBody {
 
 pub struct PhysicsMeshProperties {
     pub volume: f32,
+    pub mass: f32,
     pub inertia_tensor: Mat3,
     pub center_of_mass_offset: Vec3,
 }
@@ -219,7 +220,106 @@ pub struct PhysicsMeshProperties {
 impl Component for PhysicsMeshProperties {}
 impl ComponentActions for PhysicsMeshProperties {}
 
-pub fn generate_physics_mesh(_mesh: Mesh) -> Result<(Mesh, PhysicsMeshProperties)> {
-    // TODO REAL
-    Err(anyhow!("not implemented"))
+pub fn generate_physics_mesh(mesh: Mesh, density: f32) -> Result<(Mesh, PhysicsMeshProperties)> {
+    // https://github.com/blackedout01/simkn/blob/main/simkn.h
+
+    if density <= 0.0 {
+        return Err(anyhow!("Density must be positive"));
+    }
+
+    let mut mass = 0.0;
+    let mut center_of_mass = VEC_3_ZERO;
+    let mut volume = 0.0;
+    let mut i_a = 0.0;
+    let mut i_b = 0.0;
+    let mut i_c = 0.0;
+    let mut i_ap = 0.0;
+    let mut i_bp = 0.0;
+    let mut i_cp = 0.0;
+
+    for i in mesh.vertex_indices.chunks(3) {
+        if i.len() != 3 {
+            return Err(anyhow!("Mesh is not triangulated"));
+        }
+
+        let v0 = &mesh.vertices[i[0] as usize].pos;
+        let v1 = &mesh.vertices[i[1] as usize].pos;
+        let v2 = &mesh.vertices[i[2] as usize].pos;
+
+        let det = v1.cross(v2).dot(v0);
+        let tetrahedron_signed_volume = det / 6.0;
+        let tetrahedron_signed_mass = density * tetrahedron_signed_volume;
+        let tetrahedron_center_off_mass = (*v0 + *v1 + *v2) / 4.0;
+
+        let tetrahedron_moment_x = calculate_inertia_moment(v0.x, v1.x, v2.x);
+        let tetrahedron_moment_y = calculate_inertia_moment(v0.y, v1.y, v2.y);
+        let tetrahedron_moment_z = calculate_inertia_moment(v0.z, v1.z, v2.z);
+
+        let tetrahedron_product_yz = calculate_inertia_product(v0.y, v1.y, v2.y, v0.z, v1.z, v2.z);
+        let tetrahedron_product_xy = calculate_inertia_product(v0.x, v1.x, v2.x, v0.y, v1.y, v2.y);
+        let tetrahedron_product_xz = calculate_inertia_product(v0.x, v1.x, v2.x, v0.z, v1.z, v2.z);
+
+        i_a += det * (tetrahedron_moment_y + tetrahedron_moment_z);
+        i_b += det * (tetrahedron_moment_x + tetrahedron_moment_z);
+        i_c += det * (tetrahedron_moment_x + tetrahedron_moment_y);
+
+        i_ap += det * tetrahedron_product_yz;
+        i_bp += det * tetrahedron_product_xy;
+        i_cp += det * tetrahedron_product_xz;
+
+        mass += tetrahedron_signed_mass;
+        center_of_mass += tetrahedron_center_off_mass * tetrahedron_signed_mass;
+        volume += tetrahedron_signed_volume;
+    }
+
+    if mass < 0.0 {
+        return Err(anyhow!("Mesh mass was computed as non-positive - consider reversing your triangle winding order"));
+    }
+
+    center_of_mass /= mass;
+
+    i_a = density * i_a / 60.0 - mass * (center_of_mass.y * center_of_mass.y + center_of_mass.z * center_of_mass.z);
+    i_b = density * i_b / 60.0 - mass * (center_of_mass.x * center_of_mass.x + center_of_mass.z * center_of_mass.z);
+    i_c = density * i_c / 60.0 - mass * (center_of_mass.x * center_of_mass.x + center_of_mass.y * center_of_mass.y);
+
+    i_ap = density * i_ap / 120.0 - mass * (center_of_mass.y * center_of_mass.z);
+    i_bp = density * i_bp / 120.0 - mass * (center_of_mass.x * center_of_mass.y);
+    i_cp = density * i_cp / 120.0 - mass * (center_of_mass.x * center_of_mass.z);
+
+    let inertia_tensor = mat3(
+        i_a, -i_bp, -i_cp,
+        -i_bp, i_b, -i_ap,
+        -i_cp, -i_ap, i_c,
+    );
+
+    let offseted_vertices = mesh.vertices.iter().map(|v| Vertex {
+        pos: v.pos - center_of_mass,
+        norm: v.norm,
+    }).collect();
+
+    let new_mesh = Mesh::new(offseted_vertices, mesh.vertex_indices.to_vec());
+
+    let properties = PhysicsMeshProperties {
+        volume,
+        mass,
+        inertia_tensor,
+        center_of_mass_offset: center_of_mass,
+    };
+
+    Ok((new_mesh, properties))
+}
+
+fn calculate_inertia_moment(v0: f32, v1: f32, v2: f32) -> f32 {
+    v0 * v0 + v1 * v2
+    + v1 * v1 + v0 * v2
+    + v2 * v2 + v0 * v1
+}
+
+fn calculate_inertia_product(
+    v00: f32, v01: f32, v02: f32,
+    v10: f32, v11: f32, v12: f32,
+) -> f32 {
+    2.0 * v00 * v10 + v01 * v12 + v02 * v11
+    + 2.0 * v01 * v11 + v00 * v12 + v02 * v10
+    + 2.0 * v02 * v12 + v00 * v11 + v01 * v10
 }
