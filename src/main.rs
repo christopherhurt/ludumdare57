@@ -127,7 +127,7 @@ fn create_scene(ecs: &mut ECS) {
         20, 21, 22, 22, 23, 20,
     ];
     let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes);
-    let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, 1.0).unwrap();
+    let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, 10.0).unwrap();
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -138,7 +138,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
     let bunny_mesh = load_obj_mesh("res/bunny.obj", true).unwrap();
-    let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, 1.0).unwrap();
+    let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, 100.0).unwrap();
     let bunny_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -149,7 +149,7 @@ fn create_scene(ecs: &mut ECS) {
 
     let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
     let test_cube_material = ColorMaterial::new(RED);
-    let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, cube_physics_props.clone());
+    let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, cube_physics_props.clone());
     let test_cube_entity = ecs.create_entity();
     let test_cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
@@ -430,7 +430,7 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
 
 // TODO: make built in
 const APPLY_TETHER_BALL: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    const TETHER_ANCHOR: Vec3 = vec3(0.0, 10.0, 0.0);
+    const TETHER_ANCHOR: Vec3 = vec3(0.0, 10.0, 3.0);
     const TETHER_LOCAL_POINT: Vec3 = vec3(0.0, 0.5, 0.0);
     const REST_LENGTH: f32 = 4.0;
     const K: f32 = 10.0;

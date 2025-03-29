@@ -12,14 +12,14 @@ use crate::math::{mat3, Mat3, quat, Quat, Vec3, VEC_3_ZERO};
 
 pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
     let mut result = rot.clone();
-    let mut to_apply = quat(0.0, ang_vel.x, ang_vel.y, ang_vel.z);
+    let mut to_apply = quat(0.0, ang_vel.x * delta, ang_vel.y * delta, ang_vel.z * delta);
 
     to_apply *= *rot;
 
-    result.w += to_apply.w * 0.5 * delta;
-    result.i += to_apply.i * 0.5 * delta;
-    result.j += to_apply.j * 0.5 * delta;
-    result.k += to_apply.k * 0.5 * delta;
+    result.w += to_apply.w * 0.5;
+    result.i += to_apply.i * 0.5;
+    result.j += to_apply.j * 0.5;
+    result.k += to_apply.k * 0.5;
 
     result.normalized()
 }
@@ -259,9 +259,17 @@ impl RigidBody {
         }
     }
 
-    pub fn add_force_at_point(&mut self, point: &Vec3, force: &Vec3, rigid_body_pos: &Vec3) {
+    pub fn add_linear_force(&mut self, force: &Vec3) {
         self.linear_force_accum += *force;
+    }
+
+    pub fn add_torque(&mut self, point: &Vec3, force: &Vec3, rigid_body_pos: &Vec3) {
         self.torque_accum += (*point - *rigid_body_pos).cross(force);
+    }
+
+    pub fn add_force_at_point(&mut self, point: &Vec3, force: &Vec3, rigid_body_pos: &Vec3) {
+        self.add_linear_force(force);
+        self.add_torque(point, force, rigid_body_pos);
     }
 }
 
