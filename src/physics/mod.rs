@@ -443,9 +443,9 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
                     let intersection_dist = (n.dot(&p0) - n.dot(&ray_source)) / n_dot_dir;
                     let intersection_point = ray_source + intersection_dist * ray_dir;
 
-                    if inside_edge(p0, p2, &intersection_point, &n)
-                            && inside_edge(p1, p0, &intersection_point, &n)
-                            && inside_edge(p2, p1, &intersection_point, &n)
+                    if is_inside_edge(p0, p2, &intersection_point, &n)
+                            && is_inside_edge(p1, p0, &intersection_point, &n)
+                            && is_inside_edge(p2, p1, &intersection_point, &n)
                             && intersection_dist < closest_intersection_dist {
                         closest_intersection_point = Some((transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
                         closest_intersection_dist = intersection_dist;
@@ -458,6 +458,6 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
     closest_intersection_point
 }
 
-fn inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
+fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
     (*b - *a).cross(&(*q - *a)).dot(n) >= 0.0
 }
