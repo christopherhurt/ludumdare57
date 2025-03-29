@@ -7,23 +7,20 @@ use crate::core::mesh::{Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{get_proj_matrix, mat3, quat, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
+use crate::math::{get_proj_matrix, mat3, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
 use crate::render_engine::Window;
 
 // Common
 
 pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
-    let mut result = rot.clone();
-    let mut to_apply = quat(0.0, ang_vel.x * delta, ang_vel.y * delta, ang_vel.z * delta);
+    if let Ok(ang_vel_norm) = ang_vel.normalized() {
+        let to_apply = Quat::from_axis_spin(&ang_vel_norm, ang_vel.len() * delta)
+            .unwrap_or_else(|_| panic!("Internal error: failed to get quaternion for normalized axis"));
 
-    to_apply *= *rot;
-
-    result.w += to_apply.w * 0.5;
-    result.i += to_apply.i * 0.5;
-    result.j += to_apply.j * 0.5;
-    result.k += to_apply.k * 0.5;
-
-    result.normalized()
+        (*rot * to_apply).normalized()
+    } else {
+        *rot
+    }
 }
 
 pub fn local_to_world_point(local_point: &Vec3, transform: &Transform) -> Vec3 {
