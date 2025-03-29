@@ -412,3 +412,8 @@ pub fn generate_ray(screen_coords: &Vec2, window: &impl Window, cam: &Camera, ne
 
     Ok(world_coords)
 }
+
+pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, transform: &Transform) -> Option<Vec3> {
+    // TODO
+    None
+}

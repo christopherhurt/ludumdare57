@@ -13,7 +13,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, local_to_world_force, local_to_world_point, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_ray_intersection, local_to_world_force, local_to_world_point, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -194,7 +194,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
-    ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, MousePickable>().unwrap()]), -400);
+    ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
     ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
@@ -342,14 +342,27 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
+    const FORCE_FACTOR: f32 = 1000.0;
+
     if let Ok(window) = render_engine.get_window() {
         if window.is_button_pressed(VirtualButton::Left) {
             if let Some(screen_pos) = window.get_mouse_screen_position() {
                 let ray = generate_ray(screen_pos, window, cam, NEAR_PLANE, FAR_PLANE);
 
                 if let Ok(ray) = ray {
-                    // TODO
-                    println!("RAY: {:?}", ray);
+                    for e in entites {
+                        if let Some(_) = components.get_component::<MousePickable>(e) {
+                            let transform = components.get_component::<Transform>(e).unwrap();
+                            let mesh_binding = components.get_component::<MeshBinding>(e).unwrap();
+                            let rigid_body = components.get_mut_component::<RigidBody>(e).unwrap();
+
+                            let mesh = components.get_component::<Mesh>(&mesh_binding.mesh_wrapper.unwrap()).unwrap();
+
+                            if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
+                                rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), &transform.pos);
+                            }
+                        }
+                    }
                 }
             }
         }
