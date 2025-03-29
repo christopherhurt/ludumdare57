@@ -24,6 +24,7 @@ use crate::core::Color;
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
+use crate::math::{vec2, Vec2};
 use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualButton, VirtualKey, VirtualElementState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
@@ -66,6 +67,8 @@ pub struct VulkanRenderEngine {
     buttons_pressed: HashMap<VirtualButton, bool>,
     buttons_released: HashMap<VirtualButton, bool>,
     buttons_receiver: Receiver<(VirtualButton, VirtualElementState)>,
+    mouse_pos: Option<Vec2>,
+    mouse_pos_receiver: Receiver<Option<Vec2>>,
     window_extent: vk::Extent2D,
     window_extent_receiver: Receiver<vk::Extent2D>,
     is_closing: Arc<AtomicBool>,
@@ -84,6 +87,7 @@ struct VulkanApplication {
     is_closing: Arc<AtomicBool>,
     keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
     buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
+    mouse_pos_sender: SyncSender<Option<Vec2>>,
     window_extent_sender: SyncSender<vk::Extent2D>,
     context: Option<VulkanContext>,
     swapchain_fences: Vec<vk::Fence>,
@@ -378,6 +382,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let (mesh_sender, mesh_receiver) = mpsc::channel();
         let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualElementState)>(256);
         let (buttons_sender, buttons_receiver) = mpsc::sync_channel::<(VirtualButton, VirtualElementState)>(256);
+        let (mouse_pos_sender, mouse_pos_receiver) = mpsc::sync_channel::<Option<Vec2>>(256);
         let (window_extent_sender, window_extent_receiver) = mpsc::sync_channel::<vk::Extent2D>(256);
 
         let is_closing = Arc::new(AtomicBool::new(false));
@@ -388,7 +393,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let join_handle: JoinHandle<()> = thread::spawn(move || {
             // TODO: clean up Windows-specific module dependency
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
-            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, window_extent_sender, moved_is_closing).unwrap();
+            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, mouse_pos_sender, window_extent_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
 
@@ -408,6 +413,8 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
                 buttons_pressed: create_empty_vb_map(),
                 buttons_released: create_empty_vb_map(),
                 buttons_receiver,
+                mouse_pos: None,
+                mouse_pos_receiver,
                 window_extent: vk::Extent2D { width, height },
                 window_extent_receiver,
                 is_closing,
@@ -460,6 +467,11 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         });
 
         self.buttons_down = new_buttons_down;
+
+        // Mouse position
+        while let Ok(mouse_pos) = self.mouse_pos_receiver.try_recv() {
+            self.mouse_pos = mouse_pos;
+        }
 
         // Window extent
         while let Ok(window_extent) = self.window_extent_receiver.try_recv() {
@@ -554,6 +566,10 @@ impl Window for VulkanRenderEngine {
         *self.buttons_released.get(&button).unwrap_or_else(|| panic!("Invalid button {:?}", button))
     }
 
+    fn get_mouse_screen_position(&self) -> Option<&Vec2> {
+        self.mouse_pos.as_ref()
+    }
+
     fn is_closing(&self) -> bool {
         self.is_closing.load(Ordering::SeqCst)
     }
@@ -584,6 +600,7 @@ impl VulkanApplication {
         mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
         keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
         buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
+        mouse_pos_sender: SyncSender<Option<Vec2>>,
         window_extent_sender: SyncSender<vk::Extent2D>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
@@ -597,6 +614,7 @@ impl VulkanApplication {
                 is_closing,
                 keys_sender,
                 buttons_sender,
+                mouse_pos_sender,
                 window_extent_sender,
                 context: None,
                 swapchain_fences: (0..MAX_FRAMES_IN_FLIGHT).map(|_| vk::Fence::null()).collect(),
@@ -790,6 +808,13 @@ impl ApplicationHandler for VulkanApplication {
                     if vb != VirtualButton::Unknown {
                         self.buttons_sender.send((vb, vb_state)).unwrap_or_else(|_| panic!("Failed to send mouse button"));
                     }
+                },
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.mouse_pos_sender.send(Some(vec2(position.x as f32, position.y as f32)))
+                        .unwrap_or_else(|_| panic!("Failed to send mouse position"));
+                },
+                WindowEvent::CursorLeft { .. } => {
+                    self.mouse_pos_sender.send(None).unwrap_or_else(|_| panic!("Failed to send mouse position"));
                 },
                 _ => {},
             };

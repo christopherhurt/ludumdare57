@@ -344,6 +344,7 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
 
         if window.is_button_pressed(VirtualButton::Left) {
             println!("LEFT PRESSED");
+            println!("MOUSE POS: {:?}", render_engine.get_mouse_screen_position());
         }
         if window.is_button_released(VirtualButton::Left) {
             println!("LEFT RELEASED");
