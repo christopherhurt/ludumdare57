@@ -20,7 +20,7 @@ pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
     result.j += to_apply.j * 0.5 * delta;
     result.k += to_apply.k * 0.5 * delta;
 
-    result
+    result.normalized()
 }
 
 // Particle

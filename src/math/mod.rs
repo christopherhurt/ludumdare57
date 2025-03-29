@@ -462,6 +462,13 @@ pub const VEC_4_Y_AXIS: Vec4 = vec4(0.0, 1.0, 0.0, 0.0);
 pub const VEC_4_Z_AXIS: Vec4 = vec4(0.0, 0.0, 1.0, 0.0);
 pub const VEC_4_W_AXIS: Vec4 = vec4(0.0, 0.0, 0.0, 1.0);
 
+impl Vec4 {
+    #[inline]
+    pub fn to_vec3(&self) -> Vec3 {
+        vec3(self.x, self.y, self.z)
+    }
+}
+
 impl PartialEq<Vec4> for Vec4 {
     fn eq(&self, other: &Vec4) -> bool {
         (self.x - other.x).abs() < EQUALITY_THRESHOLD

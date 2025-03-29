@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -82,7 +83,7 @@ impl Mesh {
 impl Component for Mesh {}
 impl ComponentActions for Mesh {}
 
-pub fn load_obj_mesh(file_path: &str) -> Result<Mesh> {
+pub fn load_obj_mesh(file_path: &str, normalize_positions: bool) -> Result<Mesh> {
     let mut reader = BufReader::new(File::open(file_path)?);
 
     let (models, _) = tobj::load_obj_buf(
@@ -154,7 +155,26 @@ pub fn load_obj_mesh(file_path: &str) -> Result<Mesh> {
         }
     }
 
+    if vertex_indices.is_empty() {
+        return Err(anyhow!("File {:?} contains no vertices", file_path));
+    }
+
+    let normalization_factor = if normalize_positions {
+        let y_comp = |a: &f32, b: &f32| a.partial_cmp(b).unwrap_or(Ordering::Less);
+
+        let min_y = vertices.iter().map(|v| v.pos.y).min_by(y_comp).unwrap_or_else(|| panic!("Internal error: vertices is empty"));
+        let max_y = vertices.iter().map(|v| v.pos.y).max_by(y_comp).unwrap_or_else(|| panic!("Internal error: vertices is empty"));
+
+        Some(1.0 / (max_y - min_y))
+    } else {
+        None
+    };
+
     for v in vertices.iter_mut() {
+        if let Some(normalization_factor) = normalization_factor {
+            (*v).pos *= normalization_factor;
+        }
+
         (*v).norm = v.norm.normalized().unwrap_or(VEC_3_ZERO);
     }
 

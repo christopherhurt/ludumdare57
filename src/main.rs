@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, get_world_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, get_world_matrix, vec2, vec3, vec4, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -136,7 +136,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
-    let bunny_mesh = load_obj_mesh("res/bunny.obj").unwrap();
+    let bunny_mesh = load_obj_mesh("res/bunny.obj", true).unwrap();
     let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, 1.0).unwrap();
     let bunny_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
@@ -156,7 +156,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
 
-    let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 100.0);
+    let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
     let test_bunny_material = ColorMaterial::new(WHITE);
     let test_bunny_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, bunny_physics_props);
     let test_bunny_entity = ecs.create_entity();
@@ -385,7 +385,7 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
             rigid_body.ang_vel += rigid_body.ang_acc * delta;
             rigid_body.ang_vel *= rigid_body.ang_damping.powf(delta);
 
-            transform.rot = apply_ang_vel(&transform.rot, &rigid_body.ang_vel, delta).normalized();
+            transform.rot = apply_ang_vel(&transform.rot, &rigid_body.ang_vel, delta);
 
             rigid_body.torque_accum = VEC_3_ZERO;
         }
@@ -404,12 +404,14 @@ const APPLY_WORLD_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components:
                 let transform = transform.unwrap();
                 let rigid_body = rigid_body.unwrap();
 
+                let force = VEC_3_Z_AXIS * 1.5;
+
                 if window.is_key_down(VirtualKey::I) {
-                    rigid_body.add_force_at_point(&VEC_3_Z_AXIS, &(vec3(1.0, 0.0, 0.0) + transform.pos), &transform.pos);
+                    rigid_body.add_force_at_point(&(transform.rot.to_rotation_matrix().to_mat3() * force), &(transform.to_world_mat() * vec4(3.0, 0.0, 0.0, 1.0)).to_vec3(), &transform.pos);
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
                 if window.is_key_down(VirtualKey::K) {
-                    rigid_body.add_force_at_point(&-VEC_3_Z_AXIS, &(vec3(1.0, 0.0, 0.0) + transform.pos), &transform.pos);
+                    rigid_body.add_force_at_point(&(transform.rot.to_rotation_matrix().to_mat3() * -force), &(transform.to_world_mat() * vec4(3.0, 0.0, 0.0, 1.0)).to_vec3(), &transform.pos);
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
             }
