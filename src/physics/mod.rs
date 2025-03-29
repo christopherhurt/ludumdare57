@@ -24,11 +24,12 @@ pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
     result.normalized()
 }
 
-pub fn local_to_world_force(local_point: &Vec3, local_force: &Vec3, transform: &Transform) -> (Vec3, Vec3) {
-    let world_point = (transform.to_world_mat() * local_point.to_vec4(1.0)).to_vec3();
-    let world_force = transform.rot.to_rotation_matrix().to_mat3() * *local_force;
+pub fn local_to_world_point(local_point: &Vec3, transform: &Transform) -> Vec3 {
+    (transform.to_world_mat() * local_point.to_vec4(1.0)).to_vec3()
+}
 
-    (world_point, world_force)
+pub fn local_to_world_force(local_force: &Vec3, transform: &Transform) -> Vec3 {
+    transform.rot.to_rotation_matrix().to_mat3() * *local_force
 }
 
 // Particle
@@ -228,6 +229,7 @@ impl ComponentActions for ParticleCollisionDetector {}
 
 // RigidBody
 
+#[derive(Clone, Debug)]
 pub struct RigidBody {
     pub linear_vel: Vec3,
     pub ang_vel: Vec3,
@@ -266,6 +268,7 @@ impl RigidBody {
 impl Component for RigidBody {}
 impl ComponentActions for RigidBody {}
 
+#[derive(Clone, Debug)]
 pub struct PhysicsMeshProperties {
     pub volume: f32,
     pub mass: f32,

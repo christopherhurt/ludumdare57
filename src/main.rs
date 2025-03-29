@@ -1,7 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, get_world_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
-use physics::local_to_world_force;
+use math::{get_proj_matrix, get_world_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -14,7 +13,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, local_to_world_force, local_to_world_point, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -150,24 +149,34 @@ fn create_scene(ecs: &mut ECS) {
 
     let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
     let test_cube_material = ColorMaterial::new(RED);
-    let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, cube_physics_props);
+    let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, cube_physics_props.clone());
     let test_cube_entity = ecs.create_entity();
     let test_cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_rigid_body);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
-    ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
+    ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding.clone());
     ecs.attach_provisional_component(&test_cube_entity, MousePickable {});
 
     let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
     let test_bunny_material = ColorMaterial::new(WHITE);
-    let test_bunny_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, bunny_physics_props);
+    let test_bunny_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, bunny_physics_props.clone());
     let test_bunny_entity = ecs.create_entity();
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_transform);
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_rigid_body);
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
     ecs.attach_provisional_component(&test_bunny_entity, bunny_mesh_binding.clone());
     ecs.attach_provisional_component(&test_bunny_entity, MousePickable {});
+
+    let tether_cube_transform = Transform::new(vec3(-3.0, 10.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
+    let tether_cube_material = ColorMaterial::new(PURPLE);
+    let tether_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 15.0, cube_physics_props.clone());
+    let tether_cube_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&tether_cube_entity, tether_cube_transform);
+    ecs.attach_provisional_component(&tether_cube_entity, tether_cube_rigid_body);
+    ecs.attach_provisional_component(&tether_cube_entity, tether_cube_material);
+    ecs.attach_provisional_component(&tether_cube_entity, test_cube_mesh_binding.clone());
+    ecs.attach_provisional_component(&tether_cube_entity, MousePickable {});
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -190,6 +199,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_RIGID_BODY_FORCE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_TETHER_BALL, HashSet::from([ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
@@ -418,6 +428,30 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
     }
 };
 
+// TODO: make built in
+const APPLY_TETHER_BALL: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    const TETHER_ANCHOR: Vec3 = vec3(0.0, 10.0, 0.0);
+    const TETHER_LOCAL_POINT: Vec3 = vec3(0.0, 0.5, 0.0);
+    const REST_LENGTH: f32 = 4.0;
+    const K: f32 = 10.0;
+
+    for (_, transform, rigid_body, material) in get_rigid_cubes(entites, components) {
+        if material.color == PURPLE {
+            let world_point = local_to_world_point(&TETHER_LOCAL_POINT, transform);
+
+            let to_anchor = TETHER_ANCHOR - world_point;
+            let delta_length = to_anchor.len() - REST_LENGTH;
+
+            if delta_length > 0.0 {
+                let to_anchor_dir = to_anchor.normalized().unwrap();
+                let force = K * delta_length * to_anchor_dir;
+
+                rigid_body.add_force_at_point(&world_point, &force, &transform.pos);
+            }
+        }
+    }
+};
+
 const APPLY_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
 
@@ -434,12 +468,16 @@ const APPLY_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &Comp
                 let local_force = VEC_3_Z_AXIS * 0.25;
 
                 if window.is_key_down(VirtualKey::I) {
-                    let (world_point, world_force) = local_to_world_force(&local_point, &local_force, &transform);
+                    let world_point = local_to_world_point(&local_point, transform);
+                    let world_force = local_to_world_force(&local_force, transform);
+
                     rigid_body.add_force_at_point(&world_point, &world_force, &transform.pos);
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
                 if window.is_key_down(VirtualKey::K) {
-                    let (world_point, world_force) = local_to_world_force(&local_point, &-local_force, &transform);
+                    let world_point = local_to_world_point(&local_point, transform);
+                    let world_force = local_to_world_force(&-local_force, transform);
+
                     rigid_body.add_force_at_point(&world_point, &world_force, &transform.pos);
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
@@ -832,6 +870,22 @@ fn get_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -
 
         if transform.is_some() && particle.is_some() && material.is_some() {
             Some((e, transform.unwrap(), particle.unwrap(), material.unwrap()))
+        } else {
+            None
+        }
+    })
+    .filter(|e| e.is_some())
+    .map(|e| e.unwrap())
+}
+
+fn get_rigid_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -> impl Iterator<Item = (&'a Entity, &'a Transform, &'a mut RigidBody, &'a ColorMaterial)> {
+    entities.map(|e| {
+        let transform = components.get_component::<Transform>(e);
+        let rigid_body = components.get_mut_component::<RigidBody>(e);
+        let material = components.get_component::<ColorMaterial>(e);
+
+        if transform.is_some() && rigid_body.is_some() && material.is_some() {
+            Some((e, transform.unwrap(), rigid_body.unwrap(), material.unwrap()))
         } else {
             None
         }
