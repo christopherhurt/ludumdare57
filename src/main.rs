@@ -358,6 +358,9 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
 
                             let mesh = components.get_component::<Mesh>(&mesh_binding.mesh_wrapper.unwrap()).unwrap();
 
+                            // TODO: optimize this by first pruning with a simplified mesh, such as a bounding sphere
+                            //  Maybe formalize the MousePickable component into a built-in and add a bounding sphere field, then add a
+                            //  function to it to do all the intersection checks, pruning, etc...
                             if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
                                 rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), &transform.pos);
                             }
