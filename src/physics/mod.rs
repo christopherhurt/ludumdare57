@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
+use crate::core::Transform;
 use crate::core::mesh::{Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
@@ -21,6 +22,13 @@ pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
     result.k += to_apply.k * 0.5 * delta;
 
     result.normalized()
+}
+
+pub fn local_to_world_force(local_point: &Vec3, local_force: &Vec3, transform: &Transform) -> (Vec3, Vec3) {
+    let world_point = (transform.to_world_mat() * local_point.to_vec4(1.0)).to_vec3();
+    let world_force = transform.rot.to_rotation_matrix().to_mat3() * *local_force;
+
+    (world_point, world_force)
 }
 
 // Particle
@@ -249,7 +257,7 @@ impl RigidBody {
         }
     }
 
-    pub fn add_force_at_point(&mut self, force: &Vec3, point: &Vec3, rigid_body_pos: &Vec3) {
+    pub fn add_force_at_point(&mut self, point: &Vec3, force: &Vec3, rigid_body_pos: &Vec3) {
         self.linear_force_accum += *force;
         self.torque_accum += (*point - *rigid_body_pos).cross(force);
     }

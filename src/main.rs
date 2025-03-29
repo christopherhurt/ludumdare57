@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, get_world_matrix, vec2, vec3, vec4, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, get_world_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use physics::local_to_world_force;
 use rand::Rng;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -184,7 +185,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_WORLD_RIGID_BODY_FORCE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_RIGID_BODY_FORCE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
@@ -392,7 +393,7 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
     }
 };
 
-const APPLY_WORLD_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+const APPLY_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
 
     if let Ok(window) = render_engine.get_window() {
@@ -404,14 +405,17 @@ const APPLY_WORLD_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components:
                 let transform = transform.unwrap();
                 let rigid_body = rigid_body.unwrap();
 
-                let force = VEC_3_Z_AXIS * 1.5;
+                let local_point = vec3(3.0, 0.0, 0.0);
+                let local_force = VEC_3_Z_AXIS * 0.25;
 
                 if window.is_key_down(VirtualKey::I) {
-                    rigid_body.add_force_at_point(&(transform.rot.to_rotation_matrix().to_mat3() * force), &(transform.to_world_mat() * vec4(3.0, 0.0, 0.0, 1.0)).to_vec3(), &transform.pos);
+                    let (world_point, world_force) = local_to_world_force(&local_point, &local_force, &transform);
+                    rigid_body.add_force_at_point(&world_point, &world_force, &transform.pos);
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
                 if window.is_key_down(VirtualKey::K) {
-                    rigid_body.add_force_at_point(&(transform.rot.to_rotation_matrix().to_mat3() * -force), &(transform.to_world_mat() * vec4(3.0, 0.0, 0.0, 1.0)).to_vec3(), &transform.pos);
+                    let (world_point, world_force) = local_to_world_force(&local_point, &-local_force, &transform);
+                    rigid_body.add_force_at_point(&world_point, &world_force, &transform.pos);
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
             }
