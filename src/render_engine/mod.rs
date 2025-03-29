@@ -4,7 +4,7 @@ use strum_macros::{EnumCount, EnumIter};
 
 use crate::core::Color;
 use crate::core::mesh::{RenderMeshId, Vertex};
-use crate::math::{Mat4, Vec2};
+use crate::math::{Mat3, Mat4, Vec2};
 
 pub mod vulkan;
 
@@ -43,6 +43,7 @@ pub trait Window {
     fn is_button_pressed(&self, button: VirtualButton) -> bool;
     fn is_button_released(&self, button: VirtualButton) -> bool;
     fn get_mouse_screen_position(&self) -> Option<&Vec2>;
+    fn get_ndc_to_screen_space_transform(&self) -> Mat3;
     fn is_closing(&self) -> bool;
 }
 

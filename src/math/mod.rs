@@ -464,7 +464,12 @@ pub const VEC_4_W_AXIS: Vec4 = vec4(0.0, 0.0, 0.0, 1.0);
 
 impl Vec4 {
     #[inline]
-    pub fn to_vec3(&self) -> Vec3 {
+    pub fn xy(&self) -> Vec2 {
+        vec2(self.x, self.y)
+    }
+
+    #[inline]
+    pub fn xyz(&self) -> Vec3 {
         vec3(self.x, self.y, self.z)
     }
 }

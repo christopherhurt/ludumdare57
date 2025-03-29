@@ -1,12 +1,13 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-use crate::core::Transform;
+use crate::core::{Camera, Transform};
 use crate::core::mesh::{Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{mat3, Mat3, quat, Quat, Vec3, VEC_3_ZERO};
+use crate::math::{get_proj_matrix, mat3, quat, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
+use crate::render_engine::Window;
 
 // Common
 
@@ -25,7 +26,7 @@ pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
 }
 
 pub fn local_to_world_point(local_point: &Vec3, transform: &Transform) -> Vec3 {
-    (transform.to_world_mat() * local_point.to_vec4(1.0)).to_vec3()
+    (transform.to_world_mat() * local_point.to_vec4(1.0)).xyz()
 }
 
 pub fn local_to_world_force(local_force: &Vec3, transform: &Transform) -> Vec3 {
@@ -390,4 +391,24 @@ fn calculate_inertia_product(
     2.0 * v00 * v10 + v01 * v12 + v02 * v11
     + 2.0 * v01 * v11 + v00 * v12 + v02 * v10
     + 2.0 * v02 * v12 + v00 * v11 + v01 * v10
+}
+
+pub fn generate_ray(screen_coords: &Vec2, window: &impl Window, cam: &Camera, near_plane: f32, far_plane: f32) -> Result<Vec3> {
+    let aspect_ratio = window.get_width() as f32 / window.get_height() as f32;
+
+    let inverse_ndc_to_screen_space = window.get_ndc_to_screen_space_transform().inverted()
+        .unwrap_or_else(|_| panic!("Internal error: NDC to screen space transform is not invertible"));
+    let inverse_proj_matrix = get_proj_matrix(near_plane, far_plane, cam.fov_rads, aspect_ratio)?
+        .inverted()
+        .unwrap_or_else(|_| panic!("Internal error: projection matrix is not invertible"));
+    let inverse_view_matrix = cam.to_view_mat()?
+        .inverted()
+        .unwrap_or_else(|_| panic!("Internal error: view matrix is not invertible"));
+
+    let ndc_coords = inverse_ndc_to_screen_space * screen_coords.to_vec3(1.0);
+    let clip_coords = vec4(ndc_coords.x, ndc_coords.y, 1.0, 1.0);
+    let view_coords = (inverse_proj_matrix * clip_coords).xy().to_vec4(1.0, 0.0);
+    let world_coords = (inverse_view_matrix * view_coords).xyz().normalized().unwrap_or_else(|_| panic!("Internal error: ray is length zero"));
+
+    Ok(world_coords)
 }

@@ -24,7 +24,7 @@ use crate::core::Color;
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::math::{vec2, Vec2};
+use crate::math::{mat3, Mat3, vec2, Vec2};
 use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualButton, VirtualKey, VirtualElementState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
@@ -568,6 +568,17 @@ impl Window for VulkanRenderEngine {
 
     fn get_mouse_screen_position(&self) -> Option<&Vec2> {
         self.mouse_pos.as_ref()
+    }
+
+    fn get_ndc_to_screen_space_transform(&self) -> Mat3 {
+        let w = self.get_width() as f32;
+        let h = self.get_height() as f32;
+
+        mat3(
+            w / 2.0,    0.0,        w / 2.0,
+            0.0,        h / 2.0,    h / 2.0,
+            0.0,        0.0,        1.0,
+        )
     }
 
     fn is_closing(&self) -> bool {

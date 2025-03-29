@@ -13,7 +13,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, local_to_world_force, local_to_world_point, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, local_to_world_force, local_to_world_point, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -24,6 +24,8 @@ pub mod physics;
 pub mod render_engine;
 
 const DAMPING: f32 = 0.999;
+const NEAR_PLANE: f32 = 0.01;
+const FAR_PLANE: f32 = 1000.0;
 
 fn main() {
     pretty_env_logger::init();
@@ -338,22 +340,18 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
 
 const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
     if let Ok(window) = render_engine.get_window() {
-        // TODO: mouse picking logic
-
         if window.is_button_pressed(VirtualButton::Left) {
-            println!("LEFT PRESSED");
-            println!("MOUSE POS: {:?}", render_engine.get_mouse_screen_position());
-        }
-        if window.is_button_released(VirtualButton::Left) {
-            println!("LEFT RELEASED");
-        }
-        if window.is_button_pressed(VirtualButton::Middle) {
-            println!("MIDDLE PRESSED");
-        }
-        if window.is_button_down(VirtualButton::Right) {
-            println!("RIGHT DOWN");
+            if let Some(screen_pos) = window.get_mouse_screen_position() {
+                let ray = generate_ray(screen_pos, window, cam, NEAR_PLANE, FAR_PLANE);
+
+                if let Ok(ray) = ray {
+                    // TODO
+                    println!("RAY: {:?}", ray);
+                }
+            }
         }
     }
 };
@@ -830,7 +828,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
     let aspect_ratio = render_engine.get_window().and_then(|w| {
         Ok((w.get_width() as f32) / (w.get_height() as f32))
     }).unwrap_or(1.0);
-    let proj = get_proj_matrix(0.01, 1000.0, viewport.cam.fov_rads, aspect_ratio).unwrap();
+    let proj = get_proj_matrix(NEAR_PLANE, FAR_PLANE, viewport.cam.fov_rads, aspect_ratio).unwrap();
 
     let render_state = RenderState {
         view: viewport.cam.to_view_mat().unwrap(),
