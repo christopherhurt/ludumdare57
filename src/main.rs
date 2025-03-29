@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, get_world_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -13,7 +13,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
 
@@ -48,6 +48,7 @@ fn init_ecs() -> ECS {
         .with_component::<ParticleRod>()
         .with_component::<ParticleCollision>()
         .with_component::<ParticleCollisionDetector>()
+        .with_component::<RigidBody>()
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
         .build()
@@ -125,6 +126,7 @@ fn create_scene(ecs: &mut ECS) {
         20, 21, 22, 22, 23, 20,
     ];
     let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes);
+    let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, 1.0).unwrap();
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -135,6 +137,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
     let bunny_mesh = load_obj_mesh("res/bunny.obj").unwrap();
+    let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, 1.0).unwrap();
     let bunny_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -145,16 +148,20 @@ fn create_scene(ecs: &mut ECS) {
 
     let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
     let test_cube_material = ColorMaterial::new(RED);
+    let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, cube_physics_props);
     let test_cube_entity = ecs.create_entity();
     let test_cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
+    ecs.attach_provisional_component(&test_cube_entity, test_cube_rigid_body);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
 
     let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 100.0);
     let test_bunny_material = ColorMaterial::new(WHITE);
+    let test_bunny_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, bunny_physics_props);
     let test_bunny_entity = ecs.create_entity();
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_transform);
+    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_rigid_body);
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
     ecs.attach_provisional_component(&test_bunny_entity, bunny_mesh_binding.clone());
 
@@ -177,8 +184,10 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
     ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_WORLD_RIGID_BODY_FORCE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
+    ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
@@ -326,8 +335,6 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
             let transform = transform.unwrap();
             let particle = particle.unwrap();
 
-            transform.pos += particle.vel * delta;
-
             particle.acc = particle.force_accum / particle.mass;
             particle.acc.y -= particle.gravity;
 
@@ -337,7 +344,75 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
             //  to a huge number of particles, for example.
             particle.vel *= particle.damping.powf(delta);
 
+            transform.pos += particle.vel * delta;
+
             particle.force_accum = VEC_3_ZERO;
+        }
+    }
+};
+
+// Built-in
+const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta = time_delta.since_last_frame.as_secs_f32();
+
+    for e in entites {
+        let transform = components.get_mut_component::<Transform>(e);
+        let rigid_body = components.get_mut_component::<RigidBody>(e);
+
+        if transform.is_some() && rigid_body.is_some() {
+            let transform = transform.unwrap();
+            let rigid_body = rigid_body.unwrap();
+
+            // Linear motion
+            rigid_body.linear_acc = rigid_body.linear_force_accum / rigid_body.props.mass;
+            rigid_body.linear_acc.y -= rigid_body.gravity;
+
+            rigid_body.linear_vel += rigid_body.linear_acc * delta;
+            rigid_body.linear_vel *= rigid_body.linear_damping.powf(delta);
+
+            transform.pos += rigid_body.linear_vel * delta;
+
+            rigid_body.linear_force_accum = VEC_3_ZERO;
+
+            // Rotational motion
+            let world_matrix = get_world_matrix(transform.pos, transform.rot, transform.scl).to_mat3();
+            let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
+            let inverse_inertia_tensor_world = (world_matrix * rigid_body.props.inertia_tensor * inverse_world_matrix).inverted()
+                .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
+            rigid_body.ang_acc = inverse_inertia_tensor_world * rigid_body.torque_accum;
+
+            rigid_body.ang_vel += rigid_body.ang_acc * delta;
+            rigid_body.ang_vel *= rigid_body.ang_damping.powf(delta);
+
+            transform.rot = apply_ang_vel(&transform.rot, &rigid_body.ang_vel, delta).normalized();
+
+            rigid_body.torque_accum = VEC_3_ZERO;
+        }
+    }
+};
+
+const APPLY_WORLD_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+
+    if let Ok(window) = render_engine.get_window() {
+        for e in entites {
+            let transform = components.get_mut_component::<Transform>(e);
+            let rigid_body = components.get_mut_component::<RigidBody>(e);
+
+            if transform.is_some() && rigid_body.is_some() {
+                let transform = transform.unwrap();
+                let rigid_body = rigid_body.unwrap();
+
+                if window.is_key_down(VirtualKey::I) {
+                    rigid_body.add_force_at_point(&VEC_3_Z_AXIS, &(vec3(1.0, 0.0, 0.0) + transform.pos), &transform.pos);
+                    rigid_body.linear_force_accum = VEC_3_ZERO;
+                }
+                if window.is_key_down(VirtualKey::K) {
+                    rigid_body.add_force_at_point(&-VEC_3_Z_AXIS, &(vec3(1.0, 0.0, 0.0) + transform.pos), &transform.pos);
+                    rigid_body.linear_force_accum = VEC_3_ZERO;
+                }
+            }
         }
     }
 };

@@ -221,7 +221,7 @@ impl Vec3 {
 
     #[inline]
     pub fn dot(&self, vec: &Vec3) -> f32 {
-        self.x * vec.x + self.y + vec.y * self.z + vec.z
+        self.x * vec.x + self.y * vec.y + self.z * vec.z
     }
 
     #[inline]
@@ -840,6 +840,15 @@ impl Mat4 {
                 _32: det * - (self._00 * _1213 - self._01 * _0213 + self._02 * _0113),
                 _33: det *   (self._00 * _1212 - self._01 * _0212 + self._02 * _0112),
             }
+        )
+    }
+
+    #[inline]
+    pub fn to_mat3(&self) -> Mat3 {
+        mat3(
+            self._00, self._01, self._02,
+            self._10, self._11, self._12,
+            self._20, self._21, self._22,
         )
     }
 }

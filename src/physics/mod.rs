@@ -5,7 +5,23 @@ use crate::core::mesh::{Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{mat3, Mat3, Vec3, VEC_3_ZERO};
+use crate::math::{mat3, Mat3, quat, Quat, Vec3, VEC_3_ZERO};
+
+// Common
+
+pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
+    let mut result = rot.clone();
+    let mut to_apply = quat(0.0, ang_vel.x, ang_vel.y, ang_vel.z);
+
+    to_apply *= *rot;
+
+    result.w += to_apply.w * 0.5 * delta;
+    result.i += to_apply.i * 0.5 * delta;
+    result.j += to_apply.j * 0.5 * delta;
+    result.k += to_apply.k * 0.5 * delta;
+
+    result
+}
 
 // Particle
 
@@ -205,10 +221,42 @@ impl ComponentActions for ParticleCollisionDetector {}
 // RigidBody
 
 pub struct RigidBody {
-    pub mass: f32,
-    pub vel: Vec3,
+    pub linear_vel: Vec3,
     pub ang_vel: Vec3,
+    pub linear_acc: Vec3,
+    pub ang_acc: Vec3,
+    pub linear_damping: f32,
+    pub ang_damping: f32,
+    pub gravity: f32,
+    pub props: PhysicsMeshProperties,
+    pub(in crate) linear_force_accum: Vec3,
+    pub(in crate) torque_accum: Vec3,
 }
+
+impl RigidBody {
+    pub fn new(linear_vel: Vec3, ang_vel: Vec3, linear_damping: f32, ang_damping: f32, gravity: f32, props: PhysicsMeshProperties) -> Self {
+        Self {
+            linear_vel,
+            ang_vel,
+            linear_acc: VEC_3_ZERO,
+            ang_acc: VEC_3_ZERO,
+            linear_damping,
+            ang_damping,
+            gravity,
+            props,
+            linear_force_accum: VEC_3_ZERO,
+            torque_accum: VEC_3_ZERO,
+        }
+    }
+
+    pub fn add_force_at_point(&mut self, force: &Vec3, point: &Vec3, rigid_body_pos: &Vec3) {
+        self.linear_force_accum += *force;
+        self.torque_accum += (*point - *rigid_body_pos).cross(force);
+    }
+}
+
+impl Component for RigidBody {}
+impl ComponentActions for RigidBody {}
 
 pub struct PhysicsMeshProperties {
     pub volume: f32,
@@ -246,7 +294,8 @@ pub fn generate_physics_mesh(mesh: Mesh, density: f32) -> Result<(Mesh, PhysicsM
         let v1 = &mesh.vertices[i[1] as usize].pos;
         let v2 = &mesh.vertices[i[2] as usize].pos;
 
-        let det = v1.cross(v2).dot(v0);
+        let det = v2.cross(v1).dot(v0);
+
         let tetrahedron_signed_volume = det / 6.0;
         let tetrahedron_signed_mass = density * tetrahedron_signed_volume;
         let tetrahedron_center_off_mass = (*v0 + *v1 + *v2) / 4.0;
@@ -272,7 +321,7 @@ pub fn generate_physics_mesh(mesh: Mesh, density: f32) -> Result<(Mesh, PhysicsM
         volume += tetrahedron_signed_volume;
     }
 
-    if mass < 0.0 {
+    if mass <= 0.0 {
         return Err(anyhow!("Mesh mass was computed as non-positive - consider reversing your triangle winding order"));
     }
 
