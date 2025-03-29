@@ -16,7 +16,7 @@ use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
 use crate::physics::{apply_ang_vel, generate_physics_mesh, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
 pub mod core;
 pub mod ecs;
@@ -52,6 +52,7 @@ fn init_ecs() -> ECS {
         .with_component::<RigidBody>()
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
+        .with_component::<MousePickable>()
         .build()
 }
 
@@ -156,6 +157,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_cube_entity, test_cube_rigid_body);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding);
+    ecs.attach_provisional_component(&test_cube_entity, MousePickable {});
 
     let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
     let test_bunny_material = ColorMaterial::new(WHITE);
@@ -165,6 +167,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_rigid_body);
     ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
     ecs.attach_provisional_component(&test_bunny_entity, bunny_mesh_binding.clone());
+    ecs.attach_provisional_component(&test_bunny_entity, MousePickable {});
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -180,6 +183,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
+    ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, MousePickable>().unwrap()]), -400);
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
     ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
@@ -319,6 +323,27 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
         commands.attach_provisional_component(&proj_entity, particle);
+    }
+};
+
+const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+
+    if let Ok(window) = render_engine.get_window() {
+        // TODO: mouse picking logic
+
+        if window.is_button_pressed(VirtualButton::Left) {
+            println!("LEFT PRESSED");
+        }
+        if window.is_button_released(VirtualButton::Left) {
+            println!("LEFT RELEASED");
+        }
+        if window.is_button_pressed(VirtualButton::Middle) {
+            println!("MIDDLE PRESSED");
+        }
+        if window.is_button_down(VirtualButton::Right) {
+            println!("RIGHT DOWN");
+        }
     }
 };
 
@@ -821,3 +846,10 @@ struct CubeMeshOwner {}
 
 impl Component for CubeMeshOwner {}
 impl ComponentActions for CubeMeshOwner {}
+
+// MousePickable
+
+struct MousePickable {}
+
+impl Component for MousePickable {}
+impl ComponentActions for MousePickable {}

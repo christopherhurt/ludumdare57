@@ -15,7 +15,7 @@ use vulkanalia::vk::{DebugUtilsMessengerEXT, ExtDebugUtilsExtension, KhrSurfaceE
 use vulkanalia::window as vk_window;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
@@ -24,7 +24,7 @@ use crate::core::Color;
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualKey, VirtualKeyState, Window};
+use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualButton, VirtualKey, VirtualElementState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
     pick_physical_device,
@@ -61,7 +61,11 @@ pub struct VulkanRenderEngine {
     keys_down: HashMap<VirtualKey, bool>,
     keys_pressed: HashMap<VirtualKey, bool>,
     keys_released: HashMap<VirtualKey, bool>,
-    keys_receiver: Receiver<(VirtualKey, VirtualKeyState)>,
+    keys_receiver: Receiver<(VirtualKey, VirtualElementState)>,
+    buttons_down: HashMap<VirtualButton, bool>,
+    buttons_pressed: HashMap<VirtualButton, bool>,
+    buttons_released: HashMap<VirtualButton, bool>,
+    buttons_receiver: Receiver<(VirtualButton, VirtualElementState)>,
     window_extent: vk::Extent2D,
     window_extent_receiver: Receiver<vk::Extent2D>,
     is_closing: Arc<AtomicBool>,
@@ -78,7 +82,8 @@ struct VulkanApplication {
     is_minimized: bool,
     is_resized: bool,
     is_closing: Arc<AtomicBool>,
-    keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
+    keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
+    buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
     window_extent_sender: SyncSender<vk::Extent2D>,
     context: Option<VulkanContext>,
     swapchain_fences: Vec<vk::Fence>,
@@ -371,7 +376,8 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         // TODO: update this so we can overwrite the buffered state(s), rather than block the sender, if the sender gets ahead of the receiver
         let (state_sender, state_receiver) = mpsc::sync_channel::<RenderState>(1);
         let (mesh_sender, mesh_receiver) = mpsc::channel();
-        let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualKeyState)>(256);
+        let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualElementState)>(256);
+        let (buttons_sender, buttons_receiver) = mpsc::sync_channel::<(VirtualButton, VirtualElementState)>(256);
         let (window_extent_sender, window_extent_receiver) = mpsc::sync_channel::<vk::Extent2D>(256);
 
         let is_closing = Arc::new(AtomicBool::new(false));
@@ -382,7 +388,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let join_handle: JoinHandle<()> = thread::spawn(move || {
             // TODO: clean up Windows-specific module dependency
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
-            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, window_extent_sender, moved_is_closing).unwrap();
+            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, window_extent_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
 
@@ -398,6 +404,10 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
                 keys_pressed: create_empty_vk_map(),
                 keys_released: create_empty_vk_map(),
                 keys_receiver,
+                buttons_down: create_empty_vb_map(),
+                buttons_pressed: create_empty_vb_map(),
+                buttons_released: create_empty_vb_map(),
+                buttons_receiver,
                 window_extent: vk::Extent2D { width, height },
                 window_extent_receiver,
                 is_closing,
@@ -407,12 +417,13 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
     }
 
     fn sync_state(&mut self, state: RenderState) -> Result<()> {
+        // Keys
         let mut new_keys_down = self.keys_down.clone();
 
         while let Ok((vk, vk_state)) = self.keys_receiver.try_recv() {
             match vk_state {
-                VirtualKeyState::Pressed => new_keys_down.insert(vk, true),
-                VirtualKeyState::Released => new_keys_down.insert(vk, false),
+                VirtualElementState::Pressed => new_keys_down.insert(vk, true),
+                VirtualElementState::Released => new_keys_down.insert(vk, false),
             };
         }
 
@@ -428,10 +439,34 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
 
         self.keys_down = new_keys_down;
 
+        // Buttons
+        let mut new_buttons_down = self.buttons_down.clone();
+
+        while let Ok((vb, vb_state)) = self.buttons_receiver.try_recv() {
+            match vb_state {
+                VirtualElementState::Pressed => new_buttons_down.insert(vb, true),
+                VirtualElementState::Released => new_buttons_down.insert(vb, false),
+            };
+        }
+
+        VirtualButton::iter().for_each(|vb| {
+            if vb != VirtualButton::Unknown {
+                let was_down = *self.buttons_down.get(&vb).unwrap_or_else(|| panic!("Invalid button {:?}", &vb));
+                let is_down = *new_buttons_down.get(&vb).unwrap_or_else(|| panic!("Invalid button {:?}", &vb));
+
+                self.buttons_pressed.insert(vb, !was_down && is_down);
+                self.buttons_released.insert(vb, was_down && !is_down);
+            }
+        });
+
+        self.buttons_down = new_buttons_down;
+
+        // Window extent
         while let Ok(window_extent) = self.window_extent_receiver.try_recv() {
             self.window_extent = window_extent;
         }
 
+        // Render state
         Ok(self.state_sender.try_send(state)?)
     }
 
@@ -474,6 +509,18 @@ fn create_empty_vk_map() -> HashMap<VirtualKey, bool> {
     vk_map
 }
 
+fn create_empty_vb_map() -> HashMap<VirtualButton, bool> {
+    let mut vb_map = HashMap::with_capacity(VirtualButton::COUNT);
+
+    VirtualButton::iter().for_each(|vb| {
+        if vb != VirtualButton::Unknown {
+            vb_map.insert(vb, false);
+        }
+    });
+
+    vb_map
+}
+
 impl Window for VulkanRenderEngine {
     fn get_width(&self) -> u32 {
         self.window_extent.width
@@ -493,6 +540,18 @@ impl Window for VulkanRenderEngine {
 
     fn is_key_released(&self, key: VirtualKey) -> bool {
         *self.keys_released.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))
+    }
+
+    fn is_button_down(&self, button: VirtualButton) -> bool {
+        *self.buttons_down.get(&button).unwrap_or_else(|| panic!("Invalid button {:?}", button))
+    }
+
+    fn is_button_pressed(&self, button: VirtualButton) -> bool {
+        *self.buttons_pressed.get(&button).unwrap_or_else(|| panic!("Invalid button {:?}", button))
+    }
+
+    fn is_button_released(&self, button: VirtualButton) -> bool {
+        *self.buttons_released.get(&button).unwrap_or_else(|| panic!("Invalid button {:?}", button))
     }
 
     fn is_closing(&self) -> bool {
@@ -523,7 +582,8 @@ impl VulkanApplication {
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
         mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
-        keys_sender: SyncSender<(VirtualKey, VirtualKeyState)>,
+        keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
+        buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
         window_extent_sender: SyncSender<vk::Extent2D>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
@@ -536,6 +596,7 @@ impl VulkanApplication {
                 is_resized: false,
                 is_closing,
                 keys_sender,
+                buttons_sender,
                 window_extent_sender,
                 context: None,
                 swapchain_fences: (0..MAX_FRAMES_IN_FLIGHT).map(|_| vk::Fence::null()).collect(),
@@ -710,7 +771,7 @@ impl ApplicationHandler for VulkanApplication {
                 },
                 WindowEvent::CloseRequested => self.shutdown(event_loop),
                 WindowEvent::KeyboardInput { event: key_event, .. } => {
-                    let vk_state = get_vk_state_for_winit_key_state(key_event.state);
+                    let vk_state = get_virtual_state_for_winit_state(key_event.state);
 
                     let vk = get_vk_for_winit_physical_key(key_event.physical_key);
                     if vk != VirtualKey::Unknown {
@@ -722,6 +783,14 @@ impl ApplicationHandler for VulkanApplication {
                         self.keys_sender.send((vk, vk_state)).unwrap_or_else(|_| panic!("Failed to send logical key"));
                     }
                 },
+                WindowEvent::MouseInput { state, button, .. } => {
+                    let vb_state = get_virtual_state_for_winit_state(state);
+
+                    let vb = get_vb_for_winit_mouse_button(button);
+                    if vb != VirtualButton::Unknown {
+                        self.buttons_sender.send((vb, vb_state)).unwrap_or_else(|_| panic!("Failed to send mouse button"));
+                    }
+                },
                 _ => {},
             };
         }
@@ -730,10 +799,10 @@ impl ApplicationHandler for VulkanApplication {
 
 // User Input
 
-const fn get_vk_state_for_winit_key_state(state: ElementState) -> VirtualKeyState {
+const fn get_virtual_state_for_winit_state(state: ElementState) -> VirtualElementState {
     match state {
-        ElementState::Pressed => VirtualKeyState::Pressed,
-        ElementState::Released => VirtualKeyState::Released,
+        ElementState::Pressed => VirtualElementState::Pressed,
+        ElementState::Released => VirtualElementState::Released,
     }
 }
 
@@ -780,5 +849,14 @@ fn get_vk_for_winit_logical_key(named_key: Key) -> VirtualKey {
         Key::Named(NamedKey::ArrowRight) => VirtualKey::Right,
         Key::Named(NamedKey::Escape) => VirtualKey::Escape,
         _ => VirtualKey::Unknown,
+    }
+}
+
+fn get_vb_for_winit_mouse_button(button: MouseButton) -> VirtualButton {
+    match button {
+        MouseButton::Left => VirtualButton::Left,
+        MouseButton::Right => VirtualButton::Right,
+        MouseButton::Middle => VirtualButton::Middle,
+        _ => VirtualButton::Unknown,
     }
 }

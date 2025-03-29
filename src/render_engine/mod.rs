@@ -39,6 +39,9 @@ pub trait Window {
     fn is_key_down(&self, key: VirtualKey) -> bool;
     fn is_key_pressed(&self, key: VirtualKey) -> bool;
     fn is_key_released(&self, key: VirtualKey) -> bool;
+    fn is_button_down(&self, button: VirtualButton) -> bool;
+    fn is_button_pressed(&self, button: VirtualButton) -> bool;
+    fn is_button_released(&self, button: VirtualButton) -> bool;
     fn is_closing(&self) -> bool;
 }
 
@@ -99,7 +102,15 @@ pub enum VirtualKey {
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]
-pub enum VirtualKeyState {
+pub enum VirtualButton {
+    Unknown,
+    Left,
+    Middle,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]
+pub enum VirtualElementState {
     Pressed,
     Released,
 }
