@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use core::f32;
 use std::collections::HashMap;
 
 use crate::core::{Camera, Transform};
@@ -414,6 +415,49 @@ pub fn generate_ray(screen_coords: &Vec2, window: &impl Window, cam: &Camera, ne
 }
 
 pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, transform: &Transform) -> Option<Vec3> {
-    // TODO
-    None
+    // https://courses.cs.washington.edu/courses/csep557/09sp/lectures/triangle_intersection.pdf
+
+    let world_matrix = transform.to_world_mat();
+    let inverted_world_matrix = world_matrix.inverted()
+        .unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
+    let inverse_rot_matrix = transform.rot.to_rotation_matrix().to_mat3().inverted()
+        .unwrap_or_else(|_| panic!("Internal error: failed to invert rotation matrix"));
+
+    let ray_source = (inverted_world_matrix * ray_source.to_vec4(1.0)).xyz();
+    let ray_dir = inverse_rot_matrix * *ray_dir;
+
+    let mut closest_intersection_point=  None;
+    let mut closest_intersection_dist = f32::INFINITY;
+
+    if let Ok(ray_dir) = ray_dir.normalized() {
+        for i in mesh.vertex_indices.chunks_exact(3) {
+            let p0 = &mesh.vertices[i[0] as usize].pos;
+            let p1 = &mesh.vertices[i[1] as usize].pos;
+            let p2 = &mesh.vertices[i[2] as usize].pos;
+
+            if let Ok(n) = (*p0 - *p1).cross(&(*p2 - *p1)).normalized() {
+                let n_dot_dir = n.dot(&ray_dir);
+
+                // Ignore rays running parallel to or intersecting through the "underside" of the triangle
+                if n_dot_dir < -f32::EPSILON {
+                    let intersection_dist = (n.dot(&p0) - n.dot(&ray_source)) / n_dot_dir;
+                    let intersection_point = ray_source + intersection_dist * ray_dir;
+
+                    if inside_edge(p0, p2, &intersection_point, &n)
+                            && inside_edge(p1, p0, &intersection_point, &n)
+                            && inside_edge(p2, p1, &intersection_point, &n)
+                            && intersection_dist < closest_intersection_dist {
+                        closest_intersection_point = Some((transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
+                        closest_intersection_dist = intersection_dist;
+                    }
+                }
+            }
+        }
+    }
+
+    closest_intersection_point
+}
+
+fn inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
+    (*b - *a).cross(&(*q - *a)).dot(n) >= 0.0
 }

@@ -342,7 +342,7 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
-    const FORCE_FACTOR: f32 = 1000.0;
+    const FORCE_FACTOR: f32 = 100000.0;
 
     if let Ok(window) = render_engine.get_window() {
         if window.is_button_pressed(VirtualButton::Left) {
