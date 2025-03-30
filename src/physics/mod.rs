@@ -470,7 +470,7 @@ fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
 // Coarse collision detection
 
 pub trait BoundingVolume {
-    fn overlaps(&self, other: &Self) -> bool;
+    fn overlaps_with(&self, other: &Self) -> bool;
     fn get_extent(&self) -> (Vec3, Vec3);
 }
 
@@ -492,7 +492,7 @@ impl BoundingSphere {
 }
 
 impl BoundingVolume for BoundingSphere {
-    fn overlaps(&self, other: &BoundingSphere) -> bool {
+    fn overlaps_with(&self, other: &BoundingSphere) -> bool {
         (other.center - self.center).len() <= self.radius + other.radius
     }
 
@@ -584,14 +584,14 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
         bounding_volume: &T,
         potential_collisions: &mut Vec<PotentialCollision>,
     ) {
-        if self.overlaps(bounding_volume) {
+        if self.overlaps_with(bounding_volume) {
             if let Some(children) = self.children.as_ref() {
                 for c in children.as_ref() {
                     c.get_potential_collisions_with(entity, bounding_volume, potential_collisions);
                 }
             } else {
                 for (e, v) in &self.bounding_volumes {
-                    if v.overlaps(bounding_volume) {
+                    if v.overlaps_with(bounding_volume) {
                         potential_collisions.push(PotentialCollision::new(*entity, *e));
                     }
                 }
@@ -599,7 +599,7 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
         }
     }
 
-    fn overlaps(&self, bounding_volume: &T) -> bool {
+    fn overlaps_with(&self, bounding_volume: &T) -> bool {
         // TODO
         false
     }
