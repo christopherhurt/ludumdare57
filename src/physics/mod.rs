@@ -466,3 +466,102 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
 fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
     (*b - *a).cross(&(*q - *a)).dot(n) >= 0.0
 }
+
+// Bounding volumes
+
+pub trait BoundingVolume {
+    fn overlaps(&self, other: &Self) -> bool;
+    fn get_rel_size(&self) -> f32;
+}
+
+#[derive(Clone, Debug)]
+pub struct BoundingSphere {
+    // TODO: how/when to update these fields?
+    pub center: Vec3,
+    pub radius: f32,
+}
+
+impl BoundingVolume for BoundingSphere {
+    fn overlaps(&self, other: &BoundingSphere) -> bool {
+        (other.center - self.center).len() <= self.radius + other.radius
+    }
+
+    fn get_rel_size(&self) -> f32 {
+        self.radius
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PotentialContact {
+    pub entity_a: Entity,
+    pub entity_b: Entity,
+}
+
+impl PotentialContact {
+    fn new(entity_a: Entity, entity_b: Entity) -> Self {
+        Self { entity_a, entity_b }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BoundingVolumeHierarchyNode<T: BoundingVolume> {
+    pub children: Option<(Box<BoundingVolumeHierarchyNode<T>>, Box<BoundingVolumeHierarchyNode<T>>)>,
+    pub bounding_volume: T,
+    pub body: Option<Entity>, // TODO: how to remove when entity is destroyed? or add when created?
+}
+
+impl<T: BoundingVolume> BoundingVolumeHierarchyNode<T> {
+    pub fn get_potential_contacts(&self) -> Vec<PotentialContact> {
+        let mut potential_contacts = Vec::new();
+
+        if let Some((left, right)) = self.get_left_right() {
+            left.get_potential_contacts_with(right, &mut potential_contacts);
+        }
+
+        potential_contacts
+    }
+
+    // TODO: rewrite to just take a mesh??
+    pub fn get_potential_contacts_with_volume(&self, bounding_volume: &T) -> Vec<PotentialContact> {
+        // TODO
+        Vec::new()
+    }
+
+    fn get_left_right(&self) -> Option<(&BoundingVolumeHierarchyNode<T>, &BoundingVolumeHierarchyNode<T>)> {
+        self.children.as_ref().map(|(l, r)| (l.as_ref(), r.as_ref()))
+    }
+
+    fn unwrap_left_right(&self) -> (&BoundingVolumeHierarchyNode<T>, &BoundingVolumeHierarchyNode<T>) {
+        self.get_left_right().unwrap_or_else(|| panic!("Internal error: expected some children"))
+    }
+
+    fn is_leaf(&self) -> bool {
+        self.body.is_some()
+    }
+
+    fn unwrap_body(&self) -> Entity {
+        self.body.unwrap_or_else(|| panic!("Internal error: expected some body"))
+    }
+
+    fn get_potential_contacts_with(
+        &self,
+        other: &BoundingVolumeHierarchyNode<T>,
+        potential_contacts: &mut Vec<PotentialContact>,
+    ) {
+        if self.bounding_volume.overlaps(&other.bounding_volume) {
+            if self.is_leaf() && other.is_leaf() {
+                potential_contacts.push(PotentialContact::new(self.unwrap_body(), other.unwrap_body()));
+            } else if other.is_leaf() || (!self.is_leaf() && self.bounding_volume.get_rel_size() >= other.bounding_volume.get_rel_size()) {
+                let (left, right) = self.unwrap_left_right();
+
+                left.get_potential_contacts_with(other, potential_contacts);
+                right.get_potential_contacts_with(other, potential_contacts);
+            } else {
+                let (left, right) = other.unwrap_left_right();
+
+                self.get_potential_contacts_with(left, potential_contacts);
+                self.get_potential_contacts_with(right, potential_contacts);
+            }
+        }
+    }
+}
