@@ -3,7 +3,7 @@ use ecs::ComponentActions;
 use math::{get_proj_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
 use rand::Rng;
-use core::{IDENTITY_SCALE_VEC, RED};
+use core::{GRAY, IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -141,6 +141,7 @@ fn create_scene(ecs: &mut ECS) {
     let cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh);
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
+    ecs.attach_provisional_component(&cube_mesh_entity, cube_physics_props.clone());
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
     let bunny_mesh = load_obj_mesh("res/bunny.obj", true).unwrap();
@@ -175,7 +176,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_bunny_entity, MousePickable {});
 
     let tether_cube_transform = Transform::new(vec3(-3.0, 10.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
-    let tether_cube_material = ColorMaterial::new(PURPLE);
+    let tether_cube_material = ColorMaterial::new(GRAY);
     let tether_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 15.0, cube_physics_props.clone());
     let tether_cube_entity = ecs.create_entity();
     ecs.attach_provisional_component(&tether_cube_entity, tether_cube_transform);
@@ -195,7 +196,7 @@ fn create_scene(ecs: &mut ECS) {
     let particle_collision_detector_entity = ecs.create_entity();
     ecs.attach_provisional_component(&particle_collision_detector_entity, particle_collision_detector);
 
-    let quad_tree: QuadTree<BoundingSphere> = QuadTree::new(VEC_3_ZERO, 125.0, 512, 10, 32, 8).unwrap();
+    let quad_tree: QuadTree<BoundingSphere> = QuadTree::new(VEC_3_ZERO, 125.0, 512, 10, 96, 16).unwrap();
     let quad_tree_entity = ecs.create_entity();
     ecs.attach_provisional_component(&quad_tree_entity, quad_tree);
 
@@ -330,6 +331,10 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         .find(|e| components.get_component::<CubeMeshOwner>(e).is_some())
         .map(|e| *components.get_component::<MeshBinding>(e).unwrap())
         .unwrap();
+    let mesh_props = entites.clone()
+        .find(|e| components.get_component::<CubeMeshOwner>(e).is_some())
+        .map(|e| components.get_component::<PhysicsMeshProperties>(e).unwrap())
+        .unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
     if render_engine.is_key_down(VirtualKey::Space) {
@@ -337,13 +342,16 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
 
         let color_material = ColorMaterial::new(PURPLE);
         let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(1.0, 1.0, 1.0));
-        let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
+        // let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
+        let rigid_body= RigidBody::new(cam_dir_norm * 35.0, VEC_3_ZERO, DAMPING, DAMPING, 5.0, mesh_props.clone());
 
         let proj_entity = commands.create_entity();
         commands.attach_provisional_component(&proj_entity, *mesh_binding);
         commands.attach_provisional_component(&proj_entity, color_material);
         commands.attach_provisional_component(&proj_entity, transform);
-        commands.attach_provisional_component(&proj_entity, particle);
+        // commands.attach_provisional_component(&proj_entity, particle);
+        commands.attach_provisional_component(&proj_entity, rigid_body);
+        commands.attach_provisional_component(&proj_entity, MousePickable {});
     } else if render_engine.is_key_pressed(VirtualKey::Enter) || render_engine.is_key_released(VirtualKey::Enter) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
@@ -509,9 +517,9 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
     // TODO: actual implementation
 
     for e in entites {
-        let potential_collision = components.get_component::<PotentialRigidBodyCollision>(e).unwrap();
+        let _potential_collision = components.get_component::<PotentialRigidBodyCollision>(e).unwrap();
 
-        println!("POTENTIAL COLLISION: {:?}", potential_collision);
+        // println!("POTENTIAL COLLISION: {:?}", potential_collision);
 
         commands.destroy_entity(e);
     }
@@ -525,7 +533,7 @@ const APPLY_TETHER_BALL: System = |entites: Iter<Entity>, components: &Component
     const K: f32 = 10.0;
 
     for (_, transform, rigid_body, material) in get_rigid_cubes(entites, components) {
-        if material.color == PURPLE {
+        if material.color == GRAY {
             let world_point = local_to_world_point(&TETHER_LOCAL_POINT, transform);
 
             let to_anchor = TETHER_ANCHOR - world_point;
