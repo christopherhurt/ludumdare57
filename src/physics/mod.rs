@@ -469,7 +469,7 @@ fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
 
 // Coarse collision detection
 
-pub trait BoundingVolume: Clone {
+pub trait BoundingVolume: 'static + Clone {
     fn overlaps_with(&self, other: &Self) -> bool;
     fn get_extent(&self) -> (Vec3, Vec3);
 }
@@ -507,16 +507,19 @@ impl BoundingVolume for BoundingSphere {
 }
 
 #[derive(Clone, Debug)]
-pub struct PotentialCollision {
+pub struct PotentialRigidBodyCollision {
     pub entity_a: Entity,
     pub entity_b: Entity,
 }
 
-impl PotentialCollision {
+impl PotentialRigidBodyCollision {
     fn new(entity_a: Entity, entity_b: Entity) -> Self {
         Self { entity_a, entity_b }
     }
 }
+
+impl Component for PotentialRigidBodyCollision {}
+impl ComponentActions for PotentialRigidBodyCollision {}
 
 #[derive(Clone, Debug)]
 struct QuadTreeNode<T: BoundingVolume> {
@@ -640,7 +643,7 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
 
     fn get_potential_collisions(
         &self,
-        potential_collisions: &mut Vec<PotentialCollision>,
+        potential_collisions: &mut Vec<PotentialRigidBodyCollision>,
     ) {
         if let Some(children) = self.children.as_ref() {
             for c in children.as_ref() {
@@ -650,7 +653,7 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
             for (i, (e_a, v_a)) in self.bounding_volumes.iter().enumerate() {
                 for (e_b, v_b) in self.bounding_volumes.iter().skip(i + 1) {
                     if v_a.overlaps_with(v_b) {
-                        potential_collisions.push(PotentialCollision::new(*e_a, *e_b));
+                        potential_collisions.push(PotentialRigidBodyCollision::new(*e_a, *e_b));
                     }
                 }
             }
@@ -661,7 +664,7 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
         &self,
         entity: &Entity,
         bounding_volume: &T,
-        potential_collisions: &mut Vec<PotentialCollision>,
+        potential_collisions: &mut Vec<PotentialRigidBodyCollision>,
     ) {
         if self.overlaps_with(bounding_volume) {
             if let Some(children) = self.children.as_ref() {
@@ -671,7 +674,7 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
             } else {
                 for (e, v) in &self.bounding_volumes {
                     if v.overlaps_with(bounding_volume) {
-                        potential_collisions.push(PotentialCollision::new(*entity, *e));
+                        potential_collisions.push(PotentialRigidBodyCollision::new(*entity, *e));
                     }
                 }
             }
@@ -757,7 +760,19 @@ impl<T: BoundingVolume> QuadTree<T> {
         Ok(())
     }
 
-    pub fn get_potential_collisions(&self) -> Vec<PotentialCollision> {
+    pub fn remove_not_in(&mut self, entities: &HashSet<&Entity>) {
+        let to_remove = self.root_node.entities_in_quad
+            .iter()
+            .filter(|e| !entities.contains(e))
+            .map(|e| *e)
+            .collect::<HashSet<_>>();
+
+        for e in to_remove {
+            self.root_node.remove(&e);
+        }
+    }
+
+    pub fn get_potential_collisions(&self) -> Vec<PotentialRigidBodyCollision> {
         let mut potential_collisions = Vec::new();
 
         self.root_node.get_potential_collisions(&mut potential_collisions);
@@ -769,7 +784,7 @@ impl<T: BoundingVolume> QuadTree<T> {
         &self,
         entity: &Entity,
         bounding_volume: &T,
-    ) -> Vec<PotentialCollision> {
+    ) -> Vec<PotentialRigidBodyCollision> {
         let mut potential_collisions = Vec::new();
 
         self.root_node.get_potential_collisions_with(entity, bounding_volume, &mut potential_collisions);
@@ -789,3 +804,6 @@ impl<T: BoundingVolume> QuadTree<T> {
             || min_extent.z <= min_level_z || max_extent.z >= max_level_z
     }
 }
+
+impl<T: BoundingVolume> Component for QuadTree<T> {}
+impl<T: BoundingVolume> ComponentActions for QuadTree<T> {}

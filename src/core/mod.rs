@@ -165,15 +165,15 @@ impl Transform {
         self.scl_mat.get_or_insert_with(|| get_scale_matrix(&self.scl))
     }
 
-    pub(in crate) fn is_pos_changed(&self) -> bool {
+    pub fn is_pos_changed_since_last_frame(&self) -> bool {
         self.pos_changed
     }
 
-    pub(in crate) fn is_rot_changed(&self) -> bool {
+    pub fn is_rot_changed_since_last_frame(&self) -> bool {
         self.rot_changed
     }
 
-    pub(in crate) fn is_scl_changed(&self) -> bool {
+    pub fn is_scl_changed_since_last_frame(&self) -> bool {
         self.scl_changed
     }
 

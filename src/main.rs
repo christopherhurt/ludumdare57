@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ecs::ComponentActions;
 use math::{get_proj_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use physics::PotentialRigidBodyCollision;
 use rand::Rng;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -13,7 +14,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_ray_intersection, local_to_world_force, local_to_world_point, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, RigidBody};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -50,6 +51,9 @@ fn init_ecs() -> ECS {
         .with_component::<ParticleRod>()
         .with_component::<ParticleCollision>()
         .with_component::<ParticleCollisionDetector>()
+        .with_component::<PhysicsMeshProperties>()
+        .with_component::<PotentialRigidBodyCollision>()
+        .with_component::<QuadTree<BoundingSphere>>()
         .with_component::<RigidBody>()
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
@@ -191,6 +195,10 @@ fn create_scene(ecs: &mut ECS) {
     let particle_collision_detector_entity = ecs.create_entity();
     ecs.attach_provisional_component(&particle_collision_detector_entity, particle_collision_detector);
 
+    let quad_tree: QuadTree<BoundingSphere> = QuadTree::new(VEC_3_ZERO, 125.0, 512, 10, 32, 8).unwrap();
+    let quad_tree_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&quad_tree_entity, quad_tree);
+
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -450);
@@ -206,10 +214,13 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
+    ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, PhysicsMeshProperties>().unwrap()]), -150);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
-    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -99);
+    ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
+    ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap()]), -99);
+    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
@@ -450,6 +461,66 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
 
             rigid_body.torque_accum = VEC_3_ZERO;
         }
+    }
+};
+
+// Built-in
+const UPDATE_QUAD_TREE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let quad_tree = entites.clone().find_map(|e| components.get_mut_component::<QuadTree<BoundingSphere>>(e)).unwrap();
+
+    let entities_to_update = entites
+        .filter(|e| {
+            components.get_component::<Transform>(e).is_some()
+                && components.get_component::<RigidBody>(e).is_some()
+                && components.get_component::<PhysicsMeshProperties>(e).is_some()
+        })
+        .collect::<HashSet<_>>();
+
+    quad_tree.remove_not_in(&entities_to_update);
+
+    for e in entities_to_update {
+        let transform = components.get_component::<Transform>(e);
+        let mesh_props = components.get_component::<PhysicsMeshProperties>(e);
+
+        if transform.is_some() && mesh_props.is_some() {
+            let transform = transform.unwrap();
+
+            if transform.is_pos_changed_since_last_frame() || transform.is_scl_changed_since_last_frame() {
+                quad_tree.remove(e).unwrap_or_default();
+
+                let mesh_props = mesh_props.unwrap();
+
+                let bounding_sphere = BoundingSphere::from_transform(transform, mesh_props.bounding_radius);
+
+                quad_tree.insert(*e, bounding_sphere).unwrap_or_else(|e| panic!("Failed to insert bounding sphere into quad tree: {:?}", e));
+            }
+        }
+    }
+};
+
+// Built-in
+const DETECT_POTENTIAL_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let quad_tree = entites.clone().find_map(|e| components.get_component::<QuadTree<BoundingSphere>>(e)).unwrap();
+
+    let potential_collisions = quad_tree.get_potential_collisions();
+
+    for c in potential_collisions {
+        let e = commands.create_entity();
+
+        commands.attach_provisional_component(&e, c);
+    }
+};
+
+// Built-in
+const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    // TODO: actual implementation
+
+    for e in entites {
+        let potential_collision = components.get_component::<PotentialRigidBodyCollision>(e).unwrap();
+
+        println!("POTENTIAL COLLISION: {:?}", potential_collision);
+
+        commands.destroy_entity(e);
     }
 };
 
