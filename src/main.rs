@@ -204,7 +204,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -450);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
-    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
+    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -375);
     ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
@@ -583,10 +583,12 @@ const APPLY_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &Comp
 };
 
 const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    for (e, transform, _, _) in get_cubes(entites, components) {
-        let game_bounds = 100.0;
+    for e in entites {
+        let transform = components.get_component::<Transform>(e).unwrap();
 
-        if transform.get_pos().len() > game_bounds {
+        const GAME_BOUNDS: f32 = 100.0;
+
+        if transform.get_pos().len() >= GAME_BOUNDS {
             commands.destroy_entity(e);
         }
     }
