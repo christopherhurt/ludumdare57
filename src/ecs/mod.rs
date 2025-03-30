@@ -126,7 +126,7 @@ impl ECSCommands {
         self.to_shutdown
     }
 
-    pub fn component_to_box<T: Component>(&self, component: T) -> Box<T> {
+    fn component_to_box<T: Component>(&self, component: T) -> Box<T> {
         // TODO: allocate from a per-component custom allocator for better cache locality
         Box::new(component)
     }
