@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use core::f32;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::{Camera, Transform};
 use crate::core::mesh::{Mesh, Vertex};
@@ -467,7 +467,7 @@ fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
     (*b - *a).cross(&(*q - *a)).dot(n) >= 0.0
 }
 
-// Bounding volumes
+// Coarse collision detection
 
 pub trait BoundingVolume {
     fn overlaps(&self, other: &Self) -> bool;
@@ -507,13 +507,190 @@ impl BoundingVolume for BoundingSphere {
 }
 
 #[derive(Clone, Debug)]
-pub struct PotentialContact {
+pub struct PotentialCollision {
     pub entity_a: Entity,
     pub entity_b: Entity,
 }
 
-impl PotentialContact {
+impl PotentialCollision {
     fn new(entity_a: Entity, entity_b: Entity) -> Self {
         Self { entity_a, entity_b }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct QuadTreeNode<T: BoundingVolume> {
+    pos: Vec3, // y value is ignored
+    half_length: f32,
+    children: Option<Box<[QuadTreeNode<T>; 4]>>, // In clockwise order from -x, -z quadrant
+    bounding_volumes: HashMap<Entity, T>, // Assert empty if children is Some
+    max_depth: usize,
+    max_bounding_volumes_per_node: usize,
+    min_child_bounding_volumes_per_node: usize,
+}
+
+impl<T: BoundingVolume> QuadTreeNode<T> {
+    fn new(
+        pos: Vec3,
+        half_length: f32,
+        max_depth: usize,
+        max_bounding_volumes_per_node: usize,
+        min_child_bounding_volumes_per_node: usize,
+    ) -> Self {
+        Self {
+            pos,
+            half_length,
+            children: None,
+            bounding_volumes: HashMap::with_capacity(max_bounding_volumes_per_node),
+            max_depth,
+            max_bounding_volumes_per_node,
+            min_child_bounding_volumes_per_node,
+        }
+    }
+
+    fn insert(
+        &mut self,
+        entity: &Entity,
+        bounding_volume: &T,
+        current_depth: usize,
+    ) {
+        // TODO: take refs? clone?
+    }
+
+    fn remove(
+        &mut self,
+        entity: &Entity,
+        bounding_volume: &T,
+    ) {
+        // TODO
+    }
+
+    fn get_potential_collisions(
+        &self,
+        potential_collisions: &mut Vec<PotentialCollision>,
+    ) {
+        if let Some(children) = self.children.as_ref() {
+            for c in children.as_ref() {
+                c.get_potential_collisions(potential_collisions);
+            }
+        } else {
+            // TODO: check collisions between children
+        }
+    }
+
+    fn get_potential_collisions_with(
+        &self,
+        entity: &Entity,
+        bounding_volume: &T,
+        potential_collisions: &mut Vec<PotentialCollision>,
+    ) {
+        if self.overlaps(bounding_volume) {
+            if let Some(children) = self.children.as_ref() {
+                for c in children.as_ref() {
+                    c.get_potential_collisions_with(entity, bounding_volume, potential_collisions);
+                }
+            } else {
+                for (e, v) in &self.bounding_volumes {
+                    if v.overlaps(bounding_volume) {
+                        potential_collisions.push(PotentialCollision::new(*entity, *e));
+                    }
+                }
+            }
+        }
+    }
+
+    fn overlaps(&self, bounding_volume: &T) -> bool {
+        // TODO
+        false
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct QuadTree<T: BoundingVolume> {
+    root_node: QuadTreeNode<T>,
+    all_entities: HashSet<Entity>,
+}
+
+impl<T: BoundingVolume> QuadTree<T> {
+    pub fn new(
+        origin: Vec3,
+        initial_level_half_length: f32,
+        initial_entity_capacity: usize,
+        max_depth: usize,
+        max_bounding_volumes_per_node: usize,
+        min_child_bounding_volumes_per_node: usize,
+    ) -> Self {
+        Self {
+            root_node: QuadTreeNode::new(
+                origin,
+                initial_level_half_length,
+                max_depth,
+                max_bounding_volumes_per_node,
+                min_child_bounding_volumes_per_node,
+            ),
+            all_entities: HashSet::with_capacity(initial_entity_capacity),
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        entity: Entity,
+        bounding_volume: T
+    ) -> Result<()> {
+        if self.all_entities.contains(&entity) {
+            return Err(anyhow!("Quad tree already contains entity {:?}", &entity));
+        }
+
+        // TODO: expand the level as needed, and consider shrinking the level on removal as well
+        if self.is_outside_level_bounds(&bounding_volume) {
+            return Err(anyhow!("Bounding volume is outside of the level bounds"));
+        }
+
+        self.root_node.insert(&entity, &bounding_volume, 0);
+
+        self.all_entities.insert(entity);
+
+        Ok(())
+    }
+
+    pub fn remove(
+        &mut self,
+        entity: &Entity,
+        bounding_volume: &T,
+    ) -> Result<()> {
+        if !self.all_entities.contains(&entity) {
+            return Err(anyhow!("Quad tree does not contain entity {:?}", &entity));
+        }
+
+        self.root_node.remove(entity, bounding_volume);
+
+        self.all_entities.remove(entity);
+
+        Ok(())
+    }
+
+    pub fn get_potential_collisions(&self) -> Vec<PotentialCollision> {
+        let mut potential_collisions = Vec::new();
+
+        self.root_node.get_potential_collisions(&mut potential_collisions);
+
+        potential_collisions
+    }
+
+    pub fn get_potential_collisions_with(
+        &self,
+        entity: &Entity,
+        bounding_volume: &T,
+    ) -> Vec<PotentialCollision> {
+        let mut potential_collisions = Vec::new();
+
+        self.root_node.get_potential_collisions_with(entity, bounding_volume, &mut potential_collisions);
+
+        potential_collisions
+    }
+
+    fn is_outside_level_bounds(&self, bounding_volume: &T) -> bool {
+        // TODO
+        false
     }
 }
