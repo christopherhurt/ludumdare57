@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, get_world_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use rand::Rng;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -193,6 +193,7 @@ fn create_scene(ecs: &mut ECS) {
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
+    ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -450);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
     ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -375);
@@ -238,6 +239,15 @@ const TIME_SINCE_LAST_FRAME: System = |entites: Iter<Entity>, components: &Compo
             time_delta.is_started = true;
             time_delta.timestamp = std::time::SystemTime::now();
         }
+    });
+};
+
+// Built-in
+const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    entites.for_each(|e| {
+        let transform = components.get_mut_component::<Transform>(e).unwrap();
+
+        transform.reset_changed_flags();
     });
 };
 
@@ -352,7 +362,7 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
                 if let Ok(ray) = ray {
                     for e in entites {
                         if let Some(_) = components.get_component::<MousePickable>(e) {
-                            let transform = components.get_component::<Transform>(e).unwrap();
+                            let transform = components.get_mut_component::<Transform>(e).unwrap();
                             let mesh_binding = components.get_component::<MeshBinding>(e).unwrap();
                             let rigid_body = components.get_mut_component::<RigidBody>(e).unwrap();
 
@@ -362,7 +372,7 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
                             //  Maybe formalize the MousePickable component into a built-in and add a bounding sphere field, then add a
                             //  function to it to do all the intersection checks, pruning, etc...
                             if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
-                                rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), &transform.pos);
+                                rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), transform.get_pos());
                             }
                         }
                     }
@@ -395,7 +405,7 @@ const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentM
             //  to a huge number of particles, for example.
             particle.vel *= particle.damping.powf(delta);
 
-            transform.pos += particle.vel * delta;
+            transform.set_pos(*transform.get_pos() + particle.vel * delta);
 
             particle.force_accum = VEC_3_ZERO;
         }
@@ -422,12 +432,12 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
             rigid_body.linear_vel += rigid_body.linear_acc * delta;
             rigid_body.linear_vel *= rigid_body.linear_damping.powf(delta);
 
-            transform.pos += rigid_body.linear_vel * delta;
+            transform.set_pos(*transform.get_pos() + rigid_body.linear_vel * delta);
 
             rigid_body.linear_force_accum = VEC_3_ZERO;
 
             // Rotational motion
-            let world_matrix = get_world_matrix(transform.pos, transform.rot, transform.scl).to_mat3();
+            let world_matrix = transform.to_world_mat().to_mat3();
             let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
             let inverse_inertia_tensor_world = (world_matrix * rigid_body.props.inertia_tensor * inverse_world_matrix).inverted()
                 .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
@@ -436,7 +446,7 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
             rigid_body.ang_vel += rigid_body.ang_acc * delta;
             rigid_body.ang_vel *= rigid_body.ang_damping.powf(delta);
 
-            transform.rot = apply_ang_vel(&transform.rot, &rigid_body.ang_vel, delta);
+            transform.set_rot(apply_ang_vel(transform.get_rot(), &rigid_body.ang_vel, delta));
 
             rigid_body.torque_accum = VEC_3_ZERO;
         }
@@ -461,7 +471,7 @@ const APPLY_TETHER_BALL: System = |entites: Iter<Entity>, components: &Component
                 let to_anchor_dir = to_anchor.normalized().unwrap();
                 let force = K * delta_length * to_anchor_dir;
 
-                rigid_body.add_force_at_point(&world_point, &force, &transform.pos);
+                rigid_body.add_force_at_point(&world_point, &force, transform.get_pos());
             }
         }
     }
@@ -486,14 +496,14 @@ const APPLY_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &Comp
                     let world_point = local_to_world_point(&local_point, transform);
                     let world_force = local_to_world_force(&local_force, transform);
 
-                    rigid_body.add_force_at_point(&world_point, &world_force, &transform.pos);
+                    rigid_body.add_force_at_point(&world_point, &world_force, transform.get_pos());
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
                 if window.is_key_down(VirtualKey::K) {
                     let world_point = local_to_world_point(&local_point, transform);
                     let world_force = local_to_world_force(&-local_force, transform);
 
-                    rigid_body.add_force_at_point(&world_point, &world_force, &transform.pos);
+                    rigid_body.add_force_at_point(&world_point, &world_force, transform.get_pos());
                     rigid_body.linear_force_accum = VEC_3_ZERO;
                 }
             }
@@ -505,7 +515,7 @@ const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &Compone
     for (e, transform, _, _) in get_cubes(entites, components) {
         let game_bounds = 100.0;
 
-        if transform.pos.len() > game_bounds {
+        if transform.get_pos().len() > game_bounds {
             commands.destroy_entity(e);
         }
     }
@@ -543,8 +553,8 @@ const APPLY_CEILING_SPRING: System = |entites: Iter<Entity>, components: &Compon
 
     for (_, transform, particle, material) in get_cubes(entites, components) {
         if material.color == WHITE || material.color == BLACK {
-            let pos = transform.pos;
-            let d = pos - vec3(pos.x, CEIL_HEIGHT, pos.z);
+            let pos = transform.get_pos();
+            let d = *pos - vec3(pos.x, CEIL_HEIGHT, pos.z);
             let delta_length = d.len() - REST_LENGTH;
 
             if let Ok(d_norm) = d.normalized() {
@@ -562,7 +572,7 @@ const APPLY_BUNGEE_SPRING: System = |entites: Iter<Entity>, components: &Compone
 
     for (_, transform, particle, material) in get_cubes(entites, components) {
         if material.color == GREEN {
-            let d = transform.pos - *cam_pos;
+            let d = *transform.get_pos() - *cam_pos;
             let delta_length = d.len() - REST_LENGTH;
 
             if delta_length > 0.0 {
@@ -581,10 +591,10 @@ const APPLY_BUOYANCY: System = |entites: Iter<Entity>, components: &ComponentMan
 
     for (_, transform, particle, material) in get_cubes(entites, components) {
         if material.color == MAGENTA {
-            let submersion_depth = -transform.scl.y / 2.0;
-            let volume = transform.scl.x * transform.scl.y * transform.scl.z;
+            let submersion_depth = -transform.get_scl().y / 2.0;
+            let volume = transform.get_scl().x * transform.get_scl().y * transform.get_scl().z;
 
-            let d = ((transform.pos.y - WATER_HEIGHT - submersion_depth) / (2.0 * submersion_depth)).max(0.0).min(1.0);
+            let d = ((transform.get_pos().y - WATER_HEIGHT - submersion_depth) / (2.0 * submersion_depth)).max(0.0).min(1.0);
 
             particle.force_accum += vec3(0.0, d * DENSITY * volume, 0.0);
         }
@@ -608,14 +618,14 @@ const DETECT_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &
         if transform.is_some() && particle.is_some() { // Only check that a Particle component exists, otherwise it's not needed
             let transform = transform.unwrap();
 
-            if transform.pos.y <= FLOOR_HEIGHT {
+            if transform.get_pos().y <= FLOOR_HEIGHT {
                 let restitution = if rng.random_range(0.0..1.0) < 0.5 {
                     rng.random_range(0.0..1.0)
                 } else {
                     collision_detector.default_restitution
                 };
 
-                let collision = ParticleCollision::new(e.clone(), None, restitution, VEC_3_Y_AXIS, FLOOR_HEIGHT - transform.pos.y);
+                let collision = ParticleCollision::new(e.clone(), None, restitution, VEC_3_Y_AXIS, FLOOR_HEIGHT - transform.get_pos().y);
 
                 let collision_entity = commands.create_entity();
                 commands.attach_provisional_component(&collision_entity, collision);
@@ -639,7 +649,7 @@ const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, compone
             let transform_a = transform_a.unwrap();
             let transform_b = transform_b.unwrap();
 
-            let delta_pos = transform_b.pos - transform_a.pos;
+            let delta_pos = *transform_b.get_pos() - *transform_a.get_pos();
             let length = delta_pos.len();
 
             if length >= c.max_length {
@@ -677,7 +687,7 @@ const DETECT_PARTICLE_ROD_COLLISIONS: System = |entites: Iter<Entity>, component
             let transform_a = transform_a.unwrap();
             let transform_b = transform_b.unwrap();
 
-            let delta_pos = transform_b.pos - transform_a.pos;
+            let delta_pos = *transform_b.get_pos() - *transform_a.get_pos();
             let curr_length = delta_pos.len();
 
             if let Ok(mut normal) = delta_pos.normalized() {
@@ -814,14 +824,14 @@ fn resolve_interpenetration(collision: &ParticleCollision, components: &Componen
 
         let mass_factor_a = particle_b.map(|b| b.mass / (particle_a.mass + b.mass)).unwrap_or(1.0);
 
-        transform_a.pos += mass_factor_a * collision.penetration * collision.normal;
+        transform_a.set_pos(*transform_a.get_pos() + mass_factor_a * collision.penetration * collision.normal);
 
         if let Some(particle_b) = particle_b {
             let transform_b = transform_b.unwrap();
 
             let mass_factor_b = particle_a.mass / (particle_a.mass + particle_b.mass);
 
-            transform_b.pos += mass_factor_b * collision.penetration * -collision.normal;
+            transform_b.set_pos(*transform_b.get_pos() + mass_factor_b * collision.penetration * -collision.normal);
         }
     }
 }
@@ -836,7 +846,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
         && components.get_component::<MeshBinding>(e).is_some()
         && components.get_component::<ColorMaterial>(e).is_some())
     .map(|e| EntityRenderState {
-        world: components.get_component::<Transform>(e).unwrap().to_world_mat(),
+        world: *components.get_mut_component::<Transform>(e).unwrap().to_world_mat(),
         mesh_id: components.get_component::<MeshBinding>(e).unwrap().id.unwrap(),
         color: components.get_component::<ColorMaterial>(e).unwrap().color,
     }).collect();
@@ -893,9 +903,9 @@ fn get_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -
     .map(|e| e.unwrap())
 }
 
-fn get_rigid_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -> impl Iterator<Item = (&'a Entity, &'a Transform, &'a mut RigidBody, &'a ColorMaterial)> {
+fn get_rigid_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -> impl Iterator<Item = (&'a Entity, &'a mut Transform, &'a mut RigidBody, &'a ColorMaterial)> {
     entities.map(|e| {
-        let transform = components.get_component::<Transform>(e);
+        let transform = components.get_mut_component::<Transform>(e);
         let rigid_body = components.get_mut_component::<RigidBody>(e);
         let material = components.get_component::<ColorMaterial>(e);
 

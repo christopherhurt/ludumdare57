@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::math::{get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use crate::math::{get_scale_matrix, get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 pub mod mesh;
 
@@ -73,7 +73,7 @@ impl Camera {
     }
 
     pub(in crate) fn to_view_mat(&self) -> Result<Mat4> {
-        get_view_matrix(self.dir, self.up, self.pos)
+        get_view_matrix(&self.dir, &self.up, &self.pos)
     }
 }
 
@@ -123,18 +123,102 @@ impl ComponentActions for Viewport2D {}
 
 #[derive(Clone, Debug)]
 pub struct Transform {
-    pub pos: Vec3,
-    pub rot: Quat,
-    pub scl: Vec3,
+    pos: Vec3,
+    rot: Quat,
+    scl: Vec3,
+
+    pos_changed: bool,
+    rot_changed: bool,
+    scl_changed: bool,
+
+    world_mat: Option<Mat4>,
+    rot_mat: Option<Mat4>,
+    scl_mat: Option<Mat4>,
 }
 
 impl Transform {
     pub fn new(pos: Vec3, rot: Quat, scl: Vec3) -> Self {
-        Self { pos, rot, scl }
+        Self {
+            pos,
+            rot,
+            scl,
+
+            pos_changed: true,
+            rot_changed: true,
+            scl_changed: true,
+
+            world_mat: None,
+            rot_mat: None,
+            scl_mat: None,
+        }
     }
 
-    pub(in crate) fn to_world_mat(&self) -> Mat4 {
-        get_world_matrix(self.pos, self.rot, self.scl)
+    pub fn to_world_mat(&mut self) -> &Mat4 {
+        self.world_mat.get_or_insert_with(|| get_world_matrix(&self.pos, &self.rot, &self.scl))
+    }
+
+    pub fn to_rot_mat(&mut self) -> &Mat4 {
+        self.rot_mat.get_or_insert_with(|| self.rot.to_rotation_matrix())
+    }
+
+    pub fn to_scl_mat(&mut self) -> &Mat4 {
+        self.scl_mat.get_or_insert_with(|| get_scale_matrix(&self.scl))
+    }
+
+    pub(in crate) fn is_pos_changed(&self) -> bool {
+        self.pos_changed
+    }
+
+    pub(in crate) fn is_rot_changed(&self) -> bool {
+        self.rot_changed
+    }
+
+    pub(in crate) fn is_scl_changed(&self) -> bool {
+        self.scl_changed
+    }
+
+    pub(in crate) fn reset_changed_flags(&mut self) {
+        self.pos_changed = false;
+        self.rot_changed = false;
+        self.scl_changed = false;
+    }
+
+    pub fn get_pos(&self) -> &Vec3 {
+        &self.pos
+    }
+
+    pub fn set_pos(&mut self, pos: Vec3) {
+        self.pos = pos;
+
+        self.pos_changed = true;
+
+        self.world_mat = None;
+    }
+
+    pub fn get_rot(&self) -> &Quat {
+        &self.rot
+    }
+
+    pub fn set_rot(&mut self, rot: Quat) {
+        self.rot = rot;
+
+        self.rot_changed = true;
+
+        self.world_mat = None;
+        self.rot_mat = None;
+    }
+
+    pub fn get_scl(&self) -> &Vec3 {
+        &self.scl
+    }
+
+    pub fn set_scl(&mut self, scl: Vec3) {
+        self.scl = scl;
+
+        self.scl_changed = true;
+
+        self.world_mat = None;
+        self.scl_mat = None;
     }
 }
 
@@ -143,7 +227,15 @@ impl Default for Transform {
         Self {
             pos: VEC_3_ZERO,
             rot: QUAT_IDENTITY,
-            scl: vec3(1.0, 1.0, 1.0),
+            scl: IDENTITY_SCALE_VEC,
+
+            pos_changed: true,
+            rot_changed: true,
+            scl_changed: true,
+
+            world_mat: None,
+            rot_mat: None,
+            scl_mat: None,
         }
     }
 }

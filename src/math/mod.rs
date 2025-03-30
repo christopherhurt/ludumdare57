@@ -950,7 +950,7 @@ impl PartialEq<Mat4> for Mat4 {
 
 impl Eq for Mat4 {}
 
-pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
+pub fn get_world_matrix(pos: &Vec3, rot: &Quat, scl: &Vec3) -> Mat4 {
     let mut rotation_translation = rot.to_rotation_matrix();
 
     // Translation
@@ -958,17 +958,21 @@ pub fn get_world_matrix(pos: Vec3, rot: Quat, scl: Vec3) -> Mat4 {
     rotation_translation._13 = pos.y;
     rotation_translation._23 = pos.z;
 
-    let scale = mat4(
-        scl.x,  0.0,    0.0,    0.0,
-        0.0,    scl.y,  0.0,    0.0,
-        0.0,    0.0,    scl.z,  0.0,
-        0.0,    0.0,    0.0,    1.0,
-    );
+    let scale = get_scale_matrix(scl);
 
     rotation_translation * scale
 }
 
-pub fn get_view_matrix(dir: Vec3, up: Vec3, pos: Vec3) -> Result<Mat4> {
+pub fn get_scale_matrix(scl: &Vec3) -> Mat4 {
+    mat4(
+        scl.x,  0.0,    0.0,    0.0,
+        0.0,    scl.y,  0.0,    0.0,
+        0.0,    0.0,    scl.z,  0.0,
+        0.0,    0.0,    0.0,    1.0,
+    )
+}
+
+pub fn get_view_matrix(dir: &Vec3, up: &Vec3, pos: &Vec3) -> Result<Mat4> {
     let right = match dir.cross(&up).normalized() {
         Ok(v) => Ok(v),
         Err(_) => Err(anyhow!("Forward and up vectors must have a non-zero length!")),

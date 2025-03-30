@@ -8,7 +8,7 @@ use crate::core::mesh::{Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{get_proj_matrix, mat3, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
+use crate::math::{get_proj_matrix, mat3, vec3, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
 use crate::render_engine::Window;
 
 // Common
@@ -24,12 +24,12 @@ pub(in crate) fn apply_ang_vel(rot: &Quat, ang_vel: &Vec3, delta: f32) -> Quat {
     }
 }
 
-pub fn local_to_world_point(local_point: &Vec3, transform: &Transform) -> Vec3 {
-    (transform.to_world_mat() * local_point.to_vec4(1.0)).xyz()
+pub fn local_to_world_point(local_point: &Vec3, transform: &mut Transform) -> Vec3 {
+    (*transform.to_world_mat() * local_point.to_vec4(1.0)).xyz()
 }
 
-pub fn local_to_world_force(local_force: &Vec3, transform: &Transform) -> Vec3 {
-    transform.rot.to_rotation_matrix().to_mat3() * *local_force
+pub fn local_to_world_force(local_force: &Vec3, transform: &mut Transform) -> Vec3 {
+    transform.to_rot_mat().to_mat3() * *local_force
 }
 
 // Particle
@@ -419,13 +419,13 @@ pub fn generate_ray(screen_coords: &Vec2, window: &impl Window, cam: &Camera, ne
     Ok(world_coords)
 }
 
-pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, transform: &Transform) -> Option<Vec3> {
+pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, transform: &mut Transform) -> Option<Vec3> {
     // https://courses.cs.washington.edu/courses/csep557/09sp/lectures/triangle_intersection.pdf
 
     let world_matrix = transform.to_world_mat();
     let inverted_world_matrix = world_matrix.inverted()
         .unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
-    let inverse_rot_matrix = transform.rot.to_rotation_matrix().to_mat3().inverted()
+    let inverse_rot_matrix = transform.to_rot_mat().to_mat3().inverted()
         .unwrap_or_else(|_| panic!("Internal error: failed to invert rotation matrix"));
 
     let ray_source = (inverted_world_matrix * ray_source.to_vec4(1.0)).xyz();
@@ -452,7 +452,7 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
                             && is_inside_edge(p1, p0, &intersection_point, &n)
                             && is_inside_edge(p2, p1, &intersection_point, &n)
                             && intersection_dist < closest_intersection_dist {
-                        closest_intersection_point = Some((transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
+                        closest_intersection_point = Some((*transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
                         closest_intersection_dist = intersection_dist;
                     }
                 }
@@ -471,14 +471,24 @@ fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
 
 pub trait BoundingVolume {
     fn overlaps(&self, other: &Self) -> bool;
-    fn get_rel_size(&self) -> f32;
+    fn get_extent(&self) -> (Vec3, Vec3);
 }
 
 #[derive(Clone, Debug)]
 pub struct BoundingSphere {
-    // TODO: how/when to update these fields?
     pub center: Vec3,
     pub radius: f32,
+}
+
+impl BoundingSphere {
+    pub fn from_transform(transform: &Transform, local_bounding_radius: f32) -> Self {
+        let scl = transform.get_scl();
+
+        Self {
+            center: *transform.get_pos(),
+            radius: local_bounding_radius * scl.x.max(scl.y).max(scl.z),
+        }
+    }
 }
 
 impl BoundingVolume for BoundingSphere {
@@ -486,8 +496,13 @@ impl BoundingVolume for BoundingSphere {
         (other.center - self.center).len() <= self.radius + other.radius
     }
 
-    fn get_rel_size(&self) -> f32 {
-        self.radius
+    fn get_extent(&self) -> (Vec3, Vec3) {
+        let radius_extent = vec3(self.radius, self.radius, self.radius);
+
+        let min_extent = self.center - radius_extent;
+        let max_extent = self.center + radius_extent;
+
+        (min_extent, max_extent)
     }
 }
 
@@ -500,68 +515,5 @@ pub struct PotentialContact {
 impl PotentialContact {
     fn new(entity_a: Entity, entity_b: Entity) -> Self {
         Self { entity_a, entity_b }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct BoundingVolumeHierarchyNode<T: BoundingVolume> {
-    pub children: Option<(Box<BoundingVolumeHierarchyNode<T>>, Box<BoundingVolumeHierarchyNode<T>>)>,
-    pub bounding_volume: T,
-    pub body: Option<Entity>, // TODO: how to remove when entity is destroyed? or add when created?
-}
-
-impl<T: BoundingVolume> BoundingVolumeHierarchyNode<T> {
-    pub fn get_potential_contacts(&self) -> Vec<PotentialContact> {
-        let mut potential_contacts = Vec::new();
-
-        if let Some((left, right)) = self.get_left_right() {
-            left.get_potential_contacts_with(right, &mut potential_contacts);
-        }
-
-        potential_contacts
-    }
-
-    // TODO: rewrite to just take a mesh??
-    pub fn get_potential_contacts_with_volume(&self, bounding_volume: &T) -> Vec<PotentialContact> {
-        // TODO
-        Vec::new()
-    }
-
-    fn get_left_right(&self) -> Option<(&BoundingVolumeHierarchyNode<T>, &BoundingVolumeHierarchyNode<T>)> {
-        self.children.as_ref().map(|(l, r)| (l.as_ref(), r.as_ref()))
-    }
-
-    fn unwrap_left_right(&self) -> (&BoundingVolumeHierarchyNode<T>, &BoundingVolumeHierarchyNode<T>) {
-        self.get_left_right().unwrap_or_else(|| panic!("Internal error: expected some children"))
-    }
-
-    fn is_leaf(&self) -> bool {
-        self.body.is_some()
-    }
-
-    fn unwrap_body(&self) -> Entity {
-        self.body.unwrap_or_else(|| panic!("Internal error: expected some body"))
-    }
-
-    fn get_potential_contacts_with(
-        &self,
-        other: &BoundingVolumeHierarchyNode<T>,
-        potential_contacts: &mut Vec<PotentialContact>,
-    ) {
-        if self.bounding_volume.overlaps(&other.bounding_volume) {
-            if self.is_leaf() && other.is_leaf() {
-                potential_contacts.push(PotentialContact::new(self.unwrap_body(), other.unwrap_body()));
-            } else if other.is_leaf() || (!self.is_leaf() && self.bounding_volume.get_rel_size() >= other.bounding_volume.get_rel_size()) {
-                let (left, right) = self.unwrap_left_right();
-
-                left.get_potential_contacts_with(other, potential_contacts);
-                right.get_potential_contacts_with(other, potential_contacts);
-            } else {
-                let (left, right) = other.unwrap_left_right();
-
-                self.get_potential_contacts_with(left, potential_contacts);
-                self.get_potential_contacts_with(right, potential_contacts);
-            }
-        }
     }
 }
