@@ -214,7 +214,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
-    ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, PhysicsMeshProperties>().unwrap()]), -150);
+    ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
@@ -472,28 +472,21 @@ const UPDATE_QUAD_TREE: System = |entites: Iter<Entity>, components: &ComponentM
         .filter(|e| {
             components.get_component::<Transform>(e).is_some()
                 && components.get_component::<RigidBody>(e).is_some()
-                && components.get_component::<PhysicsMeshProperties>(e).is_some()
         })
         .collect::<HashSet<_>>();
 
     quad_tree.remove_not_in(&entities_to_update);
 
     for e in entities_to_update {
-        let transform = components.get_component::<Transform>(e);
-        let mesh_props = components.get_component::<PhysicsMeshProperties>(e);
+        let transform = components.get_component::<Transform>(e).unwrap();
+        let rigid_body = components.get_component::<RigidBody>(e).unwrap();
 
-        if transform.is_some() && mesh_props.is_some() {
-            let transform = transform.unwrap();
+        if transform.is_pos_changed_since_last_frame() || transform.is_scl_changed_since_last_frame() {
+            quad_tree.remove(e).unwrap_or_default();
 
-            if transform.is_pos_changed_since_last_frame() || transform.is_scl_changed_since_last_frame() {
-                quad_tree.remove(e).unwrap_or_default();
+            let bounding_sphere = BoundingSphere::from_transform(transform, rigid_body.props.bounding_radius);
 
-                let mesh_props = mesh_props.unwrap();
-
-                let bounding_sphere = BoundingSphere::from_transform(transform, mesh_props.bounding_radius);
-
-                quad_tree.insert(*e, bounding_sphere).unwrap_or_else(|e| panic!("Failed to insert bounding sphere into quad tree: {:?}", e));
-            }
+            quad_tree.insert(*e, bounding_sphere).unwrap_or_else(|e| panic!("Failed to insert bounding sphere into quad tree: {:?}", e));
         }
     }
 };

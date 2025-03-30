@@ -238,7 +238,7 @@ pub struct RigidBody {
     pub linear_damping: f32,
     pub ang_damping: f32,
     pub gravity: f32,
-    pub props: PhysicsMeshProperties,
+    pub props: PhysicsMeshProperties, // TODO: prob don't need to store this with every rigid body, but rather alongside the mesh
     pub(in crate) linear_force_accum: Vec3,
     pub(in crate) torque_accum: Vec3,
 }

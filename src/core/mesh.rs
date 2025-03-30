@@ -16,7 +16,7 @@ use crate::math::{vec3, Vec3, VEC_3_ZERO};
 pub struct RenderMeshId(pub(in crate) usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MeshBinding {
+pub struct MeshBinding { // TODO: clean up this whole mesh binding structure, and cleanup physics mesh bindings, properties, etc.
     pub mesh_wrapper: Option<Entity>,
     pub id: Option<RenderMeshId>,
     provisional_mesh_wrapper: Option<ProvisionalEntity>,
