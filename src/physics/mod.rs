@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use core::f32;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::core::{Camera, Transform};
@@ -281,6 +282,7 @@ pub struct PhysicsMeshProperties {
     pub mass: f32,
     pub inertia_tensor: Mat3,
     pub center_of_mass_offset: Vec3,
+    pub bounding_radius: f32,
 }
 
 impl Component for PhysicsMeshProperties {}
@@ -366,11 +368,17 @@ pub fn generate_physics_mesh(mesh: Mesh, density: f32) -> Result<(Mesh, PhysicsM
 
     let new_mesh = Mesh::new(offseted_vertices, mesh.vertex_indices.to_vec());
 
+    let bounding_radius = mesh.vertices.iter()
+        .map(|v| v.pos.len())
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less))
+        .unwrap_or_else(|| panic!("Internal error: mesh has no vertices"));
+
     let properties = PhysicsMeshProperties {
         volume,
         mass,
         inertia_tensor,
         center_of_mass_offset: center_of_mass,
+        bounding_radius,
     };
 
     Ok((new_mesh, properties))
