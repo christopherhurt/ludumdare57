@@ -469,7 +469,7 @@ fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
 
 // Coarse collision detection
 
-pub trait BoundingVolume {
+pub trait BoundingVolume: Clone {
     fn overlaps_with(&self, other: &Self) -> bool;
     fn get_extent(&self) -> (Vec3, Vec3);
 }
@@ -523,6 +523,7 @@ struct QuadTreeNode<T: BoundingVolume> {
     pos: Vec3, // y value is ignored
     half_length: f32,
     children: Option<Box<[QuadTreeNode<T>; 4]>>, // In clockwise order from -x, -z quadrant
+    entities_in_quad: HashSet<Entity>,
     bounding_volumes: HashMap<Entity, T>, // Assert empty if children is Some
     max_depth: usize,
     max_bounding_volumes_per_node: usize,
@@ -541,6 +542,7 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
             pos,
             half_length,
             children: None,
+            entities_in_quad: HashSet::with_capacity(max_bounding_volumes_per_node),
             bounding_volumes: HashMap::with_capacity(max_bounding_volumes_per_node),
             max_depth,
             max_bounding_volumes_per_node,
@@ -554,15 +556,86 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
         bounding_volume: &T,
         current_depth: usize,
     ) {
-        // TODO: take refs? clone?
+        if self.overlaps_with(bounding_volume) {
+            self.entities_in_quad.insert(*entity);
+
+            if let Some(children) = self.children.as_mut() {
+                for c in children.as_mut() {
+                    c.insert(entity, bounding_volume, current_depth + 1);
+                }
+            } else if current_depth >= self.max_depth || self.bounding_volumes.len() < self.max_bounding_volumes_per_node {
+                self.bounding_volumes.insert(*entity, bounding_volume.clone());
+            } else {
+                let child_half_length = self.half_length / 2.0;
+
+                let mut child_nodes: [QuadTreeNode<T>; 4] = [
+                    QuadTreeNode::new(
+                        vec3(self.pos.x - child_half_length, self.pos.y, self.pos.z - child_half_length),
+                        child_half_length,
+                        self.max_depth,
+                        self.max_bounding_volumes_per_node,
+                        self.min_child_bounding_volumes_per_node,
+                    ),
+                    QuadTreeNode::new(
+                        vec3(self.pos.x - child_half_length, self.pos.y, self.pos.z + child_half_length),
+                        child_half_length,
+                        self.max_depth,
+                        self.max_bounding_volumes_per_node,
+                        self.min_child_bounding_volumes_per_node,
+                    ),
+                    QuadTreeNode::new(
+                        vec3(self.pos.x + child_half_length, self.pos.y, self.pos.z + child_half_length),
+                        child_half_length,
+                        self.max_depth,
+                        self.max_bounding_volumes_per_node,
+                        self.min_child_bounding_volumes_per_node,
+                    ),
+                    QuadTreeNode::new(
+                        vec3(self.pos.x + child_half_length, self.pos.y, self.pos.z - child_half_length),
+                        child_half_length,
+                        self.max_depth,
+                        self.max_bounding_volumes_per_node,
+                        self.min_child_bounding_volumes_per_node,
+                    ),
+                ];
+
+                for c in child_nodes.iter_mut() {
+                    for (e, v) in self.bounding_volumes.iter() {
+                        c.insert(e, v, current_depth + 1);
+                    }
+
+                    c.insert(entity, bounding_volume, current_depth + 1);
+                }
+
+                self.children = Some(Box::new(child_nodes));
+                self.bounding_volumes.clear();
+            }
+        }
     }
 
     fn remove(
         &mut self,
         entity: &Entity,
-        bounding_volume: &T,
     ) {
-        // TODO
+        if self.entities_in_quad.contains(entity) {
+            self.entities_in_quad.remove(entity);
+
+            if let Some(children) = self.children.as_mut() {
+                for c in children.iter_mut() {
+                    c.remove(entity);
+                }
+            } else {
+                self.bounding_volumes.remove(entity);
+            }
+
+            if self.entities_in_quad.len() < self.min_child_bounding_volumes_per_node {
+                if let Some(children) = self.children.take() {
+                    for c in children.into_iter() {
+                        self.bounding_volumes.extend(c.bounding_volumes.into_iter());
+                    }
+                }
+            }
+        }
     }
 
     fn get_potential_collisions(
@@ -574,7 +647,13 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
                 c.get_potential_collisions(potential_collisions);
             }
         } else {
-            // TODO: check collisions between children
+            for (i, (e_a, v_a)) in self.bounding_volumes.iter().enumerate() {
+                for (e_b, v_b) in self.bounding_volumes.iter().skip(i + 1) {
+                    if v_a.overlaps_with(v_b) {
+                        potential_collisions.push(PotentialCollision::new(*e_a, *e_b));
+                    }
+                }
+            }
         }
     }
 
@@ -600,8 +679,15 @@ impl<T: BoundingVolume> QuadTreeNode<T> {
     }
 
     fn overlaps_with(&self, bounding_volume: &T) -> bool {
-        // TODO
-        false
+        let (min_extent, max_extent) = bounding_volume.get_extent();
+
+        let min_node_x = self.pos.x - self.half_length;
+        let max_node_x = self.pos.x + self.half_length;
+        let min_node_z = self.pos.z - self.half_length;
+        let max_node_z = self.pos.z + self.half_length;
+
+        min_extent.x <= max_node_x && max_extent.x >= min_node_x
+            && min_extent.z <= max_node_z && max_extent.z >= min_node_z
     }
 }
 
@@ -619,17 +705,23 @@ impl<T: BoundingVolume> QuadTree<T> {
         max_depth: usize,
         max_bounding_volumes_per_node: usize,
         min_child_bounding_volumes_per_node: usize,
-    ) -> Self {
-        Self {
-            root_node: QuadTreeNode::new(
-                origin,
-                initial_level_half_length,
-                max_depth,
-                max_bounding_volumes_per_node,
-                min_child_bounding_volumes_per_node,
-            ),
-            all_entities: HashSet::with_capacity(initial_entity_capacity),
+    ) -> Result<Self> {
+        if min_child_bounding_volumes_per_node > max_bounding_volumes_per_node + 1 {
+            return Err(anyhow!("min_child_bounding_volumes_per_node may only exceed max_bounding_volumes_per_node by at most 1"));
         }
+
+        Ok(
+            Self {
+                root_node: QuadTreeNode::new(
+                    origin,
+                    initial_level_half_length,
+                    max_depth,
+                    max_bounding_volumes_per_node,
+                    min_child_bounding_volumes_per_node,
+                ),
+                all_entities: HashSet::with_capacity(initial_entity_capacity),
+            }
+        )
     }
 
     pub fn insert(
@@ -653,16 +745,12 @@ impl<T: BoundingVolume> QuadTree<T> {
         Ok(())
     }
 
-    pub fn remove(
-        &mut self,
-        entity: &Entity,
-        bounding_volume: &T,
-    ) -> Result<()> {
+    pub fn remove(&mut self, entity: &Entity) -> Result<()> {
         if !self.all_entities.contains(&entity) {
             return Err(anyhow!("Quad tree does not contain entity {:?}", &entity));
         }
 
-        self.root_node.remove(entity, bounding_volume);
+        self.root_node.remove(entity);
 
         self.all_entities.remove(entity);
 
@@ -690,7 +778,14 @@ impl<T: BoundingVolume> QuadTree<T> {
     }
 
     fn is_outside_level_bounds(&self, bounding_volume: &T) -> bool {
-        // TODO
-        false
+        let (min_extent, max_extent) = bounding_volume.get_extent();
+
+        let min_level_x = self.root_node.pos.x - self.root_node.half_length;
+        let max_level_x = self.root_node.pos.x + self.root_node.half_length;
+        let min_level_z = self.root_node.pos.z - self.root_node.half_length;
+        let max_level_z = self.root_node.pos.z + self.root_node.half_length;
+
+        min_extent.x <= min_level_x || max_extent.x >= max_level_x
+            || min_extent.z <= min_level_z || max_extent.z >= max_level_z
     }
 }
