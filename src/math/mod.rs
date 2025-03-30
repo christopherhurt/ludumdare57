@@ -602,15 +602,15 @@ impl Eq for Quat {}
 #[repr(C)]
 pub struct Mat3 {
     // See the comment on Mat4 regarding this memory layout
-    pub _00: f32,
-    pub _10: f32,
-    pub _20: f32,
-    pub _01: f32,
-    pub _11: f32,
-    pub _21: f32,
-    pub _02: f32,
-    pub _12: f32,
-    pub _22: f32,
+    _00: f32,
+    _10: f32,
+    _20: f32,
+    _01: f32,
+    _11: f32,
+    _21: f32,
+    _02: f32,
+    _12: f32,
+    _22: f32,
 }
 
 #[inline]
@@ -748,22 +748,22 @@ pub struct Mat4 {
     //  the values in column major order such that we don't have to transpose every single
     //  matrix before serializing it and passing it as input to the shader program. In other
     //  words, THE ORDER IN WHICH THESE VALUES ARE DECLARED MATTERS.
-    pub _00: f32,
-    pub _10: f32,
-    pub _20: f32,
-    pub _30: f32,
-    pub _01: f32,
-    pub _11: f32,
-    pub _21: f32,
-    pub _31: f32,
-    pub _02: f32,
-    pub _12: f32,
-    pub _22: f32,
-    pub _32: f32,
-    pub _03: f32,
-    pub _13: f32,
-    pub _23: f32,
-    pub _33: f32,
+    _00: f32,
+    _10: f32,
+    _20: f32,
+    _30: f32,
+    _01: f32,
+    _11: f32,
+    _21: f32,
+    _31: f32,
+    _02: f32,
+    _12: f32,
+    _22: f32,
+    _32: f32,
+    _03: f32,
+    _13: f32,
+    _23: f32,
+    _33: f32,
 }
 
 #[inline]
