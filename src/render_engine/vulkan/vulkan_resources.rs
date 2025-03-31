@@ -41,7 +41,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_vk_instance(
         .application_version(vk::make_version(1, 0, 0))
         .engine_name(b"Hurt Engine\0")
         .engine_version(vk::make_version(1, 0, 0))
-        .api_version(vk::make_version(1, 3, 216));
+        .api_version(vk::make_version(1, 0, 0));
 
     let mut extensions = vk_window::get_required_instance_extensions(window)
         .iter()
