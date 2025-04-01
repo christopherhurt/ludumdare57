@@ -655,7 +655,7 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
 
     for e in entites {
         if let Some(collision) = components.get_component::<RigidBodyCollision>(e) {
-            println!("Resolving collision between entities {:?} and {:?}", &collision.rigid_body_a, &collision.rigid_body_b);
+            println!("Resolving collision between entities {:?} and {:?} in direction {:?}", &collision.rigid_body_a, &collision.rigid_body_b, &collision.normal);
         }
     }
 };
