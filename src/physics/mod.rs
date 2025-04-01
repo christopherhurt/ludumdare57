@@ -1028,7 +1028,7 @@ pub(in crate) fn get_edge_collision(
     _edge_b: (&Vec3, &Vec3),
     _tolerance: f32,
 ) -> Option<RigidBodyCollision> {
-    // TODO
+    // TODO: implement me! and uncomment out above
 
     None
 }
