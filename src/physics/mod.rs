@@ -366,7 +366,8 @@ pub fn generate_physics_mesh(mesh: Mesh, density: f32) -> Result<(Mesh, PhysicsM
         norm: v.norm,
     }).collect();
 
-    let new_mesh = Mesh::new(offseted_vertices, mesh.vertex_indices.to_vec());
+    let new_mesh = Mesh::new(offseted_vertices, mesh.vertex_indices.to_vec())
+        .unwrap_or_else(|_| panic!("Internal error: an invalid mesh was constructed"));
 
     let bounding_radius = mesh.vertices.iter()
         .map(|v| v.pos.len())
@@ -807,3 +808,29 @@ impl<T: BoundingVolume> QuadTree<T> {
 
 impl<T: BoundingVolume> Component for QuadTree<T> {}
 impl<T: BoundingVolume> ComponentActions for QuadTree<T> {}
+
+// Rigid body collision detection
+
+#[derive(Clone, Debug)]
+pub struct RigidBodyCollision {
+    rigid_body_a: Entity,
+    rigid_body_b: Entity,
+    point: Vec3,
+    normal: Vec3,
+    penetration: f32,
+}
+
+// TODO
+
+pub fn get_deepest_rigid_body_collision(mesh_a: &Mesh, mesh_b: &Mesh) -> Option<RigidBodyCollision> {
+    // TODO
+
+
+    None
+}
+
+fn get_shallowest_point_collision(vertex: &Vec3, mesh: &Mesh) -> Option<RigidBodyCollision> {
+    // TODO
+
+    None
+}

@@ -132,7 +132,7 @@ fn create_scene(ecs: &mut ECS) {
         // Down
         20, 21, 22, 22, 23, 20,
     ];
-    let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes);
+    let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes).unwrap();
     let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, 10.0).unwrap();
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))

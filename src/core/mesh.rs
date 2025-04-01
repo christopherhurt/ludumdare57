@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
@@ -66,17 +66,41 @@ pub struct Vertex {
 pub struct Mesh {
     pub vertices: Arc<Vec<Vertex>>,
     pub vertex_indices: Arc<Vec<u32>>,
+    pub edges: HashSet<(u32, u32)>,
 }
 
 impl Mesh {
     pub fn new(
         vertices: Vec<Vertex>,
         vertex_indices: Vec<u32>,
-    ) -> Self {
-        Self {
-            vertices: Arc::new(vertices),
-            vertex_indices: Arc::new(vertex_indices),
+    ) -> Result<Self> {
+        if vertex_indices.len() % 3 != 0 {
+            return Err(anyhow!("Mesh is not triangulated"));
         }
+
+        #[cfg(debug_assertions)] {
+            for i in vertex_indices.iter() {
+                if *i as usize >= vertices.len() {
+                    return Err(anyhow!("Invalid index {:?} for vertices of length {:?}", i, vertices.len()));
+                }
+            }
+        }
+
+        let mut edges = HashSet::new();
+
+        for i in vertex_indices.chunks(3) {
+            edges.insert((i[0].min(i[1]), i[0].max(i[1])));
+            edges.insert((i[1].min(i[2]), i[1].max(i[2])));
+            edges.insert((i[2].min(i[0]), i[2].max(i[0])));
+        }
+
+        Ok(
+            Self {
+                vertices: Arc::new(vertices),
+                vertex_indices: Arc::new(vertex_indices),
+                edges,
+            }
+        )
     }
 }
 
@@ -178,5 +202,5 @@ pub fn load_obj_mesh(file_path: &str, normalize_positions: bool) -> Result<Mesh>
         (*v).norm = v.norm.normalized().unwrap_or(VEC_3_ZERO);
     }
 
-    Ok(Mesh::new(vertices, vertex_indices))
+    Ok(Mesh::new(vertices, vertex_indices).unwrap_or_else(|_| panic!("Internal error: an invalid Mesh was constructed")))
 }
