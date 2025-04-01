@@ -604,6 +604,8 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                             retained_collision.point_features = Some(point_features);
 
                             commands.attach_component(e, retained_collision);
+                        } else {
+                            commands.destroy_entity(e);
                         }
                     } else if let Some(edge_features) = collision.edge_features {
                         let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
@@ -627,6 +629,8 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                             retained_collision.edge_features = Some(edge_features);
 
                             commands.attach_component(e, retained_collision);
+                        } else {
+                            commands.destroy_entity(e);
                         }
                     } else {
                         panic!("Rigid body collision between entities {:?} and {:?} has no collision features", &collision.rigid_body_a, &collision.rigid_body_b);
