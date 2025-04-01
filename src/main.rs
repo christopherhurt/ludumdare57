@@ -14,7 +14,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -53,6 +53,7 @@ fn init_ecs() -> ECS {
         .with_component::<ParticleCollisionDetector>()
         .with_component::<PhysicsMeshProperties>()
         .with_component::<PotentialRigidBodyCollision>()
+        .with_component::<RigidBodyCollision>()
         .with_component::<QuadTree<BoundingSphere>>()
         .with_component::<RigidBody>()
         .with_component::<Timer>()
@@ -220,8 +221,9 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
     ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
-    ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap()]), -99);
+    ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
+    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
@@ -514,14 +516,89 @@ const DETECT_POTENTIAL_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, c
 
 // Built-in
 const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let new_collisions = entites.clone()
+        .map(|e| components.get_component::<PotentialRigidBodyCollision>(e).map(|c| (e, c)))
+        .filter(|c| c.is_some())
+        .map(|c| c.unwrap())
+        .inspect(|(e, _)| commands.destroy_entity(e))
+        .map(|(_, c)| {
+            let mesh_binding_a = components.get_component::<MeshBinding>(&c.entity_a).unwrap_or_else(|| panic!("Failed to get mesh binding for entity {:?}", &c.entity_a));
+            let mesh_binding_b = components.get_component::<MeshBinding>(&c.entity_b).unwrap_or_else(|| panic!("Failed to get mesh binding for entity {:?}", &c.entity_b));
+
+            let mesh_a = components.get_component::<Mesh>(&mesh_binding_a.mesh_wrapper.unwrap()).unwrap_or_else(|| panic!("Failed to get mesh binding for wrapper entity {:?}", &mesh_binding_a.mesh_wrapper.unwrap()));
+            let mesh_b = components.get_component::<Mesh>(&mesh_binding_b.mesh_wrapper.unwrap()).unwrap_or_else(|| panic!("Failed to get mesh binding for wrapper entity {:?}", &mesh_binding_b.mesh_wrapper.unwrap()));
+
+            get_deepest_rigid_body_collision((&c.entity_a, mesh_a), (&c.entity_b, mesh_b))
+        })
+        .filter(|c| c.is_some())
+        .map(|c| c.unwrap())
+        .collect::<HashSet<_>>();
+
+    const COLLISION_CACHE_TOLERANCE: f32 = -0.1;
+
+    for e in entites.clone() {
+        if let Some(collision) = components.get_component::<RigidBodyCollision>(e) {
+            if new_collisions.contains(collision) {
+                commands.destroy_entity(e);
+            } else {
+                let mesh_binding_a = components.get_component::<MeshBinding>(&collision.rigid_body_a);
+                let mesh_binding_b = components.get_component::<MeshBinding>(&collision.rigid_body_b);
+
+                let mesh_a = mesh_binding_a.map(|binding| components.get_component::<Mesh>(&binding.mesh_wrapper.unwrap()))
+                    .filter(|m| m.is_some()).map(|m| m.unwrap());
+                let mesh_b = mesh_binding_b.map(|binding| components.get_component::<Mesh>(&binding.mesh_wrapper.unwrap()))
+                    .filter(|m| m.is_some()).map(|m| m.unwrap());
+
+                if mesh_a.is_some() && mesh_b.is_some() {
+                    if let Some(point_features) = collision.point_features {
+                        // TODO: get the right values
+                        if let Some(retained_collision) = get_point_collision(
+                            &collision.rigid_body_a,
+                            &collision.rigid_body_b,
+                            &VEC_3_ZERO, // TODO
+                            face_b, // TODO
+                            COLLISION_CACHE_TOLERANCE,
+                        ) {
+                            commands.detach_component::<RigidBodyCollision>(e);
+                            commands.attach_component(e, retained_collision);
+                        }
+                    } else if let Some(edge_features) = collision.edge_features {
+                        // TODO: get the right values
+                        if let Some(retained_collision) = get_edge_collision(
+                            &collision.rigid_body_a,
+                            &collision.rigid_body_b,
+                            &VEC_3_ZERO, // TODO
+                            face_b, // TODO
+                            COLLISION_CACHE_TOLERANCE,
+                        ) {
+                            commands.detach_component::<RigidBodyCollision>(e);
+                            commands.attach_component(e, retained_collision);
+                        }
+                    } else {
+                        panic!("Rigid body collision between entities {:?} and {:?} has no collision features", &collision.rigid_body_a, &collision.rigid_body_b);
+                    }
+                } else {
+                    commands.destroy_entity(e);
+                }
+            }
+        }
+    }
+
+    for c in new_collisions.into_iter() {
+        let collision_entity = commands.create_entity();
+
+        commands.attach_provisional_component(&collision_entity, c);
+    }
+};
+
+// Built-in
+const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     // TODO: actual implementation
 
     for e in entites {
-        let _potential_collision = components.get_component::<PotentialRigidBodyCollision>(e).unwrap();
-
-        // println!("POTENTIAL COLLISION: {:?}", potential_collision);
-
-        commands.destroy_entity(e);
+        if let Some(collision) = components.get_component::<RigidBodyCollision>(e) {
+            println!("Resolving collision between entities {:?} and {:?}", &collision.rigid_body_a, &collision.rigid_body_b);
+        }
     }
 };
 
