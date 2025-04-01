@@ -63,10 +63,13 @@ pub struct Vertex {
 
 // Mesh
 
+pub type Edge = (u32, u32);
+pub type Face = (u32, u32, u32);
+
 pub struct Mesh {
     pub vertices: Arc<Vec<Vertex>>,
     pub vertex_indices: Arc<Vec<u32>>,
-    pub edges: HashSet<(u32, u32)>,
+    pub edges: HashSet<Edge>,
 }
 
 impl Mesh {

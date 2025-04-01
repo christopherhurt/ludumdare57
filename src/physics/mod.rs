@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::core::{Camera, Transform};
-use crate::core::mesh::{Mesh, Vertex};
+use crate::core::mesh::{Edge, Face, Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
@@ -811,6 +811,10 @@ impl<T: BoundingVolume> ComponentActions for QuadTree<T> {}
 
 // Rigid body collision detection
 
+// (Index of point vertex, indices of face vertices)
+pub type PointCollisionFeatures = (u32, Face);
+pub type EdgeCollisionFeatures = (Edge, Edge);
+
 #[derive(Clone, Debug)]
 pub struct RigidBodyCollision {
     rigid_body_a: Entity,
@@ -818,18 +822,86 @@ pub struct RigidBodyCollision {
     point: Vec3,
     normal: Vec3,
     penetration: f32,
+
+    point_a_features: Option<PointCollisionFeatures>,
+    point_b_features: Option<PointCollisionFeatures>,
+    edge_features: Option<EdgeCollisionFeatures>, // Always a edge, then b edge
 }
 
-// TODO
-
 pub fn get_deepest_rigid_body_collision(mesh_a: &Mesh, mesh_b: &Mesh) -> Option<RigidBodyCollision> {
-    // TODO
+    // TODO: optimize with GJK or another non-naive approach
 
+    let mut result: Option<RigidBodyCollision> = None;
+    let mut max_penetration = f32::MIN;
+
+    // Every vertex of mesh_a with faces of mesh_b
+    for (i, vertex_a) in mesh_a.vertices.iter().enumerate() {
+        if let Some(shallowest) = get_shallowest_point_collision(&vertex_a.pos, i as u32, mesh_b) {
+            if shallowest.penetration > max_penetration {
+                max_penetration = shallowest.penetration;
+                result = Some(shallowest);
+            }
+        }
+    }
+
+    // Every vertex of mesh_b with faces of mesh_a
+    for (i, vertex_b) in mesh_b.vertices.iter().enumerate() {
+        if let Some(shallowest) = get_shallowest_point_collision(&vertex_b.pos, i as u32, mesh_a) {
+            if shallowest.penetration > max_penetration {
+                max_penetration = shallowest.penetration;
+                result = Some(shallowest);
+            }
+        }
+    }
+
+    // Every edge of mesh_a with edges of mesh_b
+    for edge_a in mesh_a.edges.iter() {
+        let vertex_0 = mesh_a.vertices.get(edge_a.0 as usize).unwrap_or_else(|| panic!("Internal error: invalid index {:?} for mesh_a", edge_a.0));
+        let vertex_1 = mesh_a.vertices.get(edge_a.1 as usize).unwrap_or_else(|| panic!("Internal error: invalid index {:?} for mesh_a", edge_a.1));
+
+        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_0.pos, &vertex_1.pos), edge_a, &mesh_b) {
+            if shallowest.penetration > max_penetration {
+                max_penetration = shallowest.penetration;
+                result = Some(shallowest);
+            }
+        }
+    }
+
+    // Every edge of mesh_b with edges of mesh_a
+    for edge_b in mesh_b.edges.iter() {
+        let vertex_0 = mesh_b.vertices.get(edge_b.0 as usize).unwrap_or_else(|| panic!("Internal error: invalid index {:?} for mesh_b", edge_b.0));
+        let vertex_1 = mesh_b.vertices.get(edge_b.1 as usize).unwrap_or_else(|| panic!("Internal error: invalid index {:?} for mesh_b", edge_b.1));
+
+        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_0.pos, &vertex_1.pos), edge_b, &mesh_a) {
+            if shallowest.penetration > max_penetration {
+                max_penetration = shallowest.penetration;
+                result = Some(shallowest);
+            }
+        }
+    }
+
+    result
+}
+
+fn get_shallowest_point_collision(vertex: &Vec3, vertex_index: u32, mesh: &Mesh) -> Option<RigidBodyCollision> {
+    // TODO
 
     None
 }
 
-fn get_shallowest_point_collision(vertex: &Vec3, mesh: &Mesh) -> Option<RigidBodyCollision> {
+pub(in crate) fn get_point_collision(vertex: &Vec3, face: (&Vec3, &Vec3, &Vec3), tolerance: f32) -> Option<RigidBodyCollision> {
+    // TODO
+
+    None
+}
+
+fn get_shallowest_edge_collision(edge: (&Vec3, &Vec3), edge_indices: &Edge, mesh: &Mesh) -> Option<RigidBodyCollision> {
+    // TODO
+
+    None
+}
+
+pub(in crate) fn get_edge_collision(edge_a: (&Vec3, &Vec3), edge_b: (&Vec3, &Vec3), tolerance: f32) -> Option<RigidBodyCollision> {
     // TODO
 
     None
