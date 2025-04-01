@@ -556,7 +556,7 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
         .map(|c| c.unwrap())
         .collect::<HashSet<_>>();
 
-    const COLLISION_CACHE_TOLERANCE: f32 = -0.1;
+    const COLLISION_CACHE_TOLERANCE: f32 = -0.01;
 
     for e in entites.clone() {
         if let Some(collision) = components.get_component::<RigidBodyCollision>(e) {
@@ -592,7 +592,7 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                             &mesh_b.vertices[point_features.1.2 as usize].pos,
                         );
 
-                        if let Some(retained_collision) = get_point_collision(
+                        if let Some(mut retained_collision) = get_point_collision(
                             &collision.rigid_body_a,
                             &collision.rigid_body_b,
                             vertex_pos_a,
@@ -600,6 +600,9 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                             COLLISION_CACHE_TOLERANCE,
                         ) {
                             commands.detach_component::<RigidBodyCollision>(e);
+
+                            retained_collision.point_features = Some(point_features);
+
                             commands.attach_component(e, retained_collision);
                         }
                     } else if let Some(edge_features) = collision.edge_features {
@@ -612,7 +615,7 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                         let vertex_pos_b_0 = &mesh_b.vertices[edge_features.1.0 as usize].pos;
                         let vertex_pos_b_1 = &mesh_b.vertices[edge_features.1.1 as usize].pos;
 
-                        if let Some(retained_collision) = get_edge_collision(
+                        if let Some(mut retained_collision) = get_edge_collision(
                             &collision.rigid_body_a,
                             &collision.rigid_body_b,
                             (vertex_pos_a_0, vertex_pos_a_1),
@@ -620,6 +623,9 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                             COLLISION_CACHE_TOLERANCE,
                         ) {
                             commands.detach_component::<RigidBodyCollision>(e);
+
+                            retained_collision.edge_features = Some(edge_features);
+
                             commands.attach_component(e, retained_collision);
                         }
                     } else {

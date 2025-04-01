@@ -450,9 +450,7 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
                     let intersection_dist = (n.dot(&p0) - n.dot(&ray_source)) / n_dot_dir;
                     let intersection_point = ray_source + intersection_dist * ray_dir;
 
-                    if is_inside_edge(p0, p2, &intersection_point, &n)
-                            && is_inside_edge(p1, p0, &intersection_point, &n)
-                            && is_inside_edge(p2, p1, &intersection_point, &n)
+                    if is_inside_triangle(p0, p1, p2, &intersection_point, &n, 0.0)
                             && intersection_dist < closest_intersection_dist {
                         closest_intersection_point = Some((*transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
                         closest_intersection_dist = intersection_dist;
@@ -465,8 +463,14 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
     closest_intersection_point
 }
 
-fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3) -> bool {
-    (*b - *a).cross(&(*q - *a)).dot(n) >= 0.0
+fn is_inside_triangle(p0: &Vec3, p1: &Vec3, p2: &Vec3, q: &Vec3, n: &Vec3, tolerance: f32) -> bool {
+    is_inside_edge(p0, p2, q, n, tolerance)
+        && is_inside_edge(p1, p0, q, n, tolerance)
+        && is_inside_edge(p2, p1, q, n, tolerance)
+}
+
+fn is_inside_edge(a: &Vec3, b: &Vec3, q: &Vec3, n: &Vec3, tolerance: f32) -> bool {
+    (*b - *a).cross(&(*q - *a)).dot(n) >= tolerance
 }
 
 // Coarse collision detection
@@ -828,6 +832,27 @@ pub struct RigidBodyCollision {
     pub edge_features: Option<EdgeCollisionFeatures>, // Always a edge, then b edge
 }
 
+impl RigidBodyCollision {
+    pub fn new(
+        rigid_body_a: Entity,
+        rigid_body_b: Entity,
+        point: Vec3,
+        normal: Vec3,
+        penetration: f32,
+    ) -> Self {
+        Self {
+            rigid_body_a,
+            rigid_body_b,
+            point,
+            normal,
+            penetration,
+
+            point_features: None,
+            edge_features: None,
+        }
+    }
+}
+
 impl PartialEq for RigidBodyCollision {
     fn eq(&self, other: &Self) -> bool {
         self.rigid_body_a == other.rigid_body_a
@@ -858,6 +883,7 @@ pub fn get_deepest_rigid_body_collision(
     b_to_a_space: &Mat4,
 ) -> Option<RigidBodyCollision> {
     // TODO: optimize with GJK or another non-naive approach
+    // TODO: also, this is probably not rigorous for non-convex polyhedra
 
     let mut result: Option<RigidBodyCollision> = None;
     let mut max_penetration = f32::MIN;
@@ -887,30 +913,30 @@ pub fn get_deepest_rigid_body_collision(
     }
 
     // Every edge of mesh_a with edges of mesh_b
-    for edge_a in mesh_a.1.edges.iter() {
-        let vertex_pos_0 = (*a_to_b_space * mesh_a.1.vertices[edge_a.0 as usize].pos.to_vec4(1.0)).xyz();
-        let vertex_pos_1 = (*a_to_b_space * mesh_a.1.vertices[edge_a.1 as usize].pos.to_vec4(1.0)).xyz();
+    // for edge_a in mesh_a.1.edges.iter() {
+    //     let vertex_pos_0 = (*a_to_b_space * mesh_a.1.vertices[edge_a.0 as usize].pos.to_vec4(1.0)).xyz();
+    //     let vertex_pos_1 = (*a_to_b_space * mesh_a.1.vertices[edge_a.1 as usize].pos.to_vec4(1.0)).xyz();
 
-        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_pos_0, &vertex_pos_1), (mesh_a.0, edge_a), mesh_b) {
-            if shallowest.penetration > max_penetration {
-                max_penetration = shallowest.penetration;
-                result = Some(shallowest);
-            }
-        }
-    }
+    //     if let Some(shallowest) = get_shallowest_edge_collision((&vertex_pos_0, &vertex_pos_1), (mesh_a.0, edge_a), mesh_b) {
+    //         if shallowest.penetration > max_penetration {
+    //             max_penetration = shallowest.penetration;
+    //             result = Some(shallowest);
+    //         }
+    //     }
+    // }
 
     // Every edge of mesh_b with edges of mesh_a
-    for edge_b in mesh_b.1.edges.iter() {
-        let vertex_pos_0 = (*b_to_a_space * mesh_b.1.vertices[edge_b.0 as usize].pos.to_vec4(1.0)).xyz();
-        let vertex_pos_1 = (*b_to_a_space * mesh_b.1.vertices[edge_b.1 as usize].pos.to_vec4(1.0)).xyz();
+    // for edge_b in mesh_b.1.edges.iter() {
+    //     let vertex_pos_0 = (*b_to_a_space * mesh_b.1.vertices[edge_b.0 as usize].pos.to_vec4(1.0)).xyz();
+    //     let vertex_pos_1 = (*b_to_a_space * mesh_b.1.vertices[edge_b.1 as usize].pos.to_vec4(1.0)).xyz();
 
-        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_pos_0, &vertex_pos_1), (mesh_b.0, edge_b), mesh_a) {
-            if shallowest.penetration > max_penetration {
-                max_penetration = shallowest.penetration;
-                result = Some(shallowest);
-            }
-        }
-    }
+    //     if let Some(shallowest) = get_shallowest_edge_collision((&vertex_pos_0, &vertex_pos_1), (mesh_b.0, edge_b), mesh_a) {
+    //         if shallowest.penetration > max_penetration {
+    //             max_penetration = shallowest.penetration;
+    //             result = Some(shallowest);
+    //         }
+    //     }
+    // }
 
     result
 }
@@ -943,12 +969,42 @@ pub(in crate) fn get_point_collision(
     face_b: (&Vec3, &Vec3, &Vec3),
     tolerance: f32,
 ) -> Option<RigidBodyCollision> {
-    // TODO
+    let (p0, p1, p2) = face_b;
+    let p3 = &VEC_3_ZERO;
+
+    // Face 0 - p0, p1, p2
+    if let Ok(n0) = (*p2 - *p0).cross(&(*p1 - *p0)).normalized() {
+        // Face 1 - p3, p1, p0
+        if let Ok(n1) = p0.cross(p1).normalized() {
+            // Face 2 - p3, p2, p1
+            if let Ok(n2) = p1.cross(p2).normalized() {
+                // Face 3 - p3, p0, p2
+                if let Ok(n3) = p2.cross(p0).normalized() {
+                    if is_inside_triangle(p0, p1, p2, vertex_a, &n0, tolerance)
+                            && is_inside_triangle(p3, p1, p0, vertex_a, &n1, tolerance)
+                            && is_inside_triangle(p3, p2, p1, vertex_a, &n2, tolerance)
+                            && is_inside_triangle(p3, p0, p2, vertex_a, &n3, tolerance) {
+                        return Some(
+                            RigidBodyCollision::new(
+                                *entity_a,
+                                *entity_b,
+                                // TODO: halfway to surface plane?
+                                *vertex_a,
+                                n0,
+                                // TODO: get proper/accurate penetration value, but my brain is fried at time of typing
+                                ((*p0 - *vertex_a).len() + (*p1 - *vertex_a).len() + (*p2 - *vertex_a).len()) / 3.0,
+                            )
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     None
 }
 
-fn get_shallowest_edge_collision(edge: (&Vec3, &Vec3), edge_indices: (&Entity, &Edge), mesh: (&Entity, &Mesh)) -> Option<RigidBodyCollision> {
+fn _get_shallowest_edge_collision(edge: (&Vec3, &Vec3), edge_indices: (&Entity, &Edge), mesh: (&Entity, &Mesh)) -> Option<RigidBodyCollision> {
     mesh.1.edges
         .iter()
         .map(|e| {
@@ -966,11 +1022,11 @@ fn get_shallowest_edge_collision(edge: (&Vec3, &Vec3), edge_indices: (&Entity, &
 }
 
 pub(in crate) fn get_edge_collision(
-    entity_a: &Entity,
-    entity_b: &Entity,
-    edge_a: (&Vec3, &Vec3),
-    edge_b: (&Vec3, &Vec3),
-    tolerance: f32,
+    _entity_a: &Entity,
+    _entity_b: &Entity,
+    _edge_a: (&Vec3, &Vec3),
+    _edge_b: (&Vec3, &Vec3),
+    _tolerance: f32,
 ) -> Option<RigidBodyCollision> {
     // TODO
 
