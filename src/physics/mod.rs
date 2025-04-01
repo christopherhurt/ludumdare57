@@ -9,7 +9,7 @@ use crate::core::mesh::{Edge, Face, Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{get_proj_matrix, mat3, vec3, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
+use crate::math::{get_proj_matrix, mat3, vec3, vec4, Mat3, Mat4, Quat, Vec2, Vec3, VEC_3_ZERO};
 use crate::render_engine::Window;
 
 // Common
@@ -851,8 +851,12 @@ impl Hash for RigidBodyCollision {
 impl Component for RigidBodyCollision {}
 impl ComponentActions for RigidBodyCollision {}
 
-// TODO: NEED MESH TRANSFORMS!!!!
-pub fn get_deepest_rigid_body_collision(mesh_a: (&Entity, &Mesh), mesh_b: (&Entity, &Mesh)) -> Option<RigidBodyCollision> {
+pub fn get_deepest_rigid_body_collision(
+    mesh_a: (&Entity, &Mesh),
+    mesh_b: (&Entity, &Mesh),
+    a_to_b_space: &Mat4,
+    b_to_a_space: &Mat4,
+) -> Option<RigidBodyCollision> {
     // TODO: optimize with GJK or another non-naive approach
 
     let mut result: Option<RigidBodyCollision> = None;
@@ -860,7 +864,9 @@ pub fn get_deepest_rigid_body_collision(mesh_a: (&Entity, &Mesh), mesh_b: (&Enti
 
     // Every vertex of mesh_a with faces of mesh_b
     for (i, vertex_a) in mesh_a.1.vertices.iter().enumerate() {
-        if let Some(shallowest) = get_shallowest_point_collision(&vertex_a.pos, (mesh_a.0, i as u32), mesh_b) {
+        let vertex_pos = (*a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
+
+        if let Some(shallowest) = get_shallowest_point_collision(&vertex_pos, (mesh_a.0, i as u32), mesh_b) {
             if shallowest.penetration > max_penetration {
                 max_penetration = shallowest.penetration;
                 result = Some(shallowest);
@@ -870,7 +876,9 @@ pub fn get_deepest_rigid_body_collision(mesh_a: (&Entity, &Mesh), mesh_b: (&Enti
 
     // Every vertex of mesh_b with faces of mesh_a
     for (i, vertex_b) in mesh_b.1.vertices.iter().enumerate() {
-        if let Some(shallowest) = get_shallowest_point_collision(&vertex_b.pos, (mesh_b.0, i as u32), mesh_a) {
+        let vertex_pos = (*b_to_a_space * vertex_b.pos.to_vec4(1.0)).xyz();
+
+        if let Some(shallowest) = get_shallowest_point_collision(&vertex_pos, (mesh_b.0, i as u32), mesh_a) {
             if shallowest.penetration > max_penetration {
                 max_penetration = shallowest.penetration;
                 result = Some(shallowest);
@@ -880,10 +888,10 @@ pub fn get_deepest_rigid_body_collision(mesh_a: (&Entity, &Mesh), mesh_b: (&Enti
 
     // Every edge of mesh_a with edges of mesh_b
     for edge_a in mesh_a.1.edges.iter() {
-        let vertex_0 = &mesh_a.1.vertices[edge_a.0 as usize];
-        let vertex_1 = &mesh_a.1.vertices[edge_a.1 as usize];
+        let vertex_pos_0 = (*a_to_b_space * mesh_a.1.vertices[edge_a.0 as usize].pos.to_vec4(1.0)).xyz();
+        let vertex_pos_1 = (*a_to_b_space * mesh_a.1.vertices[edge_a.1 as usize].pos.to_vec4(1.0)).xyz();
 
-        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_0.pos, &vertex_1.pos), (mesh_a.0, edge_a), mesh_b) {
+        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_pos_0, &vertex_pos_1), (mesh_a.0, edge_a), mesh_b) {
             if shallowest.penetration > max_penetration {
                 max_penetration = shallowest.penetration;
                 result = Some(shallowest);
@@ -893,10 +901,10 @@ pub fn get_deepest_rigid_body_collision(mesh_a: (&Entity, &Mesh), mesh_b: (&Enti
 
     // Every edge of mesh_b with edges of mesh_a
     for edge_b in mesh_b.1.edges.iter() {
-        let vertex_0 = &mesh_b.1.vertices[edge_b.0 as usize];
-        let vertex_1 = &mesh_b.1.vertices[edge_b.1 as usize];
+        let vertex_pos_0 = (*b_to_a_space * mesh_b.1.vertices[edge_b.0 as usize].pos.to_vec4(1.0)).xyz();
+        let vertex_pos_1 = (*b_to_a_space * mesh_b.1.vertices[edge_b.1 as usize].pos.to_vec4(1.0)).xyz();
 
-        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_0.pos, &vertex_1.pos), (mesh_b.0, edge_b), mesh_a) {
+        if let Some(shallowest) = get_shallowest_edge_collision((&vertex_pos_0, &vertex_pos_1), (mesh_b.0, edge_b), mesh_a) {
             if shallowest.penetration > max_penetration {
                 max_penetration = shallowest.penetration;
                 result = Some(shallowest);

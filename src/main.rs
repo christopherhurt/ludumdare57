@@ -522,13 +522,35 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
         .map(|c| c.unwrap())
         .inspect(|(e, _)| commands.destroy_entity(e))
         .map(|(_, c)| {
-            let mesh_binding_a = components.get_component::<MeshBinding>(&c.entity_a).unwrap_or_else(|| panic!("Failed to get mesh binding for entity {:?}", &c.entity_a));
-            let mesh_binding_b = components.get_component::<MeshBinding>(&c.entity_b).unwrap_or_else(|| panic!("Failed to get mesh binding for entity {:?}", &c.entity_b));
+            let transform_a = components.get_mut_component::<Transform>(&c.entity_a);
+            let transform_b = components.get_mut_component::<Transform>(&c.entity_b);
 
-            let mesh_a = components.get_component::<Mesh>(&mesh_binding_a.mesh_wrapper.unwrap()).unwrap_or_else(|| panic!("Failed to get mesh binding for wrapper entity {:?}", &mesh_binding_a.mesh_wrapper.unwrap()));
-            let mesh_b = components.get_component::<Mesh>(&mesh_binding_b.mesh_wrapper.unwrap()).unwrap_or_else(|| panic!("Failed to get mesh binding for wrapper entity {:?}", &mesh_binding_b.mesh_wrapper.unwrap()));
+            let mesh_binding_a = components.get_component::<MeshBinding>(&c.entity_a);
+            let mesh_binding_b = components.get_component::<MeshBinding>(&c.entity_b);
 
-            get_deepest_rigid_body_collision((&c.entity_a, mesh_a), (&c.entity_b, mesh_b))
+            let mesh_a = mesh_binding_a.map(|binding| components.get_component::<Mesh>(&binding.mesh_wrapper.unwrap()))
+                .filter(|m| m.is_some()).map(|m| m.unwrap());
+            let mesh_b = mesh_binding_b.map(|binding| components.get_component::<Mesh>(&binding.mesh_wrapper.unwrap()))
+                .filter(|m| m.is_some()).map(|m| m.unwrap());
+
+            if transform_a.is_some() && transform_b.is_some() && mesh_a.is_some() && mesh_b.is_some() {
+                let transform_a = transform_a.unwrap();
+                let transform_b = transform_b.unwrap();
+                let mesh_a = mesh_a.unwrap();
+                let mesh_b = mesh_b.unwrap();
+
+                let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
+                let b_to_a_space = transform_a.to_world_mat().inverted().unwrap() * *transform_b.to_world_mat();
+
+                get_deepest_rigid_body_collision(
+                    (&c.entity_a, mesh_a),
+                    (&c.entity_b, mesh_b),
+                    &a_to_b_space,
+                    &b_to_a_space,
+                )
+            } else {
+                None
+            }
         })
         .filter(|c| c.is_some())
         .map(|c| c.unwrap())
@@ -541,6 +563,9 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
             if new_collisions.contains(collision) {
                 commands.destroy_entity(e);
             } else {
+                let transform_a = components.get_mut_component::<Transform>(&collision.rigid_body_a);
+                let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
+
                 let mesh_binding_a = components.get_component::<MeshBinding>(&collision.rigid_body_a);
                 let mesh_binding_b = components.get_component::<MeshBinding>(&collision.rigid_body_b);
 
@@ -549,26 +574,49 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                 let mesh_b = mesh_binding_b.map(|binding| components.get_component::<Mesh>(&binding.mesh_wrapper.unwrap()))
                     .filter(|m| m.is_some()).map(|m| m.unwrap());
 
-                if mesh_a.is_some() && mesh_b.is_some() {
+                if transform_a.is_some() && transform_b.is_some() && mesh_a.is_some() && mesh_b.is_some() {
+                    let transform_a = transform_a.unwrap();
+                    let transform_b = transform_b.unwrap();
+                    let mesh_a = mesh_a.unwrap();
+                    let mesh_b = mesh_b.unwrap();
+
+                    let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
+
                     if let Some(point_features) = collision.point_features {
-                        // TODO: get the right values
+                        let vertex_a = &mesh_a.vertices[point_features.0 as usize];
+                        let vertex_pos_a = &(a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
+
+                        let face_b = (
+                            &mesh_b.vertices[point_features.1.0 as usize].pos,
+                            &mesh_b.vertices[point_features.1.1 as usize].pos,
+                            &mesh_b.vertices[point_features.1.2 as usize].pos,
+                        );
+
                         if let Some(retained_collision) = get_point_collision(
                             &collision.rigid_body_a,
                             &collision.rigid_body_b,
-                            &VEC_3_ZERO, // TODO
-                            face_b, // TODO
+                            vertex_pos_a,
+                            face_b,
                             COLLISION_CACHE_TOLERANCE,
                         ) {
                             commands.detach_component::<RigidBodyCollision>(e);
                             commands.attach_component(e, retained_collision);
                         }
                     } else if let Some(edge_features) = collision.edge_features {
-                        // TODO: get the right values
+                        let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
+                        let vertex_a_1 = &mesh_a.vertices[edge_features.0.1 as usize];
+
+                        let vertex_pos_a_0 = &(a_to_b_space * vertex_a_0.pos.to_vec4(1.0)).xyz();
+                        let vertex_pos_a_1 = &(a_to_b_space * vertex_a_1.pos.to_vec4(1.0)).xyz();
+
+                        let vertex_pos_b_0 = &mesh_b.vertices[edge_features.1.0 as usize].pos;
+                        let vertex_pos_b_1 = &mesh_b.vertices[edge_features.1.1 as usize].pos;
+
                         if let Some(retained_collision) = get_edge_collision(
                             &collision.rigid_body_a,
                             &collision.rigid_body_b,
-                            &VEC_3_ZERO, // TODO
-                            face_b, // TODO
+                            (vertex_pos_a_0, vertex_pos_a_1),
+                            (vertex_pos_b_0, vertex_pos_b_1),
                             COLLISION_CACHE_TOLERANCE,
                         ) {
                             commands.detach_component::<RigidBodyCollision>(e);
