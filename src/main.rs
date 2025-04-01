@@ -339,7 +339,7 @@ const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentM
         .unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
-    if render_engine.is_key_down(VirtualKey::Space) {
+    if render_engine.is_key_pressed(VirtualKey::Space) {
         let cam_dir_norm = cam.dir.normalized().unwrap();
 
         let color_material = ColorMaterial::new(PURPLE);
