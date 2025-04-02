@@ -709,10 +709,27 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
             let rigid_body_b = components.get_component::<RigidBody>(&collision.rigid_body_b);
 
             if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() {
-                let delta_vel_per_impulse = get_delta_vel_per_impulse(rigid_body_a.unwrap(), transform_a.unwrap(), collision)
-                    + get_delta_vel_per_impulse(rigid_body_b.unwrap(), transform_b.unwrap(), collision);
+                let transform_a = transform_a.unwrap();
+                let rigid_body_a = rigid_body_a.unwrap();
 
-                println!("Change in velocity per impulse: {:?}", delta_vel_per_impulse); // TODO: remove
+                let transform_b = transform_b.unwrap();
+                let rigid_body_b = rigid_body_b.unwrap();
+
+                let collision_space_to_world_space = get_x_based_collision_space_orthonormal_basis(&collision.normal);
+                let world_space_to_collision_space = collision_space_to_world_space.transposed();
+
+                let delta_vel_per_impulse = get_delta_vel_per_impulse(rigid_body_a, transform_a, collision, &world_space_to_collision_space)
+                    + get_delta_vel_per_impulse(rigid_body_b, transform_b, collision, &world_space_to_collision_space);
+
+                let collision_space_vel = get_collision_space_collision_vel(transform_a, rigid_body_a, transform_b, rigid_body_b, collision, &world_space_to_collision_space);
+
+                let restitution = 0.3; // TODO: don't hardcode this
+                let target_delta_vel = -collision_space_vel.x * (1.0 + restitution);
+
+                let impulse_collision_space = vec3(target_delta_vel / delta_vel_per_impulse, 0.0, 0.0);
+                let impulse_world = collision_space_to_world_space * impulse_collision_space;
+
+                println!("Total impulse: {:?}", impulse_world); // TODO: remove
 
                 // TODO: continue here
             } else {
@@ -722,7 +739,12 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
     }
 };
 
-fn get_delta_vel_per_impulse(rigid_body: &RigidBody, transform: &mut Transform, collision: &RigidBodyCollision) -> f32 {
+fn get_delta_vel_per_impulse(
+    rigid_body: &RigidBody,
+    transform: &mut Transform,
+    collision: &RigidBodyCollision,
+    world_space_to_collision_space: &Mat3,
+) -> f32 {
     let mut result = 0.0;
 
     if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
@@ -739,11 +761,8 @@ fn get_delta_vel_per_impulse(rigid_body: &RigidBody, transform: &mut Transform, 
 
         let delta_linear_vel = delta_ang_vel.cross(&rel_collision_point);
 
-        let collision_space_to_world_space = get_x_based_collision_space_orthonormal_basis(&collision.normal);
-        let world_space_to_collision_space = collision_space_to_world_space.transposed();
-
         // Collision normal is the (normalized) x axis of the collision space basis
-        let delta_vel_per_impulse = (world_space_to_collision_space * delta_linear_vel).x;
+        let delta_vel_per_impulse = (*world_space_to_collision_space * delta_linear_vel).x;
 
         result += delta_vel_per_impulse;
     }
@@ -768,6 +787,27 @@ fn get_x_based_collision_space_orthonormal_basis(collision_normal: &Vec3) -> Mat
     let basis_y = basis_x.cross(&basis_z).normalized().unwrap();
 
     Mat3::from_columns(&basis_x, &basis_y, &basis_z)
+}
+
+fn get_collision_space_collision_vel(
+    transform_a: &Transform,
+    rigid_body_a: &RigidBody,
+    transform_b: &Transform,
+    rigid_body_b: &RigidBody,
+    collision: &RigidBodyCollision,
+    world_space_to_collision_space: &Mat3,
+) -> Vec3 {
+    let mut collision_vel = VEC_3_ZERO;
+
+    let collision_point_rel_a = collision.point - *transform_a.get_pos();
+    collision_vel += rigid_body_a.ang_vel.cross(&collision_point_rel_a);
+    collision_vel += rigid_body_a.linear_vel;
+
+    let collision_point_rel_b = collision.point - *transform_b.get_pos();
+    collision_vel += rigid_body_b.ang_vel.cross(&collision_point_rel_b);
+    collision_vel += rigid_body_b.linear_vel;
+
+    *world_space_to_collision_space * collision_vel
 }
 
 // TODO: make built in
