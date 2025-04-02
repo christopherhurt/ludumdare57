@@ -634,6 +634,15 @@ pub const MAT_3_IDENTITY: Mat3 = mat3(
 
 impl Mat3 {
     #[inline]
+    pub fn from_columns(col_0: &Vec3, col_1: &Vec3, col_2: &Vec3) -> Self {
+        mat3(
+            col_0.x, col_1.x, col_2.x,
+            col_0.y, col_1.y, col_2.y,
+            col_0.z, col_1.z, col_2.z,
+        )
+    }
+
+    #[inline]
     pub fn transposed(&self) -> Mat3 {
         mat3(
             self._00, self._10, self._20,

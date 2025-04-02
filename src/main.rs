@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Mat3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
 use rand::Rng;
 use core::{GRAY, IDENTITY_SCALE_VEC, RED};
@@ -134,7 +134,7 @@ fn create_scene(ecs: &mut ECS) {
         20, 21, 22, 22, 23, 20,
     ];
     let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes).unwrap();
-    let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, 10.0).unwrap();
+    let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, Some(10.0)).unwrap();
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -145,8 +145,28 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, cube_physics_props.clone());
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
+    let plane_vertices = vec![
+        Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+    ];
+    let plane_indexes = vec![
+        0, 1, 2, 2, 3, 0,
+    ];
+    let plane_mesh: Mesh = Mesh::new(plane_vertices, plane_indexes).unwrap();
+    let (plane_mesh, plane_physics_props) = generate_physics_mesh(plane_mesh, None).unwrap();
+    let plane_mesh_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_mesh(plane_mesh.vertices.clone(), plane_mesh.vertex_indices.clone()))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let plane_mesh_entity = ecs.create_entity();
+    let plane_mesh_binding = MeshBinding::new_provisional(Some(plane_mesh_id), Some(plane_mesh_entity));
+    ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh);
+    ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh_binding);
+    ecs.attach_provisional_component(&plane_mesh_entity, plane_physics_props.clone());
+
     let bunny_mesh = load_obj_mesh("res/bunny.obj", true).unwrap();
-    let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, 100.0).unwrap();
+    let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, Some(100.0)).unwrap();
     let bunny_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -165,6 +185,17 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding.clone());
     ecs.attach_provisional_component(&test_cube_entity, MousePickable {});
+
+    // TODO: need to handle plane collisions separately from bounding volumes, which require an actual non-zero volume - PlaneCollider component? other collider components?
+    let test_plane_transform = Transform::new(vec3(0.0, -25.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 50.0);
+    let test_plane_material = ColorMaterial::new(BROWN);
+    let test_plane_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, plane_physics_props.clone());
+    let test_plane_entity = ecs.create_entity();
+    let test_plane_mesh_binding = MeshBinding::new_provisional(Some(plane_mesh_id), Some(plane_mesh_entity));
+    ecs.attach_provisional_component(&test_plane_entity, test_plane_transform);
+    ecs.attach_provisional_component(&test_plane_entity, test_plane_rigid_body);
+    ecs.attach_provisional_component(&test_plane_entity, test_plane_material);
+    ecs.attach_provisional_component(&test_plane_entity, test_plane_mesh_binding.clone());
 
     let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
     let test_bunny_material = ColorMaterial::new(WHITE);
@@ -447,27 +478,40 @@ const UPDATE_RIGID_BODIES: System = |entites: Iter<Entity>, components: &Compone
             let rigid_body = rigid_body.unwrap();
 
             // Linear motion
-            rigid_body.linear_acc = rigid_body.linear_force_accum / rigid_body.props.mass;
-            rigid_body.linear_acc.y -= rigid_body.gravity;
+            if let Some(mass) = rigid_body.props.mass {
+                rigid_body.linear_acc = rigid_body.linear_force_accum / mass;
+                rigid_body.linear_acc.y -= rigid_body.gravity;
 
-            rigid_body.linear_vel += rigid_body.linear_acc * delta;
-            rigid_body.linear_vel *= rigid_body.linear_damping.powf(delta);
+                rigid_body.linear_vel += rigid_body.linear_acc * delta;
+                rigid_body.linear_vel *= rigid_body.linear_damping.powf(delta);
 
-            transform.set_pos(*transform.get_pos() + rigid_body.linear_vel * delta);
+                transform.set_pos(*transform.get_pos() + rigid_body.linear_vel * delta);
+            } else {
+                rigid_body.linear_acc = VEC_3_ZERO;
+
+                rigid_body.linear_vel = VEC_3_ZERO;
+            }
 
             rigid_body.linear_force_accum = VEC_3_ZERO;
 
             // Rotational motion
-            let world_matrix = transform.to_world_mat().to_mat3();
-            let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
-            let inverse_inertia_tensor_world = (world_matrix * rigid_body.props.inertia_tensor * inverse_world_matrix).inverted()
-                .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
-            rigid_body.ang_acc = inverse_inertia_tensor_world * rigid_body.torque_accum;
+            if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
+                let world_matrix = transform.to_world_mat().to_mat3();
+                let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
+                let inverse_inertia_tensor_world = (world_matrix * inertia_tensor * inverse_world_matrix).inverted()
+                    .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
 
-            rigid_body.ang_vel += rigid_body.ang_acc * delta;
-            rigid_body.ang_vel *= rigid_body.ang_damping.powf(delta);
+                rigid_body.ang_acc = inverse_inertia_tensor_world * rigid_body.torque_accum;
 
-            transform.set_rot(apply_ang_vel(transform.get_rot(), &rigid_body.ang_vel, delta));
+                rigid_body.ang_vel += rigid_body.ang_acc * delta;
+                rigid_body.ang_vel *= rigid_body.ang_damping.powf(delta);
+
+                transform.set_rot(apply_ang_vel(transform.get_rot(), &rigid_body.ang_vel, delta));
+            } else {
+                rigid_body.ang_acc = VEC_3_ZERO;
+
+                rigid_body.ang_vel = VEC_3_ZERO;
+            }
 
             rigid_body.torque_accum = VEC_3_ZERO;
         }
@@ -650,15 +694,81 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
 };
 
 // Built-in
-const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    // TODO: actual implementation
+const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let _delta_t = time_delta.since_last_frame.as_secs_f32();
 
     for e in entites {
         if let Some(collision) = components.get_component::<RigidBodyCollision>(e) {
-            println!("Resolving collision between entities {:?} and {:?} in direction {:?}", &collision.rigid_body_a, &collision.rigid_body_b, &collision.normal);
+            println!("Resolving collision between entities {:?} and {:?} in direction {:?}", &collision.rigid_body_a, &collision.rigid_body_b, &collision.normal); // TODO: remove
+
+            let transform_a = components.get_mut_component::<Transform>(&collision.rigid_body_a);
+            let rigid_body_a = components.get_component::<RigidBody>(&collision.rigid_body_a);
+
+            let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
+            let rigid_body_b = components.get_component::<RigidBody>(&collision.rigid_body_b);
+
+            if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() {
+                let delta_vel_per_impulse = get_delta_vel_per_impulse(rigid_body_a.unwrap(), transform_a.unwrap(), collision)
+                    + get_delta_vel_per_impulse(rigid_body_b.unwrap(), transform_b.unwrap(), collision);
+
+                println!("Change in velocity per impulse: {:?}", delta_vel_per_impulse); // TODO: remove
+
+                // TODO: continue here
+            } else {
+                commands.destroy_entity(e);
+            }
         }
     }
 };
+
+fn get_delta_vel_per_impulse(rigid_body: &RigidBody, transform: &mut Transform, collision: &RigidBodyCollision) -> f32 {
+    let mut result = 0.0;
+
+    if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
+        let rel_collision_point = collision.point - *transform.get_pos();
+
+        let impulsive_torque = rel_collision_point.cross(&collision.normal);
+
+        let world_matrix = transform.to_world_mat().to_mat3();
+        let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
+        let inverse_inertia_tensor_world = (world_matrix * inertia_tensor * inverse_world_matrix).inverted()
+            .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
+
+        let delta_ang_vel = inverse_inertia_tensor_world * impulsive_torque;
+
+        let delta_linear_vel = delta_ang_vel.cross(&rel_collision_point);
+
+        let collision_space_to_world_space = get_x_based_collision_space_orthonormal_basis(&collision.normal);
+        let world_space_to_collision_space = collision_space_to_world_space.transposed();
+
+        // Collision normal is the (normalized) x axis of the collision space basis
+        let delta_vel_per_impulse = (world_space_to_collision_space * delta_linear_vel).x;
+
+        result += delta_vel_per_impulse;
+    }
+
+    if let Some(mass) = rigid_body.props.mass {
+        result += 1.0 / mass;
+    }
+
+    result
+}
+
+fn get_x_based_collision_space_orthonormal_basis(collision_normal: &Vec3) -> Mat3 {
+    let basis_x = collision_normal.normalized().unwrap_or_else(|_| panic!("Internal error: invalid zero-length collision normal"));
+
+    let basis_z = if basis_x.x.abs() > basis_x.y.abs() {
+        basis_x.cross(&VEC_3_Y_AXIS).normalized().unwrap()
+    } else {
+        basis_x.cross(&VEC_3_X_AXIS).normalized().unwrap()
+    };
+
+    // Keep the system left-handed
+    let basis_y = basis_x.cross(&basis_z).normalized().unwrap();
+
+    Mat3::from_columns(&basis_x, &basis_y, &basis_z)
+}
 
 // TODO: make built in
 const APPLY_TETHER_BALL: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
