@@ -703,10 +703,10 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
             println!("Resolving collision between entities {:?} and {:?} in direction {:?}", &collision.rigid_body_a, &collision.rigid_body_b, &collision.normal); // TODO: remove
 
             let transform_a = components.get_mut_component::<Transform>(&collision.rigid_body_a);
-            let rigid_body_a = components.get_component::<RigidBody>(&collision.rigid_body_a);
+            let rigid_body_a = components.get_mut_component::<RigidBody>(&collision.rigid_body_a);
 
             let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
-            let rigid_body_b = components.get_component::<RigidBody>(&collision.rigid_body_b);
+            let rigid_body_b = components.get_mut_component::<RigidBody>(&collision.rigid_body_b);
 
             if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() {
                 let transform_a = transform_a.unwrap();
@@ -729,9 +729,8 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
                 let impulse_collision_space = vec3(target_delta_vel / delta_vel_per_impulse, 0.0, 0.0);
                 let impulse_world = collision_space_to_world_space * impulse_collision_space;
 
-                println!("Total impulse: {:?}", impulse_world); // TODO: remove
-
-                // TODO: continue here
+                apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
+                apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
             } else {
                 commands.destroy_entity(e);
             }
@@ -808,6 +807,30 @@ fn get_collision_space_collision_vel(
     collision_vel += rigid_body_b.linear_vel;
 
     *world_space_to_collision_space * collision_vel
+}
+
+fn apply_impulse(
+    transform: &mut Transform,
+    rigid_body: &mut RigidBody,
+    collision: &RigidBodyCollision,
+    impulse: &Vec3,
+) {
+    if let Some(mass) = rigid_body.props.mass {
+        rigid_body.linear_vel += *impulse / mass;
+    }
+
+    if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
+        let collision_point_rel = collision.point - *transform.get_pos();
+
+        let impulsive_torque = impulse.cross(&collision_point_rel);
+
+        let world_matrix = transform.to_world_mat().to_mat3();
+        let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
+        let inverse_inertia_tensor_world = (world_matrix * inertia_tensor * inverse_world_matrix).inverted()
+            .unwrap_or_else(|_| panic!("Internal error: Failed to invert world space inertia tensor"));
+
+        rigid_body.ang_vel += inverse_inertia_tensor_world * impulsive_torque;
+    }
 }
 
 // TODO: make built in

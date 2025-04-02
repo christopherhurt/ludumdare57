@@ -652,7 +652,7 @@ impl Mat3 {
     }
 
     #[inline]
-    pub fn inverted(&self) -> Result<Mat3> {
+    pub fn inverted(&self) -> Result<Mat3> { // TODO: cache the inversion
         // https://stackoverflow.com/questions/983999/simple-3x3-matrix-inverse-code-c
 
         let det = self._00 * (self._11 * self._22 - self._21 * self._12)
@@ -809,7 +809,7 @@ impl Mat4 {
     }
 
     #[inline]
-    pub fn inverted(&self) -> Result<Mat4> {
+    pub fn inverted(&self) -> Result<Mat4> { // TODO: cache the inversion
         // https://stackoverflow.com/questions/1148309/inverting-a-4x4-matrix
 
         let _2323 = self._22 * self._33 - self._23 * self._32;
