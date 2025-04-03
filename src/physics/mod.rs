@@ -9,7 +9,7 @@ use crate::core::mesh::{Edge, Face, Mesh, Vertex};
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{get_proj_matrix, mat3, vec3, vec4, Mat3, Mat4, Quat, Vec2, Vec3, VEC_3_ZERO};
+use crate::math::{get_proj_matrix, mat3, vec3, vec4, Mat3, Quat, Vec2, Vec3, VEC_3_ZERO};
 use crate::render_engine::Window;
 
 // Common
@@ -916,20 +916,23 @@ impl ComponentActions for RigidBodyCollision {}
 pub fn get_deepest_rigid_body_collision(
     mesh_a: (&Entity, &Mesh),
     mesh_b: (&Entity, &Mesh),
-    a_to_b_space: &Mat4,
-    b_to_a_space: &Mat4,
+    transform_a: &mut Transform,
+    transform_b: &mut Transform,
 ) -> Option<RigidBodyCollision> {
     // TODO: optimize with GJK or another non-naive approach
     // TODO: also, this is probably not rigorous for non-convex polyhedra
+
+    let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
+    let b_to_a_space = transform_a.to_world_mat().inverted().unwrap() * *transform_b.to_world_mat();
 
     let mut result: Option<RigidBodyCollision> = None;
     let mut max_penetration = f32::MIN;
 
     // Every vertex of mesh_a with faces of mesh_b
     for (i, vertex_a) in mesh_a.1.vertices.iter().enumerate() {
-        let vertex_pos = (*a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
+        let vertex_pos = (a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
 
-        if let Some(shallowest) = get_shallowest_point_collision(&vertex_pos, (mesh_a.0, i as u32), mesh_b) {
+        if let Some(shallowest) = get_shallowest_point_collision(&vertex_pos, (mesh_a.0, i as u32), mesh_b, transform_b) {
             if shallowest.penetration > max_penetration {
                 max_penetration = shallowest.penetration;
                 result = Some(shallowest);
@@ -939,9 +942,9 @@ pub fn get_deepest_rigid_body_collision(
 
     // Every vertex of mesh_b with faces of mesh_a
     for (i, vertex_b) in mesh_b.1.vertices.iter().enumerate() {
-        let vertex_pos = (*b_to_a_space * vertex_b.pos.to_vec4(1.0)).xyz();
+        let vertex_pos = (b_to_a_space * vertex_b.pos.to_vec4(1.0)).xyz();
 
-        if let Some(shallowest) = get_shallowest_point_collision(&vertex_pos, (mesh_b.0, i as u32), mesh_a) {
+        if let Some(shallowest) = get_shallowest_point_collision(&vertex_pos, (mesh_b.0, i as u32), mesh_a, transform_a) {
             if shallowest.penetration > max_penetration {
                 max_penetration = shallowest.penetration;
                 result = Some(shallowest);
@@ -978,7 +981,12 @@ pub fn get_deepest_rigid_body_collision(
     result
 }
 
-fn get_shallowest_point_collision(vertex: &Vec3, vertex_index: (&Entity, u32), mesh: (&Entity, &Mesh)) -> Option<RigidBodyCollision> {
+fn get_shallowest_point_collision(
+    vertex: &Vec3,
+    vertex_index: (&Entity, u32),
+    mesh: (&Entity, &Mesh),
+    mesh_transform: &mut Transform,
+) -> Option<RigidBodyCollision> {
     mesh.1.vertex_indices
         .chunks(3)
         .map(|i| {
@@ -986,7 +994,7 @@ fn get_shallowest_point_collision(vertex: &Vec3, vertex_index: (&Entity, u32), m
             let f_1 = &mesh.1.vertices[i[1] as usize].pos;
             let f_2 = &mesh.1.vertices[i[2] as usize].pos;
 
-            get_point_collision(vertex_index.0, mesh.0, vertex, (f_0, f_1, f_2), 0.0).map(|mut c| {
+            get_point_collision_local_to_face(vertex_index.0, mesh.0, vertex, (f_0, f_1, f_2), 0.0).map(|mut c| {
                 let face: Face = (i[0], i[1], i[2]);
 
                 c.point_features = Some((vertex_index.1, face));
@@ -996,10 +1004,21 @@ fn get_shallowest_point_collision(vertex: &Vec3, vertex_index: (&Entity, u32), m
         })
         .filter(|c| c.is_some())
         .map(|c| c.unwrap())
+        .map(|mut c| {
+            c.point = (*mesh_transform.to_world_mat() * c.point.to_vec4(1.0)).xyz();
+
+            let scaled_normal = c.normal * c.penetration;
+            let world_normal = mesh_transform.to_rot_mat().to_mat3() * mesh_transform.to_scl_mat().to_mat3() * scaled_normal;
+
+            c.normal = world_normal.normalized().unwrap();
+            c.penetration = world_normal.len();
+
+            c
+        })
         .min_by(|a, b| a.penetration.partial_cmp(&b.penetration).unwrap_or(Ordering::Less))
 }
 
-pub(in crate) fn get_point_collision(
+pub(in crate) fn get_point_collision_local_to_face(
     entity_a: &Entity,
     entity_b: &Entity,
     vertex_a: &Vec3,
@@ -1047,7 +1066,8 @@ fn _get_shallowest_edge_collision(edge: (&Vec3, &Vec3), edge_indices: (&Entity, 
         .map(|e| {
             let edge_b = (&mesh.1.vertices[e.0 as usize].pos, &mesh.1.vertices[e.1 as usize].pos);
 
-            get_edge_collision(edge_indices.0, mesh.0, edge, edge_b, 0.0).map(|mut c| {
+            // TODO: need in world space
+            get_edge_collision_local_to_b(edge_indices.0, mesh.0, edge, edge_b, 0.0).map(|mut c| {
                 c.edge_features = Some((*edge_indices.1, *e));
 
                 c
@@ -1058,7 +1078,7 @@ fn _get_shallowest_edge_collision(edge: (&Vec3, &Vec3), edge_indices: (&Entity, 
         .min_by(|a, b| a.penetration.partial_cmp(&b.penetration).unwrap_or(Ordering::Less))
 }
 
-pub(in crate) fn get_edge_collision(
+pub(in crate) fn get_edge_collision_local_to_b(
     _entity_a: &Entity,
     _entity_b: &Entity,
     _edge_a: (&Vec3, &Vec3),

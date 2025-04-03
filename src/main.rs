@@ -14,7 +14,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_deepest_rigid_body_collision, get_edge_collision_local_to_b, get_point_collision_local_to_face, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -586,14 +586,11 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                 let mesh_a = mesh_a.unwrap();
                 let mesh_b = mesh_b.unwrap();
 
-                let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
-                let b_to_a_space = transform_a.to_world_mat().inverted().unwrap() * *transform_b.to_world_mat();
-
                 get_deepest_rigid_body_collision(
                     (&c.entity_a, mesh_a),
                     (&c.entity_b, mesh_b),
-                    &a_to_b_space,
-                    &b_to_a_space,
+                    transform_a,
+                    transform_b,
                 )
             } else {
                 None
@@ -630,55 +627,55 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                     let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
 
                     if let Some(point_features) = collision.point_features {
-                        let vertex_a = &mesh_a.vertices[point_features.0 as usize];
-                        let vertex_pos_a = &(a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
+                        // let vertex_a = &mesh_a.vertices[point_features.0 as usize];
+                        // let vertex_pos_a = &(a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
 
-                        let face_b = (
-                            &mesh_b.vertices[point_features.1.0 as usize].pos,
-                            &mesh_b.vertices[point_features.1.1 as usize].pos,
-                            &mesh_b.vertices[point_features.1.2 as usize].pos,
-                        );
+                        // let face_b = (
+                        //     &mesh_b.vertices[point_features.1.0 as usize].pos,
+                        //     &mesh_b.vertices[point_features.1.1 as usize].pos,
+                        //     &mesh_b.vertices[point_features.1.2 as usize].pos,
+                        // );
 
-                        if let Some(mut retained_collision) = get_point_collision(
-                            &collision.rigid_body_a,
-                            &collision.rigid_body_b,
-                            vertex_pos_a,
-                            face_b,
-                            COLLISION_CACHE_TOLERANCE,
-                        ) {
-                            commands.detach_component::<RigidBodyCollision>(e);
+                        // if let Some(mut retained_collision) = get_point_collision(
+                        //     &collision.rigid_body_a,
+                        //     &collision.rigid_body_b,
+                        //     vertex_pos_a,
+                        //     face_b,
+                        //     COLLISION_CACHE_TOLERANCE,
+                        // ) {
+                        //     commands.detach_component::<RigidBodyCollision>(e);
 
-                            retained_collision.point_features = Some(point_features);
+                        //     retained_collision.point_features = Some(point_features);
 
-                            commands.attach_component(e, retained_collision);
-                        } else {
+                        //     commands.attach_component(e, retained_collision);
+                        // } else {
                             commands.destroy_entity(e);
-                        }
+                        // }
                     } else if let Some(edge_features) = collision.edge_features {
-                        let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
-                        let vertex_a_1 = &mesh_a.vertices[edge_features.0.1 as usize];
+                        // let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
+                        // let vertex_a_1 = &mesh_a.vertices[edge_features.0.1 as usize];
 
-                        let vertex_pos_a_0 = &(a_to_b_space * vertex_a_0.pos.to_vec4(1.0)).xyz();
-                        let vertex_pos_a_1 = &(a_to_b_space * vertex_a_1.pos.to_vec4(1.0)).xyz();
+                        // let vertex_pos_a_0 = &(a_to_b_space * vertex_a_0.pos.to_vec4(1.0)).xyz();
+                        // let vertex_pos_a_1 = &(a_to_b_space * vertex_a_1.pos.to_vec4(1.0)).xyz();
 
-                        let vertex_pos_b_0 = &mesh_b.vertices[edge_features.1.0 as usize].pos;
-                        let vertex_pos_b_1 = &mesh_b.vertices[edge_features.1.1 as usize].pos;
+                        // let vertex_pos_b_0 = &mesh_b.vertices[edge_features.1.0 as usize].pos;
+                        // let vertex_pos_b_1 = &mesh_b.vertices[edge_features.1.1 as usize].pos;
 
-                        if let Some(mut retained_collision) = get_edge_collision(
-                            &collision.rigid_body_a,
-                            &collision.rigid_body_b,
-                            (vertex_pos_a_0, vertex_pos_a_1),
-                            (vertex_pos_b_0, vertex_pos_b_1),
-                            COLLISION_CACHE_TOLERANCE,
-                        ) {
-                            commands.detach_component::<RigidBodyCollision>(e);
+                        // if let Some(mut retained_collision) = get_edge_collision(
+                        //     &collision.rigid_body_a,
+                        //     &collision.rigid_body_b,
+                        //     (vertex_pos_a_0, vertex_pos_a_1),
+                        //     (vertex_pos_b_0, vertex_pos_b_1),
+                        //     COLLISION_CACHE_TOLERANCE,
+                        // ) {
+                        //     commands.detach_component::<RigidBodyCollision>(e);
 
-                            retained_collision.edge_features = Some(edge_features);
+                        //     retained_collision.edge_features = Some(edge_features);
 
-                            commands.attach_component(e, retained_collision);
-                        } else {
+                        //     commands.attach_component(e, retained_collision);
+                        // } else {
                             commands.destroy_entity(e);
-                        }
+                        // }
                     } else {
                         panic!("Rigid body collision between entities {:?} and {:?} has no collision features", &collision.rigid_body_a, &collision.rigid_body_b);
                     }
@@ -729,8 +726,8 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
                 let impulse_collision_space = vec3(target_delta_vel / total_inertia, 0.0, 0.0);
                 let impulse_world = collision_space_to_world_space * impulse_collision_space;
 
-                apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
-                apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
+                apply_impulse(transform_a, rigid_body_a, collision, &-impulse_world);
+                apply_impulse(transform_b, rigid_body_b, collision, &impulse_world);
 
                 let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, linear_inertia_a, ang_inertia_a, total_inertia);
                 let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, linear_inertia_b, ang_inertia_b, total_inertia);
