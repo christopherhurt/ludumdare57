@@ -155,7 +155,8 @@ fn create_scene(ecs: &mut ECS) {
         0, 1, 2, 2, 3, 0,
     ];
     let plane_mesh: Mesh = Mesh::new(plane_vertices, plane_indexes).unwrap();
-    let (plane_mesh, plane_physics_props) = generate_physics_mesh(plane_mesh, None).unwrap();
+    let (plane_mesh, _plane_physics_props) = generate_physics_mesh(plane_mesh, None).unwrap();
+    let plane_physics_props = PhysicsMeshProperties::new_immovable(1.0, VEC_3_ZERO, 0.75);
     let plane_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(plane_mesh.vertices.clone(), plane_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -190,8 +191,7 @@ fn create_scene(ecs: &mut ECS) {
     let test_plane_transform = Transform::new(vec3(0.0, -50.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 50.0);
     let test_plane_material = ColorMaterial::new(BROWN);
     // let test_plane_physics_props = plane_physics_props.clone();
-    let test_plane_physics_props = PhysicsMeshProperties::new_immovable(1.0, VEC_3_ZERO, 0.75);
-    let test_plane_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, test_plane_physics_props.clone());
+    let test_plane_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, plane_physics_props.clone());
     let test_plane_entity = ecs.create_entity();
     let _test_plane_mesh_binding = MeshBinding::new_provisional(Some(plane_mesh_id), Some(plane_mesh_entity));
     ecs.attach_provisional_component(&test_plane_entity, test_plane_transform);
@@ -237,10 +237,8 @@ fn create_scene(ecs: &mut ECS) {
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
-    ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -450);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
-    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -375);
     ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
     ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
@@ -250,6 +248,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
+    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
     ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
@@ -259,7 +258,8 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
     ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
-    ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 3);
+    ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
+    ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
 }
 

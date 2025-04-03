@@ -809,6 +809,8 @@ impl<T: BoundingVolume> QuadTree<T> {
             .collect::<HashSet<_>>();
 
         for e in to_remove {
+            self.all_entities.remove(&e);
+
             self.root_node.remove(&e);
         }
     }

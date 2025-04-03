@@ -10,7 +10,7 @@ pub struct Entity(pub(in crate) usize);
 pub(in crate::ecs) struct EntityManager {
     entity_counter: usize,
     max_capacity: usize,
-    usable_entities: VecDeque<Entity>,
+    usable_entities: VecDeque<Entity>, // TODO: only use these after a certain large size it reached? to prevent collisions with any refs to entities which may have changed
     signatures: Vec<Signature>,
     entity_destroyed: Vec<bool>,
 }
