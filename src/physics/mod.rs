@@ -1021,15 +1021,15 @@ pub(in crate) fn get_point_collision(
                             && is_inside_triangle(p3, p1, p0, vertex_a, &n1, tolerance)
                             && is_inside_triangle(p3, p2, p1, vertex_a, &n2, tolerance)
                             && is_inside_triangle(p3, p0, p2, vertex_a, &n3, tolerance) {
+                        let dist_to_plane = vertex_a.dot(&n0);
+
                         return Some(
                             RigidBodyCollision::new(
                                 *entity_a,
                                 *entity_b,
-                                // TODO: halfway to surface plane?
-                                *vertex_a,
+                                *vertex_a + n0 * (dist_to_plane / 2.0),
                                 n0,
-                                // TODO: get proper/accurate penetration value, but my brain is fried at time of typing
-                                ((*p0 - *vertex_a).len() + (*p1 - *vertex_a).len() + (*p2 - *vertex_a).len()) / 3.0,
+                                dist_to_plane,
                             )
                         );
                     }
