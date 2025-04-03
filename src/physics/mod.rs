@@ -278,12 +278,34 @@ impl Component for RigidBody {}
 impl ComponentActions for RigidBody {}
 
 #[derive(Clone, Debug)]
-pub struct PhysicsMeshProperties {
-    pub volume: f32,
+pub struct PhysicsMeshProperties { // TODO: refactor this alongside the mesh/mesh binding changes
+    pub volume: f32, // TODO: remove for now? it's not accurate without scale values
     pub mass: Option<f32>, // None implies the mesh is immovable, i.e. infinite mass
     pub inertia_tensor: Option<Mat3>, // None iff mass is None
     pub center_of_mass_offset: Vec3,
     pub bounding_radius: f32,
+}
+
+impl PhysicsMeshProperties {
+    pub fn new(volume: f32, mass: f32, inertia_tensor: Mat3, center_of_mass_offset: Vec3, bounding_radius: f32) -> Self {
+        Self {
+            volume,
+            mass: Some(mass),
+            inertia_tensor: Some(inertia_tensor),
+            center_of_mass_offset,
+            bounding_radius,
+        }
+    }
+
+    pub fn new_immovable(volume: f32, center_of_mass_offset: Vec3, bounding_radius: f32) -> Self {
+        Self {
+            volume,
+            mass: None,
+            inertia_tensor: None,
+            center_of_mass_offset,
+            bounding_radius,
+        }
+    }
 }
 
 impl Component for PhysicsMeshProperties {}
@@ -522,6 +544,8 @@ impl BoundingVolume for BoundingSphere {
         (min_extent, max_extent)
     }
 }
+
+// TODO: impl AxisAlignedBoundingBox
 
 #[derive(Clone, Debug)]
 pub struct PotentialRigidBodyCollision {
