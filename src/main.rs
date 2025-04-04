@@ -795,7 +795,7 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
     apply_impulses(entites.clone(), components, commands, num_iterations);
 };
 
-fn get_worst_collision(entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands) -> Option<Entity> {
+fn get_highest_penetration_collision(entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands) -> Option<Entity> {
     // TODO: there's gotta be a cleaner way of combining this whole component iterator thing with similar logic in the functions that call
     //  this one, without breaking the borrow checker...
     entites
@@ -829,7 +829,7 @@ fn apply_movements(
     num_iterations: usize,
 ) {
     for _ in 0..num_iterations {
-        if let Some(worst_collision_entity) = get_worst_collision(collisions.clone(), components, commands) {
+        if let Some(worst_collision_entity) = get_highest_penetration_collision(collisions.clone(), components, commands) {
             let worst_collision = components.get_component::<RigidBodyCollision>(&worst_collision_entity).unwrap();
 
             let transform_a = components.get_mut_component::<Transform>(&worst_collision.rigid_body_a).unwrap();
