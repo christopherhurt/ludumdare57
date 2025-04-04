@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Mat3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
 use rand::Rng;
 use core::{GRAY, IDENTITY_SCALE_VEC, RED};
@@ -263,7 +263,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
-    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
+    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -788,42 +788,78 @@ const UPDATE_RIGID_BODY_COLLISION_CACHES: System = |entites: Iter<Entity>, compo
 
 // Built-in
 const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    for e in entites {
-        if let Some(collision) = components.get_component::<RigidBodyCollision>(e) {
-            let transform_a = components.get_mut_component::<Transform>(&collision.rigid_body_a);
-            let rigid_body_a = components.get_mut_component::<RigidBody>(&collision.rigid_body_a);
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-            let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
-            let rigid_body_b = components.get_mut_component::<RigidBody>(&collision.rigid_body_b);
-
-            let cache = collision.cache.as_ref();
-
-            if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() && cache.is_some() {
-                let transform_a = transform_a.unwrap();
-                let rigid_body_a = rigid_body_a.unwrap();
-
-                let transform_b = transform_b.unwrap();
-                let rigid_body_b = rigid_body_b.unwrap();
-
-                let cache = cache.unwrap();
-
-                let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
-                let impulse_world = cache.collision_to_world_space * impulse_collision_space;
-
-                apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
-                apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
-
-                let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
-                let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
-
-                apply_movement(transform_a, rigid_body_a, collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
-                apply_movement(transform_b, rigid_body_b, collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
-            } else {
+    let mut to_resolve: Vec<UnpackedCollision> = entites
+        .map(|e| (
+            (e, components.get_component::<RigidBodyCollision>(e))
+        ))
+        .filter(|(_, c)| c.is_some())
+        .map(|(e, c)| (e, c.unwrap()))
+        .map(|(e, c)| (
+            e,
+            c,
+            components.get_mut_component::<Transform>(&c.rigid_body_a),
+            components.get_mut_component::<RigidBody>(&c.rigid_body_a),
+            components.get_mut_component::<Transform>(&c.rigid_body_b),
+            components.get_mut_component::<RigidBody>(&c.rigid_body_b),
+        ))
+        .inspect(|(e, c, t_a, r_a, t_b, r_b)| {
+            if c.cache.is_none() || t_a.is_none() || r_a.is_none() || t_b.is_none() || r_b.is_none() {
                 commands.destroy_entity(e);
             }
-        }
-    }
+        })
+        .filter(|(_, c, t_a, r_a, t_b, r_b)|
+            c.cache.is_some() && t_a.is_some() && r_a.is_some() && t_b.is_some() && r_b.is_some()
+        )
+        .map(|(_, c, t_a, r_a, t_b, r_b)| (c, t_a.unwrap(), r_a.unwrap(), t_b.unwrap(), r_b.unwrap()))
+        .collect::<Vec<_>>();
+
+    let num_iterations = to_resolve.len() * 2;
+
+    apply_movements(&mut to_resolve, num_iterations, delta_sec);
+
+    apply_impulses(&mut to_resolve, num_iterations, delta_sec);
 };
+
+type UnpackedCollision<'a> = (&'a RigidBodyCollision, &'a mut Transform, &'a mut RigidBody, &'a mut Transform, &'a mut RigidBody);
+
+fn apply_movements(
+    collisions: &mut Vec<UnpackedCollision>,
+    num_iterations: usize,
+    delta_sec: f32,
+) {
+    // TODO: proper implementation
+
+    for (collision, transform_a, rigid_body_a, transform_b, rigid_body_b) in collisions.iter_mut() {
+        let cache = collision.cache.as_ref().unwrap();
+
+        let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
+        let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
+
+        apply_movement(transform_a, rigid_body_a, collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
+        apply_movement(transform_b, rigid_body_b, collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
+    }
+}
+
+fn apply_impulses(
+    collisions: &mut Vec<UnpackedCollision>,
+    num_iterations: usize,
+    delta_sec: f32,
+) {
+    // TODO: proper implementation
+
+    for (collision, transform_a, rigid_body_a, transform_b, rigid_body_b) in collisions.iter_mut() {
+        let cache = collision.cache.as_ref().unwrap();
+
+        let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
+        let impulse_world = cache.collision_to_world_space * impulse_collision_space;
+
+        apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
+        apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
+    }
+}
 
 fn apply_movement(
     transform: &mut Transform,
