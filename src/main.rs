@@ -263,7 +263,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
-    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -50);
+    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -788,15 +788,20 @@ const UPDATE_RIGID_BODY_COLLISION_CACHES: System = |entites: Iter<Entity>, compo
 
 // Built-in
 const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
-    let delta_sec = time_delta.since_last_frame.as_secs_f32();
+    let num_iterations = entites.len() * 2;
 
-    let mut to_resolve: Vec<UnpackedCollision> = entites
+    apply_movements(entites.clone(), components, commands, num_iterations);
+
+    apply_impulses(entites.clone(), components, commands, num_iterations);
+};
+
+fn get_worst_collision(entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands) -> Option<Entity> {
+    // TODO: there's gotta be a cleaner way of combining this whole component iterator thing with similar logic in the functions that call
+    //  this one, without breaking the borrow checker...
+    entites
         .map(|e| (
-            (e, components.get_mut_component::<RigidBodyCollision>(e))
+            (e, components.get_mut_component::<RigidBodyCollision>(e).unwrap())
         ))
-        .filter(|(_, c)| c.is_some())
-        .map(|(e, c)| (e, c.unwrap()))
         .map(|(e, c)| {
             let transform_a = components.get_mut_component::<Transform>(&c.rigid_body_a);
             let rigid_body_a = components.get_mut_component::<RigidBody>(&c.rigid_body_a);
@@ -813,47 +818,46 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
         .filter(|(_, c, t_a, r_a, t_b, r_b)|
             c.cache.is_some() && t_a.is_some() && r_a.is_some() && t_b.is_some() && r_b.is_some()
         )
-        .map(|(_, c, t_a, r_a, t_b, r_b)| (c, t_a.unwrap(), r_a.unwrap(), t_b.unwrap(), r_b.unwrap()))
-        .collect::<Vec<_>>();
-
-    let num_iterations = to_resolve.len() * 2;
-
-    apply_movements(&to_resolve, num_iterations);
-
-    apply_impulses(&to_resolve, num_iterations, delta_sec);
-};
-
-type UnpackedCollision<'a> = (&'a mut RigidBodyCollision, &'a mut Transform, &'a mut RigidBody, &'a mut Transform, &'a mut RigidBody);
+        .max_by(|a, b| a.1.penetration.partial_cmp(&b.1.penetration).unwrap_or(Ordering::Less))
+        .map(|(e, _, _, _, _, _)| *e)
+}
 
 fn apply_movements(
-    collisions: Vec<UnpackedCollision>,
+    collisions: Iter<Entity>,
+    components: &ComponentManager,
+    commands: &mut ECSCommands,
     num_iterations: usize,
 ) {
     for _ in 0..num_iterations {
-        let worst_collision = collisions
-            .into_iter()
-            .max_by(|a, b| a.0.penetration.partial_cmp(&b.0.penetration).unwrap_or(Ordering::Less))
-            .map(|c| *c); // TODO kill me
+        if let Some(worst_collision_entity) = get_worst_collision(collisions.clone(), components, commands) {
+            let worst_collision = components.get_component::<RigidBodyCollision>(&worst_collision_entity).unwrap();
 
-        if let Some((collision, transform_a, rigid_body_a, transform_b, rigid_body_b)) = worst_collision {
-            let cache = collision.cache.as_ref().unwrap();
+            let transform_a = components.get_mut_component::<Transform>(&worst_collision.rigid_body_a).unwrap();
+            let rigid_body_a = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_a).unwrap();
 
-            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
-            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
+            let transform_b = components.get_mut_component::<Transform>(&worst_collision.rigid_body_b).unwrap();
+            let rigid_body_b = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_b).unwrap();
 
-            apply_movement(transform_a, rigid_body_a, collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
-            apply_movement(transform_b, rigid_body_b, collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
+            let cache = worst_collision.cache.as_ref().unwrap();
 
-            for (c, _, _, _, _) in collisions.iter().map(|c| *c) { // TODO
+            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
+            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
+
+            apply_movement(transform_a, rigid_body_a, worst_collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
+            apply_movement(transform_b, rigid_body_b, worst_collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
+
+            for e in collisions.clone() {
+                let c = components.get_mut_component::<RigidBodyCollision>(e).unwrap();
+
                 if let Some(c_cache) = c.cache.clone() {
-                    if c.rigid_body_a == collision.rigid_body_a {
-                        update_penetration(c, &c_cache.collision_point_rel_a, &collision.normal, linear_movement_a, ang_movement_a, 1.0);
-                    } else if c.rigid_body_b == collision.rigid_body_a {
-                        update_penetration(c, &c_cache.collision_point_rel_b, &collision.normal, linear_movement_a, ang_movement_a, -1.0);
-                    } else if c.rigid_body_a == collision.rigid_body_b {
-                        update_penetration(c, &c_cache.collision_point_rel_a, &collision.normal, linear_movement_b, ang_movement_b, 1.0);
-                    } else if c.rigid_body_b == collision.rigid_body_b {
-                        update_penetration(c, &c_cache.collision_point_rel_b, &collision.normal, linear_movement_b, ang_movement_b, -1.0);
+                    if c.rigid_body_a == worst_collision.rigid_body_a {
+                        update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_a, ang_movement_a, 1.0);
+                    } else if c.rigid_body_b == worst_collision.rigid_body_a {
+                        update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_a, ang_movement_a, -1.0);
+                    } else if c.rigid_body_a == worst_collision.rigid_body_b {
+                        update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_b, ang_movement_b, 1.0);
+                    } else if c.rigid_body_b == worst_collision.rigid_body_b {
+                        update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_b, ang_movement_b, -1.0);
                     }
                 }
             }
@@ -864,13 +868,12 @@ fn apply_movements(
 fn update_penetration(
     affected_collision: &mut RigidBodyCollision,
     affected_rel_collision_point: &Vec3,
-    collision_normal: &Vec3,
     linear_movement: f32,
     ang_movement: f32,
     delta_sign: f32,
 ) {
-    let linear_delta = *collision_normal * linear_movement;
-    let ang_delta = *collision_normal * ang_movement;
+    let linear_delta = affected_collision.normal * linear_movement;
+    let ang_delta = affected_collision.normal * ang_movement;
 
     let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta);
 
@@ -878,20 +881,31 @@ fn update_penetration(
 }
 
 fn apply_impulses(
-    collisions: &Vec<UnpackedCollision>,
-    num_iterations: usize,
-    delta_sec: f32,
+    collisions: Iter<Entity>,
+    components: &ComponentManager,
+    _commands: &mut ECSCommands,
+    _num_iterations: usize,
 ) {
     // TODO: proper implementation
 
-    for (collision, transform_a, rigid_body_a, transform_b, rigid_body_b) in collisions.iter() {
-        let cache = collision.cache.as_ref().unwrap();
+    for e in collisions.clone() {
+        let collision = components.get_component::<RigidBodyCollision>(&e).unwrap();
 
-        let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
-        let impulse_world = cache.collision_to_world_space * impulse_collision_space;
+        let transform_a = components.get_mut_component::<Transform>(&collision.rigid_body_a);
+        let rigid_body_a = components.get_mut_component::<RigidBody>(&collision.rigid_body_a);
 
-        apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
-        apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
+        let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
+        let rigid_body_b = components.get_mut_component::<RigidBody>(&collision.rigid_body_b);
+
+        if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() {
+            let cache = collision.cache.as_ref().unwrap();
+
+            let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
+            let impulse_world = cache.collision_to_world_space * impulse_collision_space;
+
+            apply_impulse(transform_a.unwrap(), rigid_body_a.unwrap(), collision, &impulse_world);
+            apply_impulse(transform_b.unwrap(), rigid_body_b.unwrap(), collision, &-impulse_world);
+        }
     }
 }
 
