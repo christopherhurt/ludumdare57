@@ -263,7 +263,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
-    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
+    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -788,20 +788,25 @@ const UPDATE_RIGID_BODY_COLLISION_CACHES: System = |entites: Iter<Entity>, compo
 
 // Built-in
 const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
+
     let num_iterations = entites.len() * 2;
 
     apply_movements(entites.clone(), components, commands, num_iterations);
 
-    apply_impulses(entites.clone(), components, commands, num_iterations);
+    apply_impulses(entites.clone(), components, commands, num_iterations, delta_sec);
 };
 
-fn get_highest_penetration_collision(entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands) -> Option<Entity> {
+fn get_highest_penetration_collision(entities: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands) -> Option<Entity> {
     // TODO: there's gotta be a cleaner way of combining this whole component iterator thing with similar logic in the functions that call
     //  this one, without breaking the borrow checker...
-    entites
+    entities
         .map(|e| (
-            (e, components.get_mut_component::<RigidBodyCollision>(e).unwrap())
+            (e, components.get_mut_component::<RigidBodyCollision>(e))
         ))
+        .filter(|(_, c)| c.is_some())
+        .map(|(e, c)| (e, c.unwrap()))
         .map(|(e, c)| {
             let transform_a = components.get_mut_component::<Transform>(&c.rigid_body_a);
             let rigid_body_a = components.get_mut_component::<RigidBody>(&c.rigid_body_a);
@@ -819,6 +824,7 @@ fn get_highest_penetration_collision(entites: Iter<Entity>, components: &Compone
             c.cache.is_some() && t_a.is_some() && r_a.is_some() && t_b.is_some() && r_b.is_some()
         )
         .max_by(|a, b| a.1.penetration.partial_cmp(&b.1.penetration).unwrap_or(Ordering::Less))
+        .filter(|(_, c, _, _, _, _)| c.penetration > f32::EPSILON)
         .map(|(e, _, _, _, _, _)| *e)
 }
 
@@ -828,6 +834,8 @@ fn apply_movements(
     commands: &mut ECSCommands,
     num_iterations: usize,
 ) {
+    // TODO: start with a pass over all collisions
+
     for _ in 0..num_iterations {
         if let Some(worst_collision_entity) = get_highest_penetration_collision(collisions.clone(), components, commands) {
             let worst_collision = components.get_component::<RigidBodyCollision>(&worst_collision_entity).unwrap();
@@ -843,24 +851,31 @@ fn apply_movements(
             let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
             let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
 
+            // TODO
+            println!("OVERALL PEN: {:?}", worst_collision.penetration);
+            println!("LINEAR A: {:?}, ANG A: {:?}", linear_movement_a, ang_movement_a);
+            println!("LINEAR B: {:?}, ANG B: {:?}", linear_movement_b, ang_movement_b);
+
             apply_movement(transform_a, rigid_body_a, worst_collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
             apply_movement(transform_b, rigid_body_b, worst_collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
 
             for e in collisions.clone() {
-                let c = components.get_mut_component::<RigidBodyCollision>(e).unwrap();
-
-                if let Some(c_cache) = c.cache.clone() {
-                    if c.rigid_body_a == worst_collision.rigid_body_a {
-                        update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_a, ang_movement_a, 1.0);
-                    } else if c.rigid_body_b == worst_collision.rigid_body_a {
-                        update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_a, ang_movement_a, -1.0);
-                    } else if c.rigid_body_a == worst_collision.rigid_body_b {
-                        update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_b, ang_movement_b, 1.0);
-                    } else if c.rigid_body_b == worst_collision.rigid_body_b {
-                        update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_b, ang_movement_b, -1.0);
+                if let Some(c) = components.get_mut_component::<RigidBodyCollision>(e) {
+                    if let Some(c_cache) = c.cache.clone() {
+                        if c.rigid_body_a == worst_collision.rigid_body_a {
+                            update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_a, ang_movement_a, 1.0);
+                        } else if c.rigid_body_b == worst_collision.rigid_body_a {
+                            update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_a, ang_movement_a, -1.0);
+                        } else if c.rigid_body_a == worst_collision.rigid_body_b {
+                            update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_b, ang_movement_b, 1.0);
+                        } else if c.rigid_body_b == worst_collision.rigid_body_b {
+                            update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_b, ang_movement_b, -1.0);
+                        }
                     }
                 }
             }
+        } else {
+            break; // No more collisions are interpenetrating
         }
     }
 }
@@ -872,39 +887,110 @@ fn update_penetration(
     ang_movement: f32,
     delta_sign: f32,
 ) {
+    // TODO
+    println!("UPDATING PEN {:?} ON: {:?}", affected_collision.penetration, affected_collision.normal);
+
     let linear_delta = affected_collision.normal * linear_movement;
     let ang_delta = affected_collision.normal * ang_movement;
 
-    let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta);
+    let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta); // TODO?
 
     affected_collision.penetration += delta_pen.dot(&affected_collision.normal);
+
+    println!("NEW PEN: {:?}", affected_collision.penetration); // TODO
+}
+
+fn get_highest_vel_collision(
+    entities: Iter<Entity>,
+    components: &ComponentManager,
+    commands: &mut ECSCommands,
+) -> Option<Entity> {
+    // TODO: see other TODO on get_highest_penetration_collision
+    entities
+        .map(|e| (
+            (e, components.get_mut_component::<RigidBodyCollision>(e))
+        ))
+        .filter(|(_, c)| c.is_some())
+        .map(|(e, c)| (e, c.unwrap()))
+        .map(|(e, c)| {
+            let transform_a = components.get_mut_component::<Transform>(&c.rigid_body_a);
+            let rigid_body_a = components.get_mut_component::<RigidBody>(&c.rigid_body_a);
+            let transform_b = components.get_mut_component::<Transform>(&c.rigid_body_b);
+            let rigid_body_b = components.get_mut_component::<RigidBody>(&c.rigid_body_b);
+
+            (e, c, transform_a, rigid_body_a, transform_b, rigid_body_b)
+        })
+        .inspect(|(e, c, t_a, r_a, t_b, r_b)| {
+            if c.cache.is_none() || t_a.is_none() || r_a.is_none() || t_b.is_none() || r_b.is_none() {
+                commands.destroy_entity(e);
+            }
+        })
+        .filter(|(_, c, t_a, r_a, t_b, r_b)|
+            c.cache.is_some() && t_a.is_some() && r_a.is_some() && t_b.is_some() && r_b.is_some()
+        )
+        .max_by(|a, b| a.1.cache.as_ref().unwrap().target_delta_vel.abs().partial_cmp(&b.1.cache.as_ref().unwrap().target_delta_vel.abs()).unwrap_or(Ordering::Less))
+        .filter(|(_, c, _, _, _, _)| c.cache.as_ref().unwrap().target_delta_vel.abs() > f32::EPSILON)
+        .map(|(e, _, _, _, _, _)| *e)
+}
+
+fn update_target_delta_vel(
+    affected_collision: &mut RigidBodyCollision,
+    affected_rel_collision_point: &Vec3,
+    linear_movement: f32,
+    ang_movement: f32,
+    delta_sign: f32,
+) {
+    // TODO
 }
 
 fn apply_impulses(
     collisions: Iter<Entity>,
     components: &ComponentManager,
-    _commands: &mut ECSCommands,
-    _num_iterations: usize,
+    commands: &mut ECSCommands,
+    num_iterations: usize,
+    delta_sec: f32,
 ) {
     // TODO: proper implementation
 
-    for e in collisions.clone() {
-        let collision = components.get_component::<RigidBodyCollision>(&e).unwrap();
+    for _ in 0..num_iterations {
+        if let Some(worst_collision_entity) = get_highest_vel_collision(collisions.clone(), components, commands) {
+            let worst_collision = components.get_component::<RigidBodyCollision>(&worst_collision_entity).unwrap();
 
-        let transform_a = components.get_mut_component::<Transform>(&collision.rigid_body_a);
-        let rigid_body_a = components.get_mut_component::<RigidBody>(&collision.rigid_body_a);
+            let transform_a = components.get_mut_component::<Transform>(&worst_collision.rigid_body_a).unwrap();
+            let rigid_body_a = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_a).unwrap();
 
-        let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
-        let rigid_body_b = components.get_mut_component::<RigidBody>(&collision.rigid_body_b);
+            let transform_b = components.get_mut_component::<Transform>(&worst_collision.rigid_body_b).unwrap();
+            let rigid_body_b = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_b).unwrap();
 
-        if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() {
-            let cache = collision.cache.as_ref().unwrap();
+            let cache = worst_collision.cache.as_ref().unwrap();
 
             let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
             let impulse_world = cache.collision_to_world_space * impulse_collision_space;
 
-            apply_impulse(transform_a.unwrap(), rigid_body_a.unwrap(), collision, &impulse_world);
-            apply_impulse(transform_b.unwrap(), rigid_body_b.unwrap(), collision, &-impulse_world);
+            // TODO
+            println!("APPLYING IMPULSE: {:?}", &impulse_world);
+
+            apply_impulse(transform_a, rigid_body_a, worst_collision, &impulse_world);
+            apply_impulse(transform_b, rigid_body_b, worst_collision, &-impulse_world);
+
+            for e in collisions.clone() {
+                if let Some(c) = components.get_mut_component::<RigidBodyCollision>(e) {
+                    if let Some(c_cache) = c.cache.clone() {
+                        // TODO
+                        // if c.rigid_body_a == worst_collision.rigid_body_a {
+                        //     update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_a, ang_movement_a, 1.0);
+                        // } else if c.rigid_body_b == worst_collision.rigid_body_a {
+                        //     update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_a, ang_movement_a, -1.0);
+                        // } else if c.rigid_body_a == worst_collision.rigid_body_b {
+                        //     update_penetration(c, &c_cache.collision_point_rel_a, linear_movement_b, ang_movement_b, 1.0);
+                        // } else if c.rigid_body_b == worst_collision.rigid_body_b {
+                        //     update_penetration(c, &c_cache.collision_point_rel_b, linear_movement_b, ang_movement_b, -1.0);
+                        // }
+                    }
+                }
+            }
+        } else {
+            break;
         }
     }
 }
