@@ -547,9 +547,9 @@ impl Quat {
         let norm = self.normalized();
 
         mat4(
-            1.0 - 2.0 * (norm.j * norm.j + norm.k * norm.k),    2.0 * (norm.i * norm.j + norm.k * norm.w),          2.0 * (norm.i * norm.k - norm.j * norm.w),          0.0,
-            2.0 * (norm.i * norm.j - norm.k * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.k * norm.k),    2.0 * (norm.j * norm.k + norm.i * norm.w),          0.0,
-            2.0 * (norm.i * norm.k + norm.j * norm.w),          2.0 * (norm.j * norm.k - norm.i * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.j * norm.j),    0.0,
+            1.0 - 2.0 * (norm.j * norm.j + norm.k * norm.k),    2.0 * (norm.i * norm.j - norm.k * norm.w),          2.0 * (norm.i * norm.k + norm.j * norm.w),          0.0,
+            2.0 * (norm.i * norm.j + norm.k * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.k * norm.k),    2.0 * (norm.j * norm.k - norm.i * norm.w),          0.0,
+            2.0 * (norm.i * norm.k - norm.j * norm.w),          2.0 * (norm.j * norm.k + norm.i * norm.w),          1.0 - 2.0 * (norm.i * norm.i + norm.j * norm.j),    0.0,
             0.0,                                                0.0,                                                0.0,                                                1.0,
         )
     }

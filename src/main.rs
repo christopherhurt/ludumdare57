@@ -211,15 +211,15 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_bunny_entity, bunny_mesh_binding.clone());
     ecs.attach_provisional_component(&test_bunny_entity, MousePickable {});
 
-    let tether_cube_transform = Transform::new(vec3(-3.0, 10.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
-    let tether_cube_material = ColorMaterial::new(GRAY);
-    let tether_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 15.0, cube_physics_props.clone());
-    let tether_cube_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&tether_cube_entity, tether_cube_transform);
-    ecs.attach_provisional_component(&tether_cube_entity, tether_cube_rigid_body);
-    ecs.attach_provisional_component(&tether_cube_entity, tether_cube_material);
-    ecs.attach_provisional_component(&tether_cube_entity, test_cube_mesh_binding.clone());
-    ecs.attach_provisional_component(&tether_cube_entity, MousePickable {});
+    // let tether_cube_transform = Transform::new(vec3(-3.0, 10.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
+    // let tether_cube_material = ColorMaterial::new(GRAY);
+    // let tether_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 15.0, cube_physics_props.clone());
+    // let tether_cube_entity = ecs.create_entity();
+    // ecs.attach_provisional_component(&tether_cube_entity, tether_cube_transform);
+    // ecs.attach_provisional_component(&tether_cube_entity, tether_cube_rigid_body);
+    // ecs.attach_provisional_component(&tether_cube_entity, tether_cube_material);
+    // ecs.attach_provisional_component(&tether_cube_entity, test_cube_mesh_binding.clone());
+    // ecs.attach_provisional_component(&tether_cube_entity, MousePickable {});
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -512,6 +512,8 @@ const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManage
                             //  Maybe formalize the MousePickable component into a built-in and add a bounding sphere field, then add a
                             //  function to it to do all the intersection checks, pruning, etc...
                             if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
+                                println!("FORCE: {:?}", &(ray * FORCE_FACTOR));
+                                println!("POINT: {:?}", intersection_point);
                                 rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), transform.get_pos());
                             }
                         }
