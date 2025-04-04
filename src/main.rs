@@ -807,34 +807,17 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
 
                 let cache = cache.unwrap();
 
-                let (linear_inertia_a, ang_inertia_a) = get_inertia(
-                    &collision.normal,
-                    &cache.collision_point_rel_a,
-                    cache.inverse_mass_a,
-                    cache.inverse_inertia_tensor_world_a.as_ref(),
-                    &cache.world_to_collision_space,
-                );
-                let (linear_inertia_b, ang_inertia_b) = get_inertia(
-                    &collision.normal,
-                    &cache.collision_point_rel_b,
-                    cache.inverse_mass_b,
-                    cache.inverse_inertia_tensor_world_b.as_ref(),
-                    &cache.world_to_collision_space,
-                );
-
-                let total_inertia = linear_inertia_a + ang_inertia_a + linear_inertia_b + ang_inertia_b;
-
-                let impulse_collision_space = vec3(cache.target_delta_vel / total_inertia, 0.0, 0.0);
+                let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
                 let impulse_world = cache.collision_to_world_space * impulse_collision_space;
 
                 apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
                 apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
 
-                let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, linear_inertia_a, ang_inertia_a, total_inertia);
-                let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, linear_inertia_b, ang_inertia_b, total_inertia);
+                let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
+                let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
 
-                apply_movement(transform_a, rigid_body_a, collision, linear_movement_a, ang_movement_a, ang_inertia_a);
-                apply_movement(transform_b, rigid_body_b, collision, linear_movement_b, ang_movement_b, ang_inertia_b);
+                apply_movement(transform_a, rigid_body_a, collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
+                apply_movement(transform_b, rigid_body_b, collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
             } else {
                 commands.destroy_entity(e);
             }
@@ -888,29 +871,6 @@ fn get_interpenetration_components(
     linear_movement = total_movement - ang_movement;
 
     (linear_movement, ang_movement)
-}
-
-fn get_inertia(
-    collision_normal: &Vec3,
-    rel_collision_point: &Vec3,
-    inverse_mass: Option<f32>,
-    inverse_inertia_tensor_world: Option<&Mat3>,
-    world_to_collision_space: &Mat3,
-) -> (f32, f32) {
-    let inertia_linear_component = inverse_mass.unwrap_or(0.0);
-
-    let inertia_ang_component = inverse_inertia_tensor_world.map(|i| {
-        let impulsive_torque = rel_collision_point.cross(collision_normal);
-
-        let delta_ang_vel = *i * impulsive_torque;
-
-        let delta_linear_vel = delta_ang_vel.cross(&rel_collision_point);
-
-        // Collision normal is the (normalized) x axis of the collision space basis
-        (*world_to_collision_space * delta_linear_vel).x
-    }).unwrap_or(0.0);
-
-    (inertia_linear_component, inertia_ang_component)
 }
 
 fn apply_impulse(

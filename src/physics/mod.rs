@@ -868,6 +868,10 @@ pub(in crate) struct RigidBodyCollisionCache {
     pub(in crate) inverse_mass_b: Option<f32>,
     pub(in crate) inverse_inertia_tensor_world_a: Option<Mat3>,
     pub(in crate) inverse_inertia_tensor_world_b: Option<Mat3>,
+    pub(in crate) linear_inertia_a: f32,
+    pub(in crate) linear_inertia_b: f32,
+    pub(in crate) ang_inertia_a: f32,
+    pub(in crate) ang_inertia_b: f32,
     pub(in crate) collision_to_world_space: Mat3,
     pub(in crate) world_to_collision_space: Mat3,
     pub(in crate) target_delta_vel: f32,
@@ -881,6 +885,10 @@ impl RigidBodyCollisionCache {
         inverse_mass_b: Option<f32>,
         inverse_inertia_tensor_world_a: Option<Mat3>,
         inverse_inertia_tensor_world_b: Option<Mat3>,
+        linear_inertia_a: f32,
+        linear_inertia_b: f32,
+        ang_inertia_a: f32,
+        ang_inertia_b: f32,
         collision_to_world_space: Mat3,
         world_to_collision_space: Mat3,
         target_delta_vel: f32,
@@ -892,10 +900,18 @@ impl RigidBodyCollisionCache {
             inverse_mass_b,
             inverse_inertia_tensor_world_a,
             inverse_inertia_tensor_world_b,
+            linear_inertia_a,
+            linear_inertia_b,
+            ang_inertia_a,
+            ang_inertia_b,
             collision_to_world_space,
             world_to_collision_space,
             target_delta_vel,
         }
+    }
+
+    pub(in crate) fn get_total_inertia(&self) -> f32 {
+        self.linear_inertia_a + self.ang_inertia_a + self.linear_inertia_b + self.ang_inertia_b
     }
 }
 
@@ -966,6 +982,21 @@ impl RigidBodyCollision {
             let collision_to_world_space = get_x_based_collision_space_orthonormal_basis(&self.normal);
             let world_to_collision_space = collision_to_world_space.transposed();
 
+            let (linear_inertia_a, ang_inertia_a) = get_inertia(
+                &self.normal,
+                &collision_point_rel_a,
+                inverse_mass_a,
+                inverse_inertia_tensor_world_a.as_ref(),
+                &world_to_collision_space,
+            );
+            let (linear_inertia_b, ang_inertia_b) = get_inertia(
+                &self.normal,
+                &collision_point_rel_b,
+                inverse_mass_b,
+                inverse_inertia_tensor_world_b.as_ref(),
+                &world_to_collision_space,
+            );
+
             let collision_space_vel = get_collision_space_collision_vel(
                 &collision_point_rel_a,
                 &collision_point_rel_b,
@@ -984,6 +1015,10 @@ impl RigidBodyCollision {
                     inverse_mass_b,
                     inverse_inertia_tensor_world_a,
                     inverse_inertia_tensor_world_b,
+                    linear_inertia_a,
+                    linear_inertia_b,
+                    ang_inertia_a,
+                    ang_inertia_b,
                     collision_to_world_space,
                     world_to_collision_space,
                     target_delta_vel,
@@ -997,6 +1032,29 @@ impl RigidBodyCollision {
             false
         }
     }
+}
+
+fn get_inertia(
+    collision_normal: &Vec3,
+    rel_collision_point: &Vec3,
+    inverse_mass: Option<f32>,
+    inverse_inertia_tensor_world: Option<&Mat3>,
+    world_to_collision_space: &Mat3,
+) -> (f32, f32) {
+    let inertia_linear_component = inverse_mass.unwrap_or(0.0);
+
+    let inertia_ang_component = inverse_inertia_tensor_world.map(|i| {
+        let impulsive_torque = rel_collision_point.cross(collision_normal);
+
+        let delta_ang_vel = *i * impulsive_torque;
+
+        let delta_linear_vel = delta_ang_vel.cross(&rel_collision_point);
+
+        // Collision normal is the (normalized) x axis of the collision space basis
+        (*world_to_collision_space * delta_linear_vel).x
+    }).unwrap_or(0.0);
+
+    (inertia_linear_component, inertia_ang_component)
 }
 
 fn get_inverse_inertia_tensor_world(
