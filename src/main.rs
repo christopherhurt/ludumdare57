@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Mat3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_X_AXIS, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Mat3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
 use rand::Rng;
 use core::{GRAY, IDENTITY_SCALE_VEC, RED};
@@ -261,6 +261,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
     ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
+    ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
     ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
@@ -355,6 +356,7 @@ fn pause(ecs: &mut ECSCommands) {
     ecs.unregister_system(DETECT_PARTICLE_ROD_COLLISIONS);
     ecs.unregister_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS);
     ecs.unregister_system(DETECT_RIGID_BODY_COLLISIONS);
+    ecs.unregister_system(UPDATE_RIGID_BODY_COLLISION_CACHES);
     ecs.unregister_system(RESOLVE_PARTICLE_COLLISIONS);
     ecs.unregister_system(RESOLVE_RIGID_BODY_COLLISIONS);
     ecs.unregister_system(RESET_TRANSFORM_FLAGS);
@@ -379,6 +381,7 @@ fn unpause(components: &ComponentManager, ecs: &mut ECSCommands) {
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([components.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
     ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
+    ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([components.get_system_signature_1::<TimeDelta>().unwrap(), components.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
     ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([components.get_system_signature_1::<Transform>().unwrap()]), 3);
@@ -777,6 +780,12 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
     }
 };
 
+const UPDATE_RIGID_BODY_COLLISION_CACHES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    entites
+        .map(|e| (e, components.get_mut_component::<RigidBodyCollision>(e).unwrap()))
+        .for_each(|(e, c)| if !c.refresh_cache(components) { commands.destroy_entity(e); });
+};
+
 // Built-in
 const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     for e in entites {
@@ -787,28 +796,36 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
             let transform_b = components.get_mut_component::<Transform>(&collision.rigid_body_b);
             let rigid_body_b = components.get_mut_component::<RigidBody>(&collision.rigid_body_b);
 
-            if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() {
+            let cache = collision.cache.as_ref();
+
+            if transform_a.is_some() && rigid_body_a.is_some() && transform_b.is_some() && rigid_body_b.is_some() && cache.is_some() {
                 let transform_a = transform_a.unwrap();
                 let rigid_body_a = rigid_body_a.unwrap();
 
                 let transform_b = transform_b.unwrap();
                 let rigid_body_b = rigid_body_b.unwrap();
 
-                let collision_space_to_world_space = get_x_based_collision_space_orthonormal_basis(&collision.normal);
-                let world_space_to_collision_space = collision_space_to_world_space.transposed();
+                let cache = cache.unwrap();
 
-                let (linear_inertia_a, ang_inertia_a) = get_inertia(rigid_body_a, transform_a, collision, &world_space_to_collision_space);
-                let (linear_inertia_b, ang_inertia_b) = get_inertia(rigid_body_b, transform_b, collision, &world_space_to_collision_space);
+                let (linear_inertia_a, ang_inertia_a) = get_inertia(
+                    &collision.normal,
+                    &cache.collision_point_rel_a,
+                    cache.inverse_mass_a,
+                    cache.inverse_inertia_tensor_world_a.as_ref(),
+                    &cache.world_to_collision_space,
+                );
+                let (linear_inertia_b, ang_inertia_b) = get_inertia(
+                    &collision.normal,
+                    &cache.collision_point_rel_b,
+                    cache.inverse_mass_b,
+                    cache.inverse_inertia_tensor_world_b.as_ref(),
+                    &cache.world_to_collision_space,
+                );
 
                 let total_inertia = linear_inertia_a + ang_inertia_a + linear_inertia_b + ang_inertia_b;
 
-                let collision_space_vel = get_collision_space_collision_vel(transform_a, rigid_body_a, transform_b, rigid_body_b, collision, &world_space_to_collision_space);
-
-                let restitution = 0.3; // TODO: don't hardcode this
-                let target_delta_vel = -collision_space_vel.x * (1.0 + restitution);
-
-                let impulse_collision_space = vec3(target_delta_vel / total_inertia, 0.0, 0.0);
-                let impulse_world = collision_space_to_world_space * impulse_collision_space;
+                let impulse_collision_space = vec3(cache.target_delta_vel / total_inertia, 0.0, 0.0);
+                let impulse_world = cache.collision_to_world_space * impulse_collision_space;
 
                 apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
                 apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
@@ -874,74 +891,26 @@ fn get_interpenetration_components(
 }
 
 fn get_inertia(
-    rigid_body: &RigidBody,
-    transform: &mut Transform,
-    collision: &RigidBodyCollision,
-    world_space_to_collision_space: &Mat3,
+    collision_normal: &Vec3,
+    rel_collision_point: &Vec3,
+    inverse_mass: Option<f32>,
+    inverse_inertia_tensor_world: Option<&Mat3>,
+    world_to_collision_space: &Mat3,
 ) -> (f32, f32) {
-    let inertia_linear_component = if let Some(mass) = rigid_body.props.mass {
-        1.0 / mass
-    } else {
-        0.0
-    };
+    let inertia_linear_component = inverse_mass.unwrap_or(0.0);
 
-    let inertia_ang_component = if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
-        let rel_collision_point = collision.point - *transform.get_pos();
+    let inertia_ang_component = inverse_inertia_tensor_world.map(|i| {
+        let impulsive_torque = rel_collision_point.cross(collision_normal);
 
-        let impulsive_torque = rel_collision_point.cross(&collision.normal);
-
-        let world_matrix = transform.to_world_mat().to_mat3();
-        let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
-        let inverse_inertia_tensor_world = (world_matrix * inertia_tensor * inverse_world_matrix).inverted()
-            .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
-
-        let delta_ang_vel = inverse_inertia_tensor_world * impulsive_torque;
+        let delta_ang_vel = *i * impulsive_torque;
 
         let delta_linear_vel = delta_ang_vel.cross(&rel_collision_point);
 
         // Collision normal is the (normalized) x axis of the collision space basis
-        (*world_space_to_collision_space * delta_linear_vel).x
-    } else {
-        0.0
-    };
+        (*world_to_collision_space * delta_linear_vel).x
+    }).unwrap_or(0.0);
 
     (inertia_linear_component, inertia_ang_component)
-}
-
-fn get_x_based_collision_space_orthonormal_basis(collision_normal: &Vec3) -> Mat3 {
-    let basis_x = collision_normal.normalized().unwrap_or_else(|_| panic!("Internal error: invalid zero-length collision normal"));
-
-    let basis_z = if basis_x.x.abs() > basis_x.y.abs() {
-        basis_x.cross(&VEC_3_Y_AXIS).normalized().unwrap()
-    } else {
-        basis_x.cross(&VEC_3_X_AXIS).normalized().unwrap()
-    };
-
-    // Keep the system right-handed
-    let basis_y = basis_z.cross(&basis_x).normalized().unwrap();
-
-    Mat3::from_columns(&basis_x, &basis_y, &basis_z)
-}
-
-fn get_collision_space_collision_vel(
-    transform_a: &Transform,
-    rigid_body_a: &RigidBody,
-    transform_b: &Transform,
-    rigid_body_b: &RigidBody,
-    collision: &RigidBodyCollision,
-    world_space_to_collision_space: &Mat3,
-) -> Vec3 {
-    let mut collision_vel = VEC_3_ZERO;
-
-    let collision_point_rel_a = collision.point - *transform_a.get_pos();
-    collision_vel += rigid_body_a.ang_vel.cross(&collision_point_rel_a);
-    collision_vel += rigid_body_a.linear_vel;
-
-    let collision_point_rel_b = collision.point - *transform_b.get_pos();
-    collision_vel += rigid_body_b.ang_vel.cross(&collision_point_rel_b);
-    collision_vel += rigid_body_b.linear_vel;
-
-    *world_space_to_collision_space * collision_vel
 }
 
 fn apply_impulse(
