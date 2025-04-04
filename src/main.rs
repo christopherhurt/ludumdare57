@@ -709,60 +709,57 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                     let mesh_a = mesh_a.unwrap();
                     let mesh_b = mesh_b.unwrap();
 
-                    let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
-
                     if let Some(point_features) = collision.point_features {
-                        // TODO re-add me
-                        // let vertex_a = &mesh_a.vertices[point_features.0 as usize];
-                        // let vertex_pos_a = &(a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
+                        let vertex_a = &mesh_a.vertices[point_features.0 as usize];
+                        let vertex_pos_a = (*transform_a.to_world_mat() * vertex_a.pos.to_vec4(1.0)).xyz();
 
-                        // let face_b = (
-                        //     &mesh_b.vertices[point_features.1.0 as usize].pos,
-                        //     &mesh_b.vertices[point_features.1.1 as usize].pos,
-                        //     &mesh_b.vertices[point_features.1.2 as usize].pos,
-                        // );
+                        let face_b = (
+                            &(*transform_b.to_world_mat() * mesh_b.vertices[point_features.1.0 as usize].pos.to_vec4(1.0)).xyz(),
+                            &(*transform_b.to_world_mat() * mesh_b.vertices[point_features.1.1 as usize].pos.to_vec4(1.0)).xyz(),
+                            &(*transform_b.to_world_mat() * mesh_b.vertices[point_features.1.2 as usize].pos.to_vec4(1.0)).xyz(),
+                        );
 
-                        // if let Some(mut retained_collision) = get_point_collision(
-                        //     &collision.rigid_body_a,
-                        //     &collision.rigid_body_b,
-                        //     vertex_pos_a,
-                        //     face_b,
-                        //     COLLISION_CACHE_TOLERANCE,
-                        // ) {
-                        //     commands.detach_component::<RigidBodyCollision>(e);
+                        if let Some(mut retained_collision) = get_point_collision(
+                            &collision.rigid_body_a,
+                            &collision.rigid_body_b,
+                            &vertex_pos_a,
+                            face_b,
+                            transform_b.get_pos(),
+                            COLLISION_CACHE_TOLERANCE,
+                        ) {
+                            commands.detach_component::<RigidBodyCollision>(e);
 
-                        //     retained_collision.point_features = Some(point_features);
+                            retained_collision.point_features = Some(point_features);
 
-                        //     commands.attach_component(e, retained_collision);
-                        // } else {
+                            commands.attach_component(e, retained_collision);
+                        } else {
                             commands.destroy_entity(e);
-                        // }
+                        }
                     } else if let Some(edge_features) = collision.edge_features {
-                        // TODO re-add me
-                        // let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
-                        // let vertex_a_1 = &mesh_a.vertices[edge_features.0.1 as usize];
+                        let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
+                        let vertex_a_1 = &mesh_a.vertices[edge_features.0.1 as usize];
 
-                        // let vertex_pos_a_0 = &(a_to_b_space * vertex_a_0.pos.to_vec4(1.0)).xyz();
-                        // let vertex_pos_a_1 = &(a_to_b_space * vertex_a_1.pos.to_vec4(1.0)).xyz();
+                        let vertex_pos_a_0 = (*transform_a.to_world_mat() * vertex_a_0.pos.to_vec4(1.0)).xyz();
+                        let vertex_pos_a_1 = (*transform_a.to_world_mat() * vertex_a_1.pos.to_vec4(1.0)).xyz();
 
-                        // let vertex_pos_b_0 = &mesh_b.vertices[edge_features.1.0 as usize].pos;
-                        // let vertex_pos_b_1 = &mesh_b.vertices[edge_features.1.1 as usize].pos;
+                        let vertex_pos_b_0 = (*transform_b.to_world_mat() * mesh_b.vertices[edge_features.1.0 as usize].pos.to_vec4(1.0)).xyz();
+                        let vertex_pos_b_1 = (*transform_b.to_world_mat() * mesh_b.vertices[edge_features.1.1 as usize].pos.to_vec4(1.0)).xyz();
 
-                        // if let Some(mut retained_collision) = get_edge_collision(
-                        //     &collision.rigid_body_a,
-                        //     &collision.rigid_body_b,
-                        //     (vertex_pos_a_0, vertex_pos_a_1),
-                        //     (vertex_pos_b_0, vertex_pos_b_1),
-                        //     COLLISION_CACHE_TOLERANCE,
-                        // ) {
-                        //     commands.detach_component::<RigidBodyCollision>(e);
+                        if let Some(mut retained_collision) = get_edge_collision(
+                            &collision.rigid_body_a,
+                            &collision.rigid_body_b,
+                            (&vertex_pos_a_0, &vertex_pos_a_1),
+                            (&vertex_pos_b_0, &vertex_pos_b_1),
+                            COLLISION_CACHE_TOLERANCE,
+                        ) {
+                            commands.detach_component::<RigidBodyCollision>(e);
 
-                        //     retained_collision.edge_features = Some(edge_features);
+                            retained_collision.edge_features = Some(edge_features);
 
-                        //     commands.attach_component(e, retained_collision);
-                        // } else {
+                            commands.attach_component(e, retained_collision);
+                        } else {
                             commands.destroy_entity(e);
-                        // }
+                        }
                     } else {
                         panic!("Rigid body collision between entities {:?} and {:?} has no collision features", &collision.rigid_body_a, &collision.rigid_body_b);
                     }
@@ -920,8 +917,8 @@ fn get_x_based_collision_space_orthonormal_basis(collision_normal: &Vec3) -> Mat
         basis_x.cross(&VEC_3_X_AXIS).normalized().unwrap()
     };
 
-    // Keep the system left-handed
-    let basis_y = basis_x.cross(&basis_z).normalized().unwrap();
+    // Keep the system right-handed
+    let basis_y = basis_z.cross(&basis_x).normalized().unwrap();
 
     Mat3::from_columns(&basis_x, &basis_y, &basis_z)
 }
