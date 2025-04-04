@@ -930,7 +930,7 @@ fn adjust_penetrations(
     ang_movement_b: f32,
 ) {
     for e in collisions {
-        if let Some(affected_collision) = components.get_mut_component::<RigidBodyCollision>(e) {
+        if let Some(affected_collision) = components.get_mut_component::<RigidBodyCollision>(&e) {
             if let Some(c_cache) = affected_collision.cache.clone() {
                 if affected_collision.rigid_body_a == applied_collision.rigid_body_a {
                     update_penetration(affected_collision, &c_cache.collision_point_rel_a, linear_movement_a, ang_movement_a, 1.0);
