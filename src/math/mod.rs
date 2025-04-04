@@ -227,9 +227,9 @@ impl Vec3 {
     #[inline]
     pub fn cross(&self, vec: &Vec3) -> Vec3 {
         Vec3 {
-            x: self.z * vec.y - self.y * vec.z,
-            y: self.x * vec.z - self.z * vec.x,
-            z: self.y * vec.x - self.x * vec.y,
+            x: self.y * vec.z - self.z * vec.y,
+            y: self.z * vec.x - self.x * vec.z,
+            z: self.x * vec.y - self.y * vec.x,
         }
     }
 

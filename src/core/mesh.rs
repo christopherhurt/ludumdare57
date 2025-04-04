@@ -110,7 +110,7 @@ impl Mesh {
 impl Component for Mesh {}
 impl ComponentActions for Mesh {}
 
-pub fn load_obj_mesh(file_path: &str, normalize_positions: bool) -> Result<Mesh> {
+pub fn load_obj_mesh(file_path: &str, normalize_positions: bool, switch_handedness: bool) -> Result<Mesh> {
     let mut reader = BufReader::new(File::open(file_path)?);
 
     let (models, _) = tobj::load_obj_buf(
@@ -140,10 +140,12 @@ pub fn load_obj_mesh(file_path: &str, normalize_positions: bool) -> Result<Mesh>
             let source_index = *source_index as usize;
             let vec_3_offset = 3 * source_index;
 
+            let z_factor = if switch_handedness { -1.0 } else { 1.0 };
+
             let pos = vec3(
                 model.mesh.positions[vec_3_offset],
                 model.mesh.positions[vec_3_offset + 1],
-                model.mesh.positions[vec_3_offset + 2],
+                model.mesh.positions[vec_3_offset + 2] * z_factor,
             );
 
             let norm = if has_normals {

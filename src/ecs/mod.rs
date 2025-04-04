@@ -377,7 +377,7 @@ fn flush_all_commands(
                     return Err(anyhow!("System is not registered"));
                 }
 
-                system_managers.retain(|m| !std::ptr::eq(&m.borrow().system as *const _, &system as *const _));
+                system_managers.retain(|m| m.borrow().system != system);
             },
             SystemCommandType::Shutdown => {
                 *is_shutdown = true;

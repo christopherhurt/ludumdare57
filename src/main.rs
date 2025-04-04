@@ -14,7 +14,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_deepest_rigid_body_collision, get_edge_collision_local_to_b, get_point_collision_local_to_face, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -31,10 +31,33 @@ const FAR_PLANE: f32 = 1000.0;
 fn main() {
     pretty_env_logger::init();
 
+    test_code();
+
     let mut ecs = init_ecs();
     create_scene(&mut ecs);
 
     while ecs.invoke_systems() {}
+}
+
+// TODO: REMOVE ME
+fn test_code() {
+    // TODO
+    let face = (
+        &vec3(-25.0, -75.0, -25.0),
+        &vec3(-25.0, -25.0, -25.0),
+        &vec3(-25.0, -25.0, 25.0),
+    );
+
+    let collision = get_point_collision(
+        &Entity(0),
+        &Entity(1),
+        &vec3(-24.9, -33.0, -23.0),
+        face,
+        &vec3(0.0, -50.0, 0.0),
+        0.0,
+    );
+
+    println!("COLLISION: {:?}", collision);
 }
 
 fn init_ecs() -> ECS {
@@ -59,6 +82,7 @@ fn init_ecs() -> ECS {
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
         .with_component::<MousePickable>()
+        .with_component::<DebugController>()
         .build()
 }
 
@@ -82,42 +106,42 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 fn create_scene(ecs: &mut ECS) {
     let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
 
-    let cam = Camera::new(VEC_3_ZERO, VEC_3_Z_AXIS, VEC_3_Y_AXIS, 70.0_f32.to_radians());
+    let cam = Camera::new(VEC_3_ZERO, -VEC_3_Z_AXIS, VEC_3_Y_AXIS, 70.0_f32.to_radians());
     let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
 
     let cube_vertices = vec![
         // Front
-        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        // Left
-        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        // Back
-        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
         Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+        // Left
+        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+        // Back
+        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
         // Right
-        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
         Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
+        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
         // Top
-        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
         Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
         Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
         // Down
-        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
         Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
-        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
+        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
         Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
+        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
     ];
     let cube_indexes = vec![
         // Front
@@ -146,17 +170,17 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
     let plane_vertices = vec![
-        Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
         Vertex { pos: vec3(-0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
         Vertex { pos: vec3(0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+        Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
     ];
     let plane_indexes = vec![
         0, 1, 2, 2, 3, 0,
     ];
     let plane_mesh: Mesh = Mesh::new(plane_vertices, plane_indexes).unwrap();
     let (plane_mesh, _plane_physics_props) = generate_physics_mesh(plane_mesh, None).unwrap();
-    let plane_physics_props = PhysicsMeshProperties::new_immovable(1.0, VEC_3_ZERO, 0.75);
+    let plane_physics_props = PhysicsMeshProperties::new_immovable(1.0, VEC_3_ZERO, 1.0);
     let plane_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(plane_mesh.vertices.clone(), plane_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -166,7 +190,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh_binding);
     ecs.attach_provisional_component(&plane_mesh_entity, plane_physics_props.clone());
 
-    let bunny_mesh = load_obj_mesh("res/bunny.obj", true).unwrap();
+    let bunny_mesh = load_obj_mesh("res/bunny.obj", true, true).unwrap();
     let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, Some(100.0)).unwrap();
     let bunny_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
@@ -176,7 +200,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh);
     ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh_binding.clone());
 
-    let test_cube_transform = Transform::new(vec3(0.0, 0.0, 10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
+    let test_cube_transform = Transform::new(vec3(0.0, 0.0, -10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
     let test_cube_material = ColorMaterial::new(RED);
     let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, cube_physics_props.clone());
     let test_cube_entity = ecs.create_entity();
@@ -200,7 +224,7 @@ fn create_scene(ecs: &mut ECS) {
     // ecs.attach_provisional_component(&test_plane_entity, test_plane_mesh_binding.clone());
     ecs.attach_provisional_component(&test_plane_entity, test_cube_mesh_binding.clone());
 
-    let test_bunny_transform = Transform::new(vec3(20.0, -5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
+    let test_bunny_transform = Transform::new(vec3(20.0, 5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
     let test_bunny_material = ColorMaterial::new(WHITE);
     let test_bunny_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, bunny_physics_props.clone());
     let test_bunny_entity = ecs.create_entity();
@@ -235,7 +259,12 @@ fn create_scene(ecs: &mut ECS) {
     let quad_tree_entity = ecs.create_entity();
     ecs.attach_provisional_component(&quad_tree_entity, quad_tree);
 
+    let debug_controller = DebugController { is_paused: false, execute_single_frame: false };
+    let debug_controller_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&debug_controller_entity, debug_controller);
+
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
+    ecs.register_system(APPLY_DEBUG_CONTROLS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<DebugController>().unwrap()]), -900);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
@@ -298,6 +327,85 @@ const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &Compo
         transform.reset_changed_flags();
     });
 };
+
+const APPLY_DEBUG_CONTROLS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let debug = entites.clone().find_map(|e| components.get_mut_component::<DebugController>(e)).unwrap();
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+
+    if let Ok(window) = render_engine.get_window() {
+        if window.is_key_pressed(VirtualKey::J) {
+            if debug.is_paused {
+                unpause(components, commands);
+            } else {
+                pause(commands);
+            }
+
+            debug.is_paused = !debug.is_paused;
+        }
+
+        if !debug.is_paused && debug.execute_single_frame {
+            pause(commands);
+
+            debug.execute_single_frame = false;
+            debug.is_paused = true;
+        }
+
+        if window.is_key_down(VirtualKey::L) {
+            unpause(components, commands);
+
+            debug.execute_single_frame = true;
+            debug.is_paused = false;
+        }
+    }
+};
+
+fn pause(ecs: &mut ECSCommands) {
+    ecs.unregister_system(MOVE_CAMERA);
+    ecs.unregister_system(PICK_MESHES);
+    ecs.unregister_system(APPLY_DRAG);
+    ecs.unregister_system(APPLY_CEILING_SPRING);
+    ecs.unregister_system(APPLY_BUNGEE_SPRING);
+    ecs.unregister_system(APPLY_BUOYANCY);
+    ecs.unregister_system(APPLY_RIGID_BODY_FORCE);
+    ecs.unregister_system(APPLY_TETHER_BALL);
+    ecs.unregister_system(SHOOT_PROJECTILE);
+    ecs.unregister_system(UPDATE_PARTICLES);
+    ecs.unregister_system(UPDATE_RIGID_BODIES);
+    ecs.unregister_system(CHECK_OUT_OF_BOUNDS);
+    ecs.unregister_system(UPDATE_QUAD_TREE);
+    ecs.unregister_system(DETECT_PARTICLE_COLLISIONS);
+    ecs.unregister_system(DETECT_PARTICLE_CABLE_COLLISIONS);
+    ecs.unregister_system(DETECT_PARTICLE_ROD_COLLISIONS);
+    ecs.unregister_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS);
+    ecs.unregister_system(DETECT_RIGID_BODY_COLLISIONS);
+    ecs.unregister_system(RESOLVE_PARTICLE_COLLISIONS);
+    ecs.unregister_system(RESOLVE_RIGID_BODY_COLLISIONS);
+    ecs.unregister_system(RESET_TRANSFORM_FLAGS);
+}
+
+fn unpause(components: &ComponentManager, ecs: &mut ECSCommands) {
+    ecs.register_system(MOVE_CAMERA, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap(), components.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
+    ecs.register_system(PICK_MESHES, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap(), components.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
+    ecs.register_system(APPLY_DRAG, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
+    ecs.register_system(APPLY_BUOYANCY, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_RIGID_BODY_FORCE, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(APPLY_TETHER_BALL, HashSet::from([components.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
+    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_1::<MeshBinding>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap(), components.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
+    ecs.register_system(UPDATE_PARTICLES, HashSet::from([components.get_system_signature_2::<Transform, Particle>().unwrap(), components.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
+    ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([components.get_system_signature_2::<Transform, RigidBody>().unwrap(), components.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
+    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([components.get_system_signature_1::<Transform>().unwrap()]), -200);
+    ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([components.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), components.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
+    ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([components.get_system_signature_2::<Transform, Particle>().unwrap(), components.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
+    ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([components.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
+    ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([components.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
+    ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
+    ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
+    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([components.get_system_signature_1::<TimeDelta>().unwrap(), components.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
+    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
+    ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([components.get_system_signature_1::<Transform>().unwrap()]), 3);
+}
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
@@ -627,6 +735,7 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                     let a_to_b_space = transform_b.to_world_mat().inverted().unwrap() * *transform_a.to_world_mat();
 
                     if let Some(point_features) = collision.point_features {
+                        // TODO re-add me
                         // let vertex_a = &mesh_a.vertices[point_features.0 as usize];
                         // let vertex_pos_a = &(a_to_b_space * vertex_a.pos.to_vec4(1.0)).xyz();
 
@@ -652,6 +761,7 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
                             commands.destroy_entity(e);
                         // }
                     } else if let Some(edge_features) = collision.edge_features {
+                        // TODO re-add me
                         // let vertex_a_0 = &mesh_a.vertices[edge_features.0.0 as usize];
                         // let vertex_a_1 = &mesh_a.vertices[edge_features.0.1 as usize];
 
@@ -726,8 +836,8 @@ const RESOLVE_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components
                 let impulse_collision_space = vec3(target_delta_vel / total_inertia, 0.0, 0.0);
                 let impulse_world = collision_space_to_world_space * impulse_collision_space;
 
-                apply_impulse(transform_a, rigid_body_a, collision, &-impulse_world);
-                apply_impulse(transform_b, rigid_body_b, collision, &impulse_world);
+                apply_impulse(transform_a, rigid_body_a, collision, &impulse_world);
+                apply_impulse(transform_b, rigid_body_b, collision, &-impulse_world);
 
                 let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, collision, linear_inertia_a, ang_inertia_a, total_inertia);
                 let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, collision, linear_inertia_b, ang_inertia_b, total_inertia);
@@ -1365,3 +1475,13 @@ struct MousePickable {}
 
 impl Component for MousePickable {}
 impl ComponentActions for MousePickable {}
+
+// DebugController
+
+struct DebugController {
+    is_paused: bool,
+    execute_single_frame: bool,
+}
+
+impl Component for DebugController {}
+impl ComponentActions for DebugController {}

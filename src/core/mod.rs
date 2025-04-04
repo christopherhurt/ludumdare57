@@ -188,11 +188,13 @@ impl Transform {
     }
 
     pub fn set_pos(&mut self, pos: Vec3) {
-        self.pos = pos;
+        if self.pos != pos {
+            self.pos = pos;
 
-        self.pos_changed = true;
+            self.pos_changed = true;
 
-        self.world_mat = None;
+            self.world_mat = None;
+        }
     }
 
     pub fn get_rot(&self) -> &Quat {
@@ -200,12 +202,14 @@ impl Transform {
     }
 
     pub fn set_rot(&mut self, rot: Quat) {
-        self.rot = rot;
+        if self.rot != rot {
+            self.rot = rot;
 
-        self.rot_changed = true;
+            self.rot_changed = true;
 
-        self.world_mat = None;
-        self.rot_mat = None;
+            self.world_mat = None;
+            self.rot_mat = None;
+        }
     }
 
     pub fn get_scl(&self) -> &Vec3 {
@@ -213,12 +217,14 @@ impl Transform {
     }
 
     pub fn set_scl(&mut self, scl: Vec3) {
-        self.scl = scl;
+        if self.scl != scl {
+            self.scl = scl;
 
-        self.scl_changed = true;
+            self.scl_changed = true;
 
-        self.world_mat = None;
-        self.scl_mat = None;
+            self.world_mat = None;
+            self.scl_mat = None;
+        }
     }
 }
 
