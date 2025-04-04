@@ -1022,36 +1022,41 @@ pub(in crate) fn get_point_collision(
     let (p0, p1, p2) = face_b;
     let p3 = face_center_of_mass;
 
-    // Face 0 - p0, p1, p2
     if let Ok(n0) = (*p2 - *p0).cross(&(*p1 - *p0)).normalized() {
-        // Face 1 - p3, p1, p0
-        if let Ok(n1) = (*p0 - *p3).cross(&(*p1 - *p3)).normalized() {
-            // Face 2 - p3, p2, p1
-            if let Ok(n2) = (*p1 - *p3).cross(&(*p2 - *p3)).normalized() {
-                // Face 3 - p3, p0, p2
-                if let Ok(n3) = (*p2 - *p3).cross(&(*p0 - *p3)).normalized() {
-                    if is_inside_triangle(p0, p1, p2, vertex_a, &n0, tolerance)
-                            && is_inside_triangle(p3, p1, p0, vertex_a, &n1, tolerance)
-                            && is_inside_triangle(p3, p2, p1, vertex_a, &n2, tolerance)
-                            && is_inside_triangle(p3, p0, p2, vertex_a, &n3, tolerance) {
-                        let penetration: f32 = (*p0 - *vertex_a).dot(&n0);
+        let tolerated_vertex = *vertex_a + n0 * tolerance;
 
-                        return Some(
-                            RigidBodyCollision::new(
-                                *entity_a,
-                                *entity_b,
-                                *vertex_a + n0 * (penetration / 2.0),
-                                n0,
-                                penetration,
-                            )
-                        );
-                    }
-                }
-            }
+        if is_inside_tetrahedron(p0, p1, p2, p3, &tolerated_vertex) {
+            let penetration: f32 = (*p0 - *vertex_a).dot(&n0);
+
+            return Some(
+                RigidBodyCollision::new(
+                    *entity_a,
+                    *entity_b,
+                    *vertex_a + n0 * (penetration / 2.0),
+                    n0,
+                    penetration,
+                )
+            );
         }
     }
 
     None
+}
+
+fn is_inside_tetrahedron(p0: &Vec3, p1: &Vec3, p2: &Vec3, p3: &Vec3, q: &Vec3) -> bool {
+    // https://stackoverflow.com/questions/25179693/how-to-check-whether-the-point-is-in-the-tetrahedron-or-not
+    is_same_side_of_plane(p0, p1, p2, p3, q)
+        && is_same_side_of_plane(p3, p1, p0, p2, q)
+        && is_same_side_of_plane(p3, p2, p1, p0, q)
+        && is_same_side_of_plane(p3, p0, p2, p1, q)
+}
+
+fn is_same_side_of_plane(p0: &Vec3, p1: &Vec3, p2: &Vec3, v: &Vec3, q: &Vec3) -> bool {
+    let n = (*p1 - *p0).cross(&(*p2 - *p0));
+    let dot_v = n.dot(&(*v - *p0));
+    let dot_p = n.dot(&(*q - *p0));
+
+    (dot_v.is_sign_positive() && dot_p.is_sign_positive()) || (dot_v.is_sign_negative() && dot_p.is_sign_negative())
 }
 
 fn _get_shallowest_edge_collision(

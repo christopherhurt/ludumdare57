@@ -31,33 +31,10 @@ const FAR_PLANE: f32 = 1000.0;
 fn main() {
     pretty_env_logger::init();
 
-    test_code();
-
     let mut ecs = init_ecs();
     create_scene(&mut ecs);
 
     while ecs.invoke_systems() {}
-}
-
-// TODO: REMOVE ME
-fn test_code() {
-    // TODO
-    let face = (
-        &vec3(-25.0, -75.0, -25.0),
-        &vec3(-25.0, -25.0, -25.0),
-        &vec3(-25.0, -25.0, 25.0),
-    );
-
-    let collision = get_point_collision(
-        &Entity(0),
-        &Entity(1),
-        &vec3(-24.9, -33.0, -23.0),
-        face,
-        &vec3(0.0, -50.0, 0.0),
-        0.0,
-    );
-
-    println!("COLLISION: {:?}", collision);
 }
 
 fn init_ecs() -> ECS {
