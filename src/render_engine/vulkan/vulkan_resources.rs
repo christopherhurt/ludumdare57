@@ -96,7 +96,21 @@ pub(in crate::render_engine::vulkan) unsafe fn pick_physical_device(instance: &I
     for physical_device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(physical_device);
 
-        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties);
+        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties, true);
+        if let Err(error) = is_suitable {
+            warn!("Skipping physical device (`{}`): {}", properties.device_name, error);
+        } else if !is_suitable.unwrap() {
+            warn!("Skipping unsuitable physical device (`{}`)", properties.device_name);
+        } else {
+            info!("Selected physical device (`{}`).", properties.device_name);
+            return Ok(physical_device);
+        }
+    }
+
+    for physical_device in instance.enumerate_physical_devices()? {
+        let properties = instance.get_physical_device_properties(physical_device);
+
+        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties, false);
         if let Err(error) = is_suitable {
             warn!("Skipping physical device (`{}`): {}", properties.device_name, error);
         } else if !is_suitable.unwrap() {
@@ -115,9 +129,10 @@ unsafe fn is_suitable_physical_device(
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
     properties: vk::PhysicalDeviceProperties,
+    want_discrete_gpu: bool,
 ) -> Result<bool> {
     // Check whether the user is poor
-    if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+    if want_discrete_gpu && properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
         return Ok(false);
     }
 
