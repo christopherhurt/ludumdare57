@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Mat3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
 use rand::Rng;
 use core::{GRAY, IDENTITY_SCALE_VEC, RED};
@@ -1046,13 +1046,49 @@ fn adjust_target_delta_velocities(
         if let Some(affected_collision) = components.get_mut_component::<RigidBodyCollision>(&e) {
             if let Some(c_cache) = affected_collision.cache.as_ref() {
                 if affected_collision.rigid_body_a == applied_collision.rigid_body_a {
-                    update_target_delta_vel(applied_collision, affected_collision, &c_cache.collision_point_rel_a.clone(), linear_movement_a, ang_movement_a, delta_sec, -1.0);
+                    update_target_delta_vel(
+                        applied_collision,
+                        affected_collision,
+                        &c_cache.collision_point_rel_a.clone(),
+                        &c_cache.world_to_collision_space.clone(),
+                        linear_movement_a,
+                        ang_movement_a,
+                        delta_sec,
+                        -1.0,
+                    );
                 } else if affected_collision.rigid_body_b == applied_collision.rigid_body_a {
-                    update_target_delta_vel(applied_collision, affected_collision, &c_cache.collision_point_rel_b.clone(), linear_movement_a, ang_movement_a, delta_sec, 1.0);
+                    update_target_delta_vel(
+                        applied_collision,
+                        affected_collision,
+                        &c_cache.collision_point_rel_b.clone(),
+                        &c_cache.world_to_collision_space.clone(),
+                        linear_movement_a,
+                        ang_movement_a,
+                        delta_sec,
+                        1.0,
+                    );
                 } else if affected_collision.rigid_body_a == applied_collision.rigid_body_b {
-                    update_target_delta_vel(applied_collision, affected_collision, &c_cache.collision_point_rel_a.clone(), linear_movement_b, ang_movement_b, delta_sec, -1.0);
+                    update_target_delta_vel(
+                        applied_collision,
+                        affected_collision,
+                        &c_cache.collision_point_rel_a.clone(),
+                        &c_cache.world_to_collision_space.clone(),
+                        linear_movement_b,
+                        ang_movement_b,
+                        delta_sec,
+                        -1.0,
+                    );
                 } else if affected_collision.rigid_body_b == applied_collision.rigid_body_b {
-                    update_target_delta_vel(applied_collision, affected_collision, &c_cache.collision_point_rel_b.clone(), linear_movement_b, ang_movement_b, delta_sec, 1.0);
+                    update_target_delta_vel(
+                        applied_collision,
+                        affected_collision,
+                        &c_cache.collision_point_rel_b.clone(),
+                        &c_cache.world_to_collision_space.clone(),
+                        linear_movement_b,
+                        ang_movement_b,
+                        delta_sec,
+                        1.0,
+                    );
                 }
             }
         }
@@ -1063,12 +1099,20 @@ fn update_target_delta_vel(
     applied_collision: &RigidBodyCollision,
     affected_collision: &mut RigidBodyCollision,
     affected_rel_collision_point: &Vec3,
+    world_to_collision_space: &Mat3,
     linear_movement: f32,
     ang_movement: f32,
     delta_sec: f32,
     delta_sign: f32,
 ) {
-    // TODO
+    let linear_delta = applied_collision.normal * linear_movement;
+    let ang_delta = applied_collision.normal * ang_movement;
+
+    let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta);
+
+    affected_collision.cache.as_mut().unwrap().collision_space_vel -= *world_to_collision_space * delta_pen;
+
+    // TODO: calculate target del vel
 }
 
 // TODO: make built in

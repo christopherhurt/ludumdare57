@@ -864,16 +864,13 @@ pub type EdgeCollisionFeatures = (Edge, Edge);
 pub(in crate) struct RigidBodyCollisionCache {
     pub(in crate) collision_point_rel_a: Vec3,
     pub(in crate) collision_point_rel_b: Vec3,
-    pub(in crate) inverse_mass_a: Option<f32>,
-    pub(in crate) inverse_mass_b: Option<f32>,
-    pub(in crate) inverse_inertia_tensor_world_a: Option<Mat3>,
-    pub(in crate) inverse_inertia_tensor_world_b: Option<Mat3>,
     pub(in crate) linear_inertia_a: f32,
     pub(in crate) linear_inertia_b: f32,
     pub(in crate) ang_inertia_a: f32,
     pub(in crate) ang_inertia_b: f32,
     pub(in crate) collision_to_world_space: Mat3,
     pub(in crate) world_to_collision_space: Mat3,
+    pub(in crate) collision_space_vel: Vec3,
     pub(in crate) target_delta_vel: f32,
 }
 
@@ -881,31 +878,25 @@ impl RigidBodyCollisionCache {
     fn new(
         collision_point_rel_a: Vec3,
         collision_point_rel_b: Vec3,
-        inverse_mass_a: Option<f32>,
-        inverse_mass_b: Option<f32>,
-        inverse_inertia_tensor_world_a: Option<Mat3>,
-        inverse_inertia_tensor_world_b: Option<Mat3>,
         linear_inertia_a: f32,
         linear_inertia_b: f32,
         ang_inertia_a: f32,
         ang_inertia_b: f32,
         collision_to_world_space: Mat3,
         world_to_collision_space: Mat3,
+        collision_space_vel: Vec3,
         target_delta_vel: f32,
     ) -> Self {
         Self {
             collision_point_rel_a,
             collision_point_rel_b,
-            inverse_mass_a,
-            inverse_mass_b,
-            inverse_inertia_tensor_world_a,
-            inverse_inertia_tensor_world_b,
             linear_inertia_a,
             linear_inertia_b,
             ang_inertia_a,
             ang_inertia_b,
             collision_to_world_space,
             world_to_collision_space,
+            collision_space_vel,
             target_delta_vel,
         }
     }
@@ -1011,16 +1002,13 @@ impl RigidBodyCollision {
                 RigidBodyCollisionCache::new(
                     collision_point_rel_a,
                     collision_point_rel_b,
-                    inverse_mass_a,
-                    inverse_mass_b,
-                    inverse_inertia_tensor_world_a,
-                    inverse_inertia_tensor_world_b,
                     linear_inertia_a,
                     linear_inertia_b,
                     ang_inertia_a,
                     ang_inertia_b,
                     collision_to_world_space,
                     world_to_collision_space,
+                    collision_space_vel,
                     target_delta_vel,
                 )
             );
