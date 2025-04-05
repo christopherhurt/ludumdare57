@@ -1003,8 +1003,8 @@ fn get_highest_vel_collision(
 ) -> Option<Entity> {
     collisions
         .map(|e| (e, components.get_component::<RigidBodyCollision>(&e).unwrap()))
-        .min_by(|a, b| a.1.cache.as_ref().unwrap().target_delta_vel.partial_cmp(&b.1.cache.as_ref().unwrap().target_delta_vel).unwrap_or(Ordering::Less))
-        .filter(|(_, c)| c.cache.as_ref().unwrap().target_delta_vel.abs() < -f32::EPSILON)
+        .max_by(|a, b| a.1.cache.as_ref().unwrap().target_delta_vel.partial_cmp(&b.1.cache.as_ref().unwrap().target_delta_vel).unwrap_or(Ordering::Less))
+        .filter(|(_, c)| c.cache.as_ref().unwrap().target_delta_vel.abs() > f32::EPSILON)
         .map(|(e, _)| e)
 }
 
