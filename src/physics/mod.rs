@@ -913,7 +913,7 @@ pub struct RigidBodyCollision {
     pub point: Vec3,
     pub normal: Vec3,
     pub penetration: f32,
-    restitution: f32,
+    pub restitution: f32,
 
     pub point_features: Option<PointCollisionFeatures>, // Always a point, b face
     pub edge_features: Option<EdgeCollisionFeatures>, // Always a edge, then b edge

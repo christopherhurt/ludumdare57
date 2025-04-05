@@ -1102,7 +1102,7 @@ fn update_target_delta_vel(
     world_to_collision_space: &Mat3,
     linear_movement: f32,
     ang_movement: f32,
-    delta_sec: f32,
+    _delta_sec: f32,
     delta_sign: f32,
 ) {
     let linear_delta = applied_collision.normal * linear_movement;
@@ -1112,7 +1112,20 @@ fn update_target_delta_vel(
 
     affected_collision.cache.as_mut().unwrap().collision_space_vel += *world_to_collision_space * delta_pen;
 
-    // TODO: calculate target del vel
+    let vel_from_last_frame_acc = 0.0; // TODO compute this
+
+    let collision_vel = affected_collision.cache.as_mut().unwrap().collision_space_vel.x;
+
+    const ELASTICITY_SPEED_LIMIT: f32 = 0.01;
+
+    let restitution = if collision_vel.abs() < ELASTICITY_SPEED_LIMIT {
+        0.0
+    } else {
+        affected_collision.restitution
+    };
+
+    affected_collision.cache.as_mut().unwrap().target_delta_vel =
+        -collision_vel - restitution * (collision_vel - vel_from_last_frame_acc);
 }
 
 // TODO: make built in
