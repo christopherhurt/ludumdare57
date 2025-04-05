@@ -256,18 +256,22 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
     if let Ok(window) = render_engine.get_window_mut() {
         let rel_center_pos = vec2(window.get_width() as f32 / 2.0, window.get_height() as f32 / 2.0);
         let window_screen_pos = window.get_screen_position();
-        let cursor_screen_pos = window.get_mouse_screen_position();
+        let cursor_screen_pos = window.get_mouse_screen_position().map(|p| *p);
 
         let center_pos = window_screen_pos + rel_center_pos;
 
         if let Some(cursor_screen_pos) = cursor_screen_pos {
-            if !cursor_manager.is_locked && window.is_button_down(VirtualButton::Left) {
-                window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+            if !cursor_manager.is_locked && window.is_button_pressed(VirtualButton::Left) {
+                if !cursor_manager.just_locked {
+                    window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
+                }
+
+                if (cursor_screen_pos - rel_center_pos).len() > f32::EPSILON {
+                    window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+                }
 
                 cursor_manager.cursor_delta = VEC_2_ZERO;
                 cursor_manager.just_locked = true;
-
-                window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
 
                 cursor_manager.cursor_delta = VEC_2_ZERO;
             } else if cursor_manager.is_locked && esc_pressed {
@@ -277,12 +281,12 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
 
                 cursor_manager.cursor_delta = VEC_2_ZERO;
             } else if cursor_manager.is_locked {
-                cursor_manager.cursor_delta = *cursor_screen_pos - rel_center_pos;
+                cursor_manager.cursor_delta = cursor_screen_pos - rel_center_pos;
 
                 if cursor_manager.cursor_delta.len() > f32::EPSILON {
                     window.set_mouse_screen_position(&center_pos).unwrap_or_default();
                 }
-            } else if cursor_manager.just_locked && (*cursor_screen_pos - rel_center_pos).len() < 1.0 {
+            } else if cursor_manager.just_locked && (cursor_screen_pos - rel_center_pos).len() < 1.0 {
                 cursor_manager.just_locked = false;
                 cursor_manager.is_locked = true;
             }
