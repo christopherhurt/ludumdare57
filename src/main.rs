@@ -278,16 +278,16 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         commands.attach_provisional_component(&viewport_entity, viewport);
         commands.attach_provisional_component(&viewport_entity, LevelEntity {});
 
-        let player = Player { y_vel: 0.0, is_jumping: false };
-        let player_entity = commands.create_entity();
-        commands.attach_provisional_component(&player_entity, player);
-        commands.attach_provisional_component(&player_entity, LevelEntity {});
+        const CUBE_SIZE: f32 = 10.0;
 
-        // TODO: load from level/level ID
-        const CUBE_SIZE: f32 = 5.0;
-        for i in -10..10 {
-            for j in -10..10 {
-                let cube_pos = vec3(i as f32 * CUBE_SIZE, 0.0, j as f32 * CUBE_SIZE);
+        let level_dim: u32 = 21; // TODO: load from file?
+
+        for i in 0..level_dim {
+            for j in 0..level_dim {
+                let x_pos = i as f32 - (level_dim as f32 - 1.0) / 2.0;
+                let z_pos = j as f32 - (level_dim as f32 - 1.0) / 2.0;
+
+                let cube_pos = vec3(x_pos * CUBE_SIZE, 0.0, z_pos * CUBE_SIZE);
 
                 let cube_transform = Transform::new(cube_pos, QUAT_IDENTITY, IDENTITY_SCALE_VEC * CUBE_SIZE);
                 let cube_entity = commands.create_entity();
@@ -296,6 +296,18 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 commands.attach_provisional_component(&cube_entity, cube_mesh_binding.clone());
             }
         }
+
+        let player = Player {
+            y_vel: 0.0,
+            is_jumping: false,
+            health_percentage: 1.0,
+            max_health: 100,
+            level_width: level_dim as f32 * CUBE_SIZE,
+            level_height: level_dim  as f32 * CUBE_SIZE,
+        };
+        let player_entity = commands.create_entity();
+        commands.attach_provisional_component(&player_entity, player);
+        commands.attach_provisional_component(&player_entity, LevelEntity {});
 
         level_loader.next_level_id += 1;
         level_loader.should_load = false;
@@ -381,8 +393,8 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
     let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
 
     const PLAYER_GRAVITY: f32 = -40.0;
-    const MIN_PLAYER_HEIGHT: f32 = 8.0;
-    const JUMP_VEL: f32 = 30.0;
+    const MIN_PLAYER_HEIGHT: f32 = 15.0;
+    const JUMP_VEL: f32 = 20.0;
 
     player.y_vel += PLAYER_GRAVITY * delta_sec;
 
