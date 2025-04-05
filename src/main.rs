@@ -58,6 +58,7 @@ fn init_ecs() -> ECS {
         .with_component::<CubeMeshOwner>()
         .with_component::<MousePickable>()
         .with_component::<CursorManager>()
+        .with_component::<Player>()
         .build()
 }
 
@@ -140,10 +141,14 @@ fn create_scene(ecs: &mut ECS) {
     let cursor_manager_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cursor_manager_entity, cursor_manager);
 
+    let player = Player { y_vel: 0.0, is_jumping: false };
+    let player_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&player_entity, player);
+
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
-    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
+    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
@@ -257,52 +262,70 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
     let cursor_manager = entites.clone().find_map(|e| components.get_mut_component::<CursorManager>(e)).unwrap();
+    let cam = &mut entites.clone().find_map(|e| components.get_mut_component::<Viewport2D>(e)).unwrap().cam;
+    let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
+
+    const PLAYER_GRAVITY: f32 = -40.0;
+    const MIN_PLAYER_HEIGHT: f32 = -10.0; // TODO: update this to a positive val
+    const JUMP_VEL: f32 = 30.0;
+
+    player.y_vel += PLAYER_GRAVITY * delta_sec;
 
     if let Ok(window) = render_engine.get_window() {
-        for e in entites {
-            if let Some(viewport) = components.get_mut_component::<Viewport2D>(e) {
-                let cam = &mut viewport.cam;
+        let mut move_dir = VEC_3_ZERO;
+        let cam_right_norm = cam.dir.cross(&cam.up).normalized().unwrap();
 
-                let mut move_dir = VEC_3_ZERO;
-                let cam_right_norm = cam.dir.cross(&cam.up).normalized().unwrap();
+        let move_forward = vec3(cam.dir.x, 0.0, cam.dir.z).normalized().unwrap();
+        let move_right = vec3(cam_right_norm.x, 0.0, cam_right_norm.z).normalized().unwrap();
 
-                let move_forward = vec3(cam.dir.x, 0.0, cam.dir.z).normalized().unwrap();
-                let move_right = vec3(cam_right_norm.x, 0.0, cam_right_norm.z).normalized().unwrap();
-
-                if window.is_key_down(VirtualKey::W) {
-                    move_dir += move_forward;
-                }
-                if window.is_key_down(VirtualKey::S) {
-                    move_dir -= move_forward;
-                }
-                if window.is_key_down(VirtualKey::D) {
-                    move_dir += move_right;
-                }
-                if window.is_key_down(VirtualKey::A) {
-                    move_dir -= move_right;
-                }
-
-                let move_speed = 25.0 * time_delta.since_last_frame.as_secs_f32();
-                if let Ok(dir) = move_dir.normalized() {
-                    cam.pos += dir * move_speed;
-                }
-
-                let rot_speed = (70.0 * time_delta.since_last_frame.as_secs_f32()).to_radians();
-                if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
-                    let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
-
-                    cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
-                    cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
-                }
-                if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
-                    let rot_amt = rot_speed * -cursor_manager.cursor_delta.y;
-
-                    cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
-                    cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
-                }
-            }
+        if window.is_key_down(VirtualKey::W) {
+            move_dir += move_forward;
         }
+        if window.is_key_down(VirtualKey::S) {
+            move_dir -= move_forward;
+        }
+        if window.is_key_down(VirtualKey::D) {
+            move_dir += move_right;
+        }
+        if window.is_key_down(VirtualKey::A) {
+            move_dir -= move_right;
+        }
+
+        let move_speed = 25.0 * delta_sec;
+        if let Ok(dir) = move_dir.normalized() {
+            cam.pos += dir * move_speed;
+        }
+
+        let rot_speed = (70.0 * delta_sec).to_radians();
+        if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
+            let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
+
+            cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
+            cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
+        }
+        if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
+            let rot_amt = rot_speed * -cursor_manager.cursor_delta.y;
+
+            cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+            cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+        }
+
+        if window.is_key_down(VirtualKey::Space) && !player.is_jumping {
+            player.y_vel += JUMP_VEL;
+
+            player.is_jumping = true;
+        }
+    }
+
+    cam.pos.y += player.y_vel * delta_sec;
+
+    if cam.pos.y <= MIN_PLAYER_HEIGHT {
+        cam.pos.y = MIN_PLAYER_HEIGHT;
+
+        player.is_jumping = false;
+        player.y_vel = 0.0;
     }
 };
 
@@ -872,3 +895,11 @@ struct CursorManager {
 
 impl Component for CursorManager {}
 impl ComponentActions for CursorManager {}
+
+struct Player {
+    y_vel: f32,
+    is_jumping: bool,
+}
+
+impl Component for Player {}
+impl ComponentActions for Player {}
