@@ -267,23 +267,20 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 let mut move_dir = VEC_3_ZERO;
                 let cam_right_norm = cam.dir.cross(&cam.up).normalized().unwrap();
 
+                let move_forward = vec3(cam.dir.x, 0.0, cam.dir.z).normalized().unwrap();
+                let move_right = vec3(cam_right_norm.x, 0.0, cam_right_norm.z).normalized().unwrap();
+
                 if window.is_key_down(VirtualKey::W) {
-                    move_dir += cam.dir.normalized().unwrap();
+                    move_dir += move_forward;
                 }
                 if window.is_key_down(VirtualKey::S) {
-                    move_dir -= cam.dir.normalized().unwrap();
+                    move_dir -= move_forward;
                 }
                 if window.is_key_down(VirtualKey::D) {
-                    move_dir += cam_right_norm;
+                    move_dir += move_right;
                 }
                 if window.is_key_down(VirtualKey::A) {
-                    move_dir -= cam_right_norm;
-                }
-                if window.is_key_down(VirtualKey::Q) {
-                    move_dir += cam.up.normalized().unwrap();
-                }
-                if window.is_key_down(VirtualKey::E) {
-                    move_dir -= cam.up.normalized().unwrap();
+                    move_dir -= move_right;
                 }
 
                 let move_speed = 25.0 * time_delta.since_last_frame.as_secs_f32();
