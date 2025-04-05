@@ -13,6 +13,7 @@ use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DebugUtilsMessengerEXT, ExtDebugUtilsExtension, KhrSurfaceExtension, KhrSwapchainExtension, SurfaceKHR};
 use vulkanalia::window as vk_window;
+use winapi::um::winuser::{SetCursorPos, ShowCursor};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -24,7 +25,7 @@ use crate::core::Color;
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::math::{mat3, Mat3, vec2, Vec2};
+use crate::math::{mat3, vec2, Mat3, Vec2, VEC_2_ZERO};
 use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualButton, VirtualKey, VirtualElementState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
@@ -69,8 +70,12 @@ pub struct VulkanRenderEngine {
     buttons_receiver: Receiver<(VirtualButton, VirtualElementState)>,
     mouse_pos: Option<Vec2>,
     mouse_pos_receiver: Receiver<Option<Vec2>>,
+    mouse_pos_sender: SyncSender<Vec2>,
+    mouse_visible_sender: SyncSender<bool>,
     window_extent: vk::Extent2D,
     window_extent_receiver: Receiver<vk::Extent2D>,
+    window_screen_position: Vec2,
+    window_screen_position_receiver: Receiver<Vec2>,
     is_closing: Arc<AtomicBool>,
     render_thread_join_handle: Option<JoinHandle<()>>,
 }
@@ -88,10 +93,14 @@ struct VulkanApplication {
     keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
     buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
     mouse_pos_sender: SyncSender<Option<Vec2>>,
+    mouse_pos_receiver: Receiver<Vec2>,
+    mouse_visible_receiver: Receiver<bool>,
     window_extent_sender: SyncSender<vk::Extent2D>,
+    window_screen_position_sender: SyncSender<Vec2>,
     context: Option<VulkanContext>,
     swapchain_fences: Vec<vk::Fence>,
     frame: usize,
+    window_pos_sent: bool, // TODO: THIS IS SCUFFED
 }
 
 struct VulkanContext {
@@ -383,7 +392,10 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualElementState)>(256);
         let (buttons_sender, buttons_receiver) = mpsc::sync_channel::<(VirtualButton, VirtualElementState)>(256);
         let (mouse_pos_sender, mouse_pos_receiver) = mpsc::sync_channel::<Option<Vec2>>(256);
+        let (downstream_mouse_pos_sender, downstream_mouse_pos_receiver) = mpsc::sync_channel::<Vec2>(256);
+        let (mouse_visible_sender, mouse_visible_receiver) = mpsc::sync_channel::<bool>(256);
         let (window_extent_sender, window_extent_receiver) = mpsc::sync_channel::<vk::Extent2D>(256);
+        let (window_screen_position_sender, window_screen_position_receiver) = mpsc::sync_channel::<Vec2>(256);
 
         let is_closing = Arc::new(AtomicBool::new(false));
 
@@ -393,7 +405,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let join_handle: JoinHandle<()> = thread::spawn(move || {
             // TODO: clean up Windows-specific module dependency
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
-            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, mouse_pos_sender, window_extent_sender, moved_is_closing).unwrap();
+            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, mouse_pos_sender, downstream_mouse_pos_receiver, mouse_visible_receiver, window_extent_sender, window_screen_position_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
 
@@ -415,8 +427,12 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
                 buttons_receiver,
                 mouse_pos: None,
                 mouse_pos_receiver,
+                mouse_pos_sender: downstream_mouse_pos_sender,
+                mouse_visible_sender,
                 window_extent: vk::Extent2D { width, height },
                 window_extent_receiver,
+                window_screen_position: VEC_2_ZERO,
+                window_screen_position_receiver,
                 is_closing,
                 render_thread_join_handle: Some(join_handle),
             }
@@ -476,6 +492,11 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         // Window extent
         while let Ok(window_extent) = self.window_extent_receiver.try_recv() {
             self.window_extent = window_extent;
+        }
+
+        // Window screen position
+        while let Ok(window_screen_position) = self.window_screen_position_receiver.try_recv() {
+            self.window_screen_position = window_screen_position;
         }
 
         // Render state
@@ -542,6 +563,10 @@ impl Window for VulkanRenderEngine {
         self.window_extent.height
     }
 
+    fn get_screen_position(&self) -> Vec2 {
+        self.window_screen_position
+    }
+
     fn is_key_down(&self, key: VirtualKey) -> bool {
         *self.keys_down.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))
     }
@@ -568,6 +593,14 @@ impl Window for VulkanRenderEngine {
 
     fn get_mouse_screen_position(&self) -> Option<&Vec2> {
         self.mouse_pos.as_ref()
+    }
+
+    fn set_mouse_screen_position(&mut self, screen_pos: &Vec2) -> Result<()> {
+        self.mouse_pos_sender.send(*screen_pos).map_err(|e| anyhow!(e))
+    }
+
+    fn set_mouse_cursor_visible(&mut self, is_visible: bool) -> Result<()> {
+        self.mouse_visible_sender.send(is_visible).map_err(|e| anyhow!(e))
     }
 
     fn get_ndc_to_screen_space_transform(&self) -> Mat3 {
@@ -612,7 +645,10 @@ impl VulkanApplication {
         keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
         buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
         mouse_pos_sender: SyncSender<Option<Vec2>>,
+        mouse_pos_receiver: Receiver<Vec2>,
+        mouse_visible_receiver: Receiver<bool>,
         window_extent_sender: SyncSender<vk::Extent2D>,
+        window_screen_position_sender: SyncSender<Vec2>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
         Ok(
@@ -626,10 +662,14 @@ impl VulkanApplication {
                 keys_sender,
                 buttons_sender,
                 mouse_pos_sender,
+                mouse_pos_receiver,
+                mouse_visible_receiver,
                 window_extent_sender,
+                window_screen_position_sender,
                 context: None,
                 swapchain_fences: (0..MAX_FRAMES_IN_FLIGHT).map(|_| vk::Fence::null()).collect(),
                 frame: 0,
+                window_pos_sent: false,
             }
         )
     }
@@ -778,6 +818,35 @@ impl ApplicationHandler for VulkanApplication {
 
     fn about_to_wait(&mut self, _: &ActiveEventLoop) {
         if let Some(context) = self.context.as_ref() {
+            if !self.window_pos_sent {
+                let window_inner_pos = context.winit_window.inner_position().unwrap_or_else(|_| panic!("Failed to get window position"));
+
+                let window_pos = vec2(window_inner_pos.x as f32, window_inner_pos.y as f32);
+
+                self.window_screen_position_sender.send(window_pos).unwrap_or_else(|_| panic!("Failed to send window position"));
+            }
+
+            // TODO: prob a better spot/way to do this...
+            let mut mouse_pos = None;
+            while let Ok(received_mouse_pos) = self.mouse_pos_receiver.try_recv() {
+                mouse_pos = Some(received_mouse_pos);
+            }
+
+            if let Some(mouse_pos) = mouse_pos {
+                unsafe { SetCursorPos(mouse_pos.x as i32, mouse_pos.y as i32); }
+            }
+
+            let mut cursor_visible = None;
+            while let Ok(received_cursor_visible) = self.mouse_visible_receiver.try_recv() {
+                cursor_visible = Some(received_cursor_visible);
+            }
+
+            if let Some(cursor_visible) = cursor_visible {
+                let show_cursor = if cursor_visible { 1 } else { 0 };
+
+                unsafe { ShowCursor(show_cursor); }
+            }
+
             context.winit_window.request_redraw();
         }
     }
@@ -826,6 +895,11 @@ impl ApplicationHandler for VulkanApplication {
                 },
                 WindowEvent::CursorLeft { .. } => {
                     self.mouse_pos_sender.send(None).unwrap_or_else(|_| panic!("Failed to send mouse position"));
+                },
+                WindowEvent::Moved(pos) => {
+                    let screen_pos = vec2(pos.x as f32, pos.y as f32);
+
+                    self.window_screen_position_sender.send(screen_pos).unwrap_or_else(|_| panic!("Failed to send window position"));
                 },
                 _ => {},
             };

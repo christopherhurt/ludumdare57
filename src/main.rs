@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Vec2, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
 use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
@@ -15,7 +15,7 @@ use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
 use crate::physics::{apply_ang_vel, generate_physics_mesh, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
 pub mod core;
 pub mod ecs;
@@ -57,6 +57,7 @@ fn init_ecs() -> ECS {
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
         .with_component::<MousePickable>()
+        .with_component::<CursorManager>()
         .build()
 }
 
@@ -135,8 +136,13 @@ fn create_scene(ecs: &mut ECS) {
     let quad_tree_entity = ecs.create_entity();
     ecs.attach_provisional_component(&quad_tree_entity, quad_tree);
 
+    let cursor_manager = CursorManager { is_locked: false, cursor_delta: VEC_2_ZERO };
+    let cursor_manager_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&cursor_manager_entity, cursor_manager);
+
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
+    ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
@@ -186,6 +192,53 @@ const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &Compo
 
         transform.reset_changed_flags();
     });
+};
+
+const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
+    let cursor_manager = entites.clone().find_map(|e| components.get_mut_component::<CursorManager>(e)).unwrap();
+
+    let esc_pressed = render_engine.is_key_pressed(VirtualKey::Escape);
+
+    const DEBUG_CURSOR: bool = false;
+
+    if let Ok(window) = render_engine.get_window_mut() {
+        let rel_center_pos = vec2(window.get_width() as f32 / 2.0, window.get_height() as f32 / 2.0);
+        let window_screen_pos = window.get_screen_position();
+
+        let center_pos = window_screen_pos + rel_center_pos;
+
+        if !cursor_manager.is_locked {
+            if window.is_button_pressed(VirtualButton::Left) {
+                window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+
+                cursor_manager.is_locked = true;
+
+                window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
+            }
+
+            cursor_manager.cursor_delta = VEC_2_ZERO;
+        } else if cursor_manager.is_locked && esc_pressed {
+            cursor_manager.is_locked = false;
+
+            window.set_mouse_cursor_visible(true).unwrap_or_default();
+
+            cursor_manager.cursor_delta = VEC_2_ZERO;
+        } else {
+            if let Some(screen_pos) = window.get_mouse_screen_position() {
+                cursor_manager.cursor_delta = *screen_pos - rel_center_pos;
+
+                if cursor_manager.cursor_delta.len() > f32::EPSILON {
+                    window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+                }
+            } else {
+                cursor_manager.cursor_delta = VEC_2_ZERO;
+            }
+        }
+    } else {
+        cursor_manager.is_locked = false;
+        cursor_manager.cursor_delta = VEC_2_ZERO;
+    }
 };
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
@@ -245,9 +298,9 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
         }
     }
 
-    if render_engine.is_key_pressed(VirtualKey::Escape) {
-        commands.shutdown();
-    }
+    // if render_engine.is_key_pressed(VirtualKey::Escape) {
+    //     commands.shutdown();
+    // }
 };
 
 // const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -805,3 +858,13 @@ struct MousePickable {}
 
 impl Component for MousePickable {}
 impl ComponentActions for MousePickable {}
+
+// CursorManager
+
+struct CursorManager {
+    is_locked: bool,
+    cursor_delta: Vec2,
+}
+
+impl Component for CursorManager {}
+impl ComponentActions for CursorManager {}
