@@ -831,11 +831,12 @@ fn get_interpenetration_components(
     linear_inertia: f32,
     ang_inertia: f32,
     total_collision_inertia: f32,
+    delta_sign: f32,
 ) -> (f32, f32) {
     const ANGULAR_LIMIT_FACTOR: f32 = 0.2;
 
-    let mut linear_movement = collision.penetration * linear_inertia / total_collision_inertia;
-    let mut ang_movement = collision.penetration * ang_inertia / total_collision_inertia;
+    let mut linear_movement = delta_sign * collision.penetration * linear_inertia / total_collision_inertia;
+    let mut ang_movement = delta_sign * collision.penetration * ang_inertia / total_collision_inertia;
 
     let angular_limit = ANGULAR_LIMIT_FACTOR * (collision.point - *transform.get_pos()).len();
     let total_movement = linear_movement + ang_movement;
@@ -863,8 +864,9 @@ fn apply_movements(
 
             let cache = worst_collision.cache.as_ref().unwrap();
 
-            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
-            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
+            // TODO: I think it's something with how these are calculated...
+            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia(), 1.0);
+            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia(), -1.0);
 
             apply_movement(transform_a, rigid_body_a, worst_collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
             apply_movement(transform_b, rigid_body_b, worst_collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
@@ -986,8 +988,8 @@ fn apply_impulses(
             apply_impulse(transform_a, rigid_body_a, worst_collision, &impulse_world);
             apply_impulse(transform_b, rigid_body_b, worst_collision, &-impulse_world);
 
-            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia());
-            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia());
+            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia(), 1.0);
+            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia(), -1.0);
 
             adjust_target_delta_velocities(collisions.clone(), components, worst_collision, linear_movement_a, ang_movement_a, linear_movement_b, ang_movement_b, delta_sec);
         } else {
