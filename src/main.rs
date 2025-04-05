@@ -355,26 +355,24 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
             }
 
             let rot_speed = (70.0 * delta_sec).to_radians();
+            if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
+                let max_rot = VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.1;
+                let min_rot = -(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.1;
+
+                let rot_amt = (rot_speed * -cursor_manager.cursor_delta.y).min(max_rot).max(min_rot);
+
+                if rot_amt.abs() >= 0.001 {
+                    cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+                    cam.up = cam_right_norm.cross(&cam.dir).normalized().unwrap();
+                }
+            }
             if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
                 let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
 
                 cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
-                cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
-            }
-            if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
-                // TODO: FIX THIS
-                let max_rot = VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.01;
-                let min_rot = -(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.01;
 
-                // println!("MAX ROT: {:?}", max_rot);
-                // println!("MIN ROT: {:?}", min_rot);
-
-                let rot_amt = (rot_speed * -cursor_manager.cursor_delta.y).min(max_rot).max(min_rot);
-
-                // println!("ACTUAL ROT: {:?}", rot_amt);
-
-                cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
-                cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+                let cam_right_norm = cam.dir.cross(&VEC_3_Y_AXIS).normalized().unwrap();
+                cam.up = cam_right_norm.cross(&cam.dir).normalized().unwrap();
             }
 
             if window.is_key_down(VirtualKey::Space) && !player.is_jumping {
