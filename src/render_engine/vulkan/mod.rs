@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use vulkan_resources::{create_texture_image, create_texture_sampler};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use core::panic;
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
-use crate::core::Color;
+use crate::core::{Color, RenderTextureId};
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
@@ -46,7 +47,7 @@ use crate::render_engine::vulkan::vulkan_resources::{
     create_vertex_buffer,
     create_index_buffer,
 };
-use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, VulkanMesh, Pipeline, Swapchain, UniformBufferObject};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, VulkanMesh, VulkanTexture, Pipeline, Swapchain, UniformBufferObject};
 
 mod vulkan_resources;
 mod vulkan_structs;
@@ -58,8 +59,10 @@ const NUM_UNIFORM_DESCRIPTORS: usize = 4096;
 
 pub struct VulkanRenderEngine {
     mesh_id_counter: usize,
+    texture_id_counter: usize,
     state_sender: SyncSender<RenderState>,
     mesh_sender: Sender<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
+    texture_sender: Sender<(RenderTextureId, String)>,
     keys_down: HashMap<VirtualKey, bool>,
     keys_pressed: HashMap<VirtualKey, bool>,
     keys_released: HashMap<VirtualKey, bool>,
@@ -87,6 +90,7 @@ struct VulkanApplication {
     init_props: RenderEngineInitProps,
     state_receiver: Receiver<RenderState>,
     mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
+    texture_receiver: Receiver<(RenderTextureId, String)>,
     is_minimized: bool,
     is_resized: bool,
     is_closing: Arc<AtomicBool>,
@@ -125,6 +129,7 @@ struct VulkanContext {
     pipeline: Pipeline,
     single_time_command_pool: vk::CommandPool,
     per_frame_command_pools: Vec<vk::CommandPool>,
+    texture_sampler: vk::Sampler,
     depth_image_resources: ImageResources,
     depth_image_view: vk::ImageView,
     framebuffers: Vec<vk::Framebuffer>,
@@ -135,6 +140,7 @@ struct VulkanContext {
     sync_objects: Vec<FrameSyncObjects>,
 
     meshes: HashMap<RenderMeshId, VulkanMesh>,
+    textures: HashMap<RenderTextureId, VulkanTexture>,
 }
 
 impl VulkanContext {
@@ -169,6 +175,7 @@ impl VulkanContext {
             let pipeline = create_pipeline(&device, render_pass, &swapchain, descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
             let single_time_command_pool = create_command_pool(&vk_instance, &device, surface, physical_device).unwrap_or_else(|e| panic!("{}", e));
             let per_frame_command_pools = (0..swapchain.images.len()).map(|_| create_command_pool(&vk_instance, &device, surface, physical_device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let texture_sampler = create_texture_sampler(&device).unwrap_or_else(|e| panic!("{}", e));
             let (depth_image_resources, depth_image_view) = create_depth_objects(&vk_instance, &device, physical_device, &swapchain.extent, single_time_command_pool, graphics_queue).unwrap_or_else(|e| panic!("{}", e));
             let framebuffers = swapchain.image_views.iter().map(|i| create_framebuffer(&device, render_pass, swapchain.extent, *i, depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
             // TODO: split up into more than one uniform buffer per frame
@@ -199,6 +206,7 @@ impl VulkanContext {
                 pipeline,
                 single_time_command_pool,
                 per_frame_command_pools,
+                texture_sampler,
                 depth_image_resources,
                 depth_image_view,
                 framebuffers,
@@ -209,6 +217,7 @@ impl VulkanContext {
                 sync_objects,
 
                 meshes: HashMap::new(),
+                textures: HashMap::new(),
             }
         }
     }
@@ -247,6 +256,23 @@ impl VulkanContext {
         //  Also, we don't want to all uniforms every entity... only the per-entity uniforms
         for (i, e) in state.entity_states.iter().enumerate() {
             let mesh = self.meshes.get(&e.mesh_id).unwrap_or_else(|| panic!("No mesh exists for ID {}", e.mesh_id.0));
+            let texture = self.textures.get(&e.texture_id).unwrap_or_else(|| panic!("No texture exists for ID {}", e.texture_id.0));
+
+            let image_info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(texture.image_view)
+                .sampler(self.texture_sampler);
+            let image_buffer_info = &[image_info];
+            let sampler_write = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[image_index][i])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(image_buffer_info);
+            self.device.update_descriptor_sets(
+                &[sampler_write],
+                &[] as &[vk::CopyDescriptorSet],
+            );
 
             self.device.cmd_bind_descriptor_sets(
                 command_buffer,
@@ -259,6 +285,8 @@ impl VulkanContext {
             self.device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer.buffer], &[0]);
             self.device.cmd_bind_index_buffer(command_buffer, mesh.index_buffer.buffer, 0, vk::IndexType::UINT32);
             self.device.cmd_draw_indexed(command_buffer, mesh.index_count as u32, 1, 0, 0, 0);
+
+            // TODO: bind texture...
         }
 
         self.device.cmd_end_render_pass(command_buffer);
@@ -321,6 +349,8 @@ impl VulkanContext {
 
         self.destroy_swapchain()?;
 
+        self.device.destroy_sampler(self.texture_sampler, None);
+
         self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
         self.meshes.values().for_each(|m| {
@@ -329,6 +359,13 @@ impl VulkanContext {
 
             self.device.destroy_buffer((*m).index_buffer.buffer, None);
             self.device.free_memory((*m).index_buffer.memory, None);
+        });
+
+        self.textures.values().for_each(|t| {
+            self.device.destroy_image_view((*t).image_view, None);
+
+            self.device.destroy_image((*t).image_resources.image, None);
+            self.device.free_memory((*t).image_resources.memory, None);
         });
 
         self.sync_objects
@@ -389,6 +426,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         // TODO: update this so we can overwrite the buffered state(s), rather than block the sender, if the sender gets ahead of the receiver
         let (state_sender, state_receiver) = mpsc::sync_channel::<RenderState>(1);
         let (mesh_sender, mesh_receiver) = mpsc::channel();
+        let (texture_sender, texture_receiver) = mpsc::channel();
         let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualElementState)>(256);
         let (buttons_sender, buttons_receiver) = mpsc::sync_channel::<(VirtualButton, VirtualElementState)>(256);
         let (mouse_pos_sender, mouse_pos_receiver) = mpsc::sync_channel::<Option<Vec2>>(256);
@@ -405,7 +443,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let join_handle: JoinHandle<()> = thread::spawn(move || {
             // TODO: clean up Windows-specific module dependency
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
-            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, mouse_pos_sender, downstream_mouse_pos_receiver, mouse_visible_receiver, window_extent_sender, window_screen_position_sender, moved_is_closing).unwrap();
+            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, texture_receiver, keys_sender, buttons_sender, mouse_pos_sender, downstream_mouse_pos_receiver, mouse_visible_receiver, window_extent_sender, window_screen_position_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
 
@@ -415,8 +453,10 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         Ok(
             Self {
                 mesh_id_counter: 0,
+                texture_id_counter: 0,
                 state_sender,
                 mesh_sender,
+                texture_sender,
                 keys_down: create_empty_vk_map(),
                 keys_pressed: create_empty_vk_map(),
                 keys_released: create_empty_vk_map(),
@@ -635,6 +675,16 @@ impl Device for VulkanRenderEngine {
             Ok(mesh_id)
         }
     }
+
+    fn create_texture(&mut self, file_path: String) -> Result<RenderTextureId> {
+        let texture_id = RenderTextureId(self.texture_id_counter);
+
+        self.texture_id_counter += 1;
+
+        self.texture_sender.send((texture_id, file_path))?;
+
+        Ok(texture_id)
+    }
 }
 
 impl VulkanApplication {
@@ -642,6 +692,7 @@ impl VulkanApplication {
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
         mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
+        texture_receiver: Receiver<(RenderTextureId, String)>,
         keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
         buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
         mouse_pos_sender: SyncSender<Option<Vec2>>,
@@ -656,6 +707,7 @@ impl VulkanApplication {
                 init_props,
                 state_receiver,
                 mesh_receiver,
+                texture_receiver,
                 is_minimized: false,
                 is_resized: false,
                 is_closing,
@@ -725,6 +777,17 @@ impl VulkanApplication {
                     };
 
                     context.meshes.insert(mesh.mesh_id, mesh);
+                }
+
+                while let Ok((texture_id, file_path)) = self.texture_receiver.try_recv() {
+                    let (image_resources, image_view) = create_texture_image(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, &file_path)?;
+
+                    let texture = VulkanTexture {
+                        image_resources,
+                        image_view,
+                    };
+
+                    context.textures.insert(texture_id, texture);
                 }
 
                 let ubos = render_state.entity_states.iter().map(|e| {

@@ -1,8 +1,10 @@
 use anyhow::Result;
+use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-use crate::ecs::ComponentActions;
+use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
+use crate::ecs::entity::Entity;
 use crate::math::{get_scale_matrix, get_view_matrix, get_world_matrix, vec2, vec3, Mat4, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 
 pub mod mesh;
@@ -358,3 +360,45 @@ fn get_remaining_duration(start_value: f32, end_value: f32, initial_duration: Du
 
 impl Component for Timer {}
 impl ComponentActions for Timer {}
+
+// Texture
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RenderTextureId(pub(in crate) usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextureBinding {
+    pub texture_wrapper: Option<Entity>,
+    pub id: Option<RenderTextureId>,
+    provisional_texture_wrapper: Option<ProvisionalEntity>,
+}
+
+impl TextureBinding {
+    pub fn new(id: Option<RenderTextureId>, texture_wrapper: Option<Entity>) -> Self {
+        Self {
+            id,
+            texture_wrapper,
+            provisional_texture_wrapper: None,
+        }
+    }
+
+    pub fn new_provisional(id: Option<RenderTextureId>, provisional_texture_wrapper: Option<ProvisionalEntity>) -> Self {
+        Self {
+            id,
+            texture_wrapper: None,
+            provisional_texture_wrapper,
+        }
+    }
+}
+
+impl Component for TextureBinding {}
+
+impl ComponentActions for TextureBinding {
+    fn update_provisional_entities(&mut self, provisional_to_entities: &HashMap<ProvisionalEntity, Entity>) {
+        if let Some(p) = self.provisional_texture_wrapper.take() {
+            self.texture_wrapper = Some(
+                provisional_to_entities.get(&p).unwrap_or_else(|| panic!("Failed to map provisional entity {:?}", &p)).clone()
+            );
+        }
+    }
+}

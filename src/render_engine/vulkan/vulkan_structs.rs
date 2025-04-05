@@ -32,6 +32,12 @@ pub(in crate::render_engine::vulkan) struct VulkanMesh {
 }
 
 #[derive(Clone, Debug)]
+pub(in crate::render_engine::vulkan) struct VulkanTexture {
+    pub(in crate::render_engine::vulkan) image_resources: ImageResources,
+    pub(in crate::render_engine::vulkan) image_view: vk::ImageView,
+}
+
+#[derive(Clone, Debug)]
 pub(in crate::render_engine::vulkan) struct Pipeline {
     pub(in crate::render_engine::vulkan) pipeline: vk::Pipeline,
     pub(in crate::render_engine::vulkan) layout: vk::PipelineLayout,

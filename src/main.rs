@@ -2,7 +2,7 @@ use anyhow::Result;
 use ecs::ComponentActions;
 use math::{get_proj_matrix, vec2, vec3, Vec2, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
-use core::{IDENTITY_SCALE_VEC, RED};
+use core::{TextureBinding, IDENTITY_SCALE_VEC, WHITE};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
@@ -41,6 +41,7 @@ fn init_ecs() -> ECS {
         .with_component::<Transform>()
         .with_component::<Mesh>()
         .with_component::<MeshBinding>()
+        .with_component::<TextureBinding>()
         .with_component::<ColorMaterial>()
         .with_component::<VulkanRenderEngine>()
         .with_component::<TimeDelta>()
@@ -89,10 +90,15 @@ fn create_scene(ecs: &mut ECS) {
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
+    let cube_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/wall.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
     let cube_mesh_entity = ecs.create_entity();
     let cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
+    let cube_texture_binding = TextureBinding::new_provisional(Some(cube_texture_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh);
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
+    ecs.attach_provisional_component(&cube_mesh_entity, cube_texture_binding);
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
     let plane_mesh: Mesh = create_plane_mesh();
@@ -193,6 +199,11 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             .map(|e| components.get_component::<MeshBinding>(e).unwrap())
             .next()
             .unwrap();
+        let cube_texture_binding = entites.clone()
+            .filter(|e| components.get_component::<CubeMeshOwner>(e).is_some())
+            .map(|e| components.get_component::<TextureBinding>(e).unwrap())
+            .next()
+            .unwrap();
 
         for e in entites.clone() {
             if components.get_component::<LevelEntity>(e).is_some() {
@@ -221,10 +232,9 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 let cube_pos = vec3(i as f32 * CUBE_SIZE, 0.0, j as f32 * CUBE_SIZE);
 
                 let cube_transform = Transform::new(cube_pos, QUAT_IDENTITY, IDENTITY_SCALE_VEC * CUBE_SIZE);
-                let cube_material = ColorMaterial::new(RED);
                 let cube_entity = commands.create_entity();
                 commands.attach_provisional_component(&cube_entity, cube_transform);
-                commands.attach_provisional_component(&cube_entity, cube_material);
+                commands.attach_provisional_component(&cube_entity, cube_texture_binding.clone());
                 commands.attach_provisional_component(&cube_entity, cube_mesh_binding.clone());
             }
         }
@@ -884,11 +894,12 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
     let entity_states = entites.clone().filter(|e|
         components.get_component::<Transform>(e).is_some()
         && components.get_component::<MeshBinding>(e).is_some()
-        && components.get_component::<ColorMaterial>(e).is_some())
+        && components.get_component::<TextureBinding>(e).is_some())
     .map(|e| EntityRenderState {
         world: *components.get_mut_component::<Transform>(e).unwrap().to_world_mat(),
         mesh_id: components.get_component::<MeshBinding>(e).unwrap().id.unwrap(),
-        color: components.get_component::<ColorMaterial>(e).unwrap().color,
+        texture_id: components.get_component::<TextureBinding>(e).unwrap().id.unwrap(),
+        color: WHITE,
     }).collect();
 
     let aspect_ratio = render_engine.get_window().and_then(|w| {

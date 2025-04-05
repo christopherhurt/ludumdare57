@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use std::collections::HashSet;
+use std::fs::File;
 use std::sync::Arc;
 use vulkanalia::Device as vk_Device;
 use vulkanalia::bytecode::Bytecode;
@@ -14,6 +15,7 @@ use crate::render_engine::Vertex;
 use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Pipeline, Swapchain};
 use crate::render_engine::vulkan::vulkan_utils::{
     copy_buffer,
+    copy_buffer_to_image,
     debug_callback,
     destroy_buffer,
     get_depth_format,
@@ -805,7 +807,13 @@ pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_set_layout(
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::VERTEX);
 
-    let bindings = &[ubo_binding];
+    let sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+
+    let bindings = &[ubo_binding, sampler_binding];
     let info = vk::DescriptorSetLayoutCreateInfo::builder()
         .bindings(bindings);
 
@@ -900,4 +908,129 @@ fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 
         .build();
 
     [pos, norm, tex_coord]
+}
+
+// Textures
+
+pub(in crate::render_engine::vulkan) unsafe fn create_texture_image(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    file_path: &String,
+) -> Result<(ImageResources, vk::ImageView)> {
+    let image = File::open(file_path)?;
+
+    let decoder = png::Decoder::new(image);
+    let mut reader = decoder.read_info()?;
+    let mut pixels = vec![0; reader.info().raw_bytes()];
+    reader.next_frame(&mut pixels)?;
+
+    let size = reader.info().raw_bytes() as u64;
+    let (width, height) = reader.info().size();
+
+    if reader.info().color_type != png::ColorType::Rgba {
+        panic!("Invalid texture image.");
+    }
+
+    let staging_buffer = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+    )?;
+
+    let memory = device.map_memory(staging_buffer.memory,
+        0,
+        size,
+        vk::MemoryMapFlags::empty(),
+    )?;
+
+    std::ptr::copy_nonoverlapping(pixels.as_ptr(), memory.cast(), pixels.len());
+
+    device.unmap_memory(staging_buffer.memory);
+
+    let texture_image = create_image(
+        instance,
+        device,
+        physical_device,
+        width,
+        height,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::SAMPLED
+            | vk::ImageUsageFlags::TRANSFER_DST
+            | vk::ImageUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    transition_image_layout(
+        device,
+        command_pool,
+        queue,
+        texture_image.image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+    )?;
+
+    copy_buffer_to_image(
+        device,
+        command_pool,
+        queue,
+        staging_buffer.buffer,
+        texture_image.image,
+        width,
+        height,
+    )?;
+
+    transition_image_layout(
+        device,
+        command_pool,
+        queue,
+        texture_image.image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+    )?;
+
+    device.destroy_buffer(staging_buffer.buffer, None);
+    device.free_memory(staging_buffer.memory, None);
+
+    let texture_image_view = create_image_view(
+        device,
+        texture_image.image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageAspectFlags::COLOR,
+    )?;
+
+    Ok((texture_image, texture_image_view))
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn create_texture_sampler(
+    device: &Device,
+) -> Result<vk::Sampler> {
+    let info = vk::SamplerCreateInfo::builder()
+        .mag_filter(vk::Filter::NEAREST)
+        .min_filter(vk::Filter::NEAREST)
+        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+        .anisotropy_enable(false)
+        .max_anisotropy(1.0)
+        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+        .unnormalized_coordinates(false)
+        .compare_enable(false)
+        .compare_op(vk::CompareOp::ALWAYS)
+        .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+        .mip_lod_bias(0.0)
+        .min_lod(0.0)
+        .max_lod(1.0);
+
+    let texture_sampler = device.create_sampler(&info, None)?;
+
+    Ok(texture_sampler)
 }

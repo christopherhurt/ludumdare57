@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use strum_macros::{EnumCount, EnumIter};
 
-use crate::core::Color;
+use crate::core::{Color, RenderTextureId};
 use crate::core::mesh::{RenderMeshId, Vertex};
 use crate::math::{Mat3, Mat4, Vec2};
 
@@ -52,6 +52,7 @@ pub trait Window {
 
 pub trait Device {
     fn create_mesh(&mut self, vertices: Arc<Vec<Vertex>>, vertex_indexes: Arc<Vec<u32>>) -> Result<RenderMeshId>;
+    fn create_texture(&mut self, file_path: String) -> Result<RenderTextureId>;
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +66,7 @@ pub struct RenderState {
 pub struct EntityRenderState {
     pub world: Mat4,
     pub mesh_id: RenderMeshId,
+    pub texture_id: RenderTextureId,
     pub color: Color,
 }
 
