@@ -1044,6 +1044,11 @@ fn adjust_target_delta_velocities(
 ) {
     for e in collisions {
         if let Some(affected_collision) = components.get_mut_component::<RigidBodyCollision>(&e) {
+            let rigid_body_a = components.get_component::<RigidBody>(&affected_collision.rigid_body_a).unwrap();
+            let rigid_body_b = components.get_component::<RigidBody>(&affected_collision.rigid_body_b).unwrap();
+
+            let rel_linear_acc = rigid_body_a.linear_acc - rigid_body_b.linear_acc;
+
             if let Some(c_cache) = affected_collision.cache.as_ref() {
                 if affected_collision.rigid_body_a == applied_collision.rigid_body_a {
                     update_target_delta_vel(
@@ -1051,6 +1056,7 @@ fn adjust_target_delta_velocities(
                         affected_collision,
                         &c_cache.collision_point_rel_a.clone(),
                         &c_cache.world_to_collision_space.clone(),
+                        &rel_linear_acc,
                         linear_movement_a,
                         ang_movement_a,
                         delta_sec,
@@ -1062,6 +1068,7 @@ fn adjust_target_delta_velocities(
                         affected_collision,
                         &c_cache.collision_point_rel_b.clone(),
                         &c_cache.world_to_collision_space.clone(),
+                        &rel_linear_acc,
                         linear_movement_a,
                         ang_movement_a,
                         delta_sec,
@@ -1073,6 +1080,7 @@ fn adjust_target_delta_velocities(
                         affected_collision,
                         &c_cache.collision_point_rel_a.clone(),
                         &c_cache.world_to_collision_space.clone(),
+                        &rel_linear_acc,
                         linear_movement_b,
                         ang_movement_b,
                         delta_sec,
@@ -1084,6 +1092,7 @@ fn adjust_target_delta_velocities(
                         affected_collision,
                         &c_cache.collision_point_rel_b.clone(),
                         &c_cache.world_to_collision_space.clone(),
+                        &rel_linear_acc,
                         linear_movement_b,
                         ang_movement_b,
                         delta_sec,
@@ -1100,9 +1109,10 @@ fn update_target_delta_vel(
     affected_collision: &mut RigidBodyCollision,
     affected_rel_collision_point: &Vec3,
     world_to_collision_space: &Mat3,
+    rel_linear_acc: &Vec3,
     linear_movement: f32,
     ang_movement: f32,
-    _delta_sec: f32,
+    delta_sec: f32,
     delta_sign: f32,
 ) {
     let linear_delta = applied_collision.normal * linear_movement;
@@ -1112,7 +1122,7 @@ fn update_target_delta_vel(
 
     affected_collision.cache.as_mut().unwrap().collision_space_vel += *world_to_collision_space * delta_pen;
 
-    let vel_from_last_frame_acc = 0.0; // TODO compute this
+    let vel_from_last_frame_acc = delta_sec * affected_collision.normal.dot(rel_linear_acc);
 
     let collision_vel = affected_collision.cache.as_mut().unwrap().collision_space_vel.x;
 
