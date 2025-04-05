@@ -234,7 +234,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
     }
 };
 
-const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
@@ -251,7 +251,7 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
 
     let esc_pressed = render_engine.is_key_pressed(VirtualKey::Escape);
 
-    const DEBUG_CURSOR: bool = true; // TODO
+    const DEBUG_CURSOR: bool = false;
 
     if let Ok(window) = render_engine.get_window_mut() {
         let rel_center_pos = vec2(window.get_width() as f32 / 2.0, window.get_height() as f32 / 2.0);
