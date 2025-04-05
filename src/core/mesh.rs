@@ -279,3 +279,18 @@ const PLANE_INDEXES: [u32; 6] = [
 pub fn create_plane_mesh() -> Mesh {
     Mesh::new(PLANE_VERTICES.to_vec(), PLANE_INDEXES.to_vec()).unwrap()
 }
+
+const QUAD_VERTICES: [Vertex; 4] = [
+    Vertex { pos: vec3(-0.5, -0.5, 0.0), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(0.0, 1.0) },
+    Vertex { pos: vec3(-0.5, 0.5, 0.0), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(0.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, 0.0), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(1.0, 0.0) },
+    Vertex { pos: vec3(0.5, -0.5, 0.0), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(1.0, 1.0) },
+];
+
+const QUAD_INDEXES: [u32; 6] = [
+    0, 1, 2, 2, 3, 0,
+];
+
+pub fn create_quad_mesh() -> Mesh {
+    Mesh::new(QUAD_VERTICES.to_vec(), QUAD_INDEXES.to_vec()).unwrap()
+}

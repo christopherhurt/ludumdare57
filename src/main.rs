@@ -1,7 +1,8 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Vec2, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, Quat, Vec2, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
+use core::mesh::create_quad_mesh;
 use core::{TextureBinding, IDENTITY_SCALE_VEC, WHITE};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
@@ -58,11 +59,14 @@ fn init_ecs() -> ECS {
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
         .with_component::<PlaneMeshOwner>()
+        .with_component::<QuadMeshOwner>()
         .with_component::<MousePickable>()
         .with_component::<CursorManager>()
         .with_component::<Player>()
         .with_component::<LevelLoader>()
         .with_component::<LevelEntity>()
+        .with_component::<Baddie>()
+        .with_component::<Wall>()
         .build()
 }
 
@@ -111,6 +115,16 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh_binding);
     ecs.attach_provisional_component(&cube_mesh_entity, PlaneMeshOwner {});
 
+    let quad_mesh: Mesh = create_quad_mesh();
+    let quad_mesh_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_mesh(quad_mesh.vertices.clone(), quad_mesh.vertex_indices.clone()))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let quad_mesh_entity = ecs.create_entity();
+    let quad_mesh_binding = MeshBinding::new_provisional(Some(quad_mesh_id), Some(quad_mesh_entity));
+    ecs.attach_provisional_component(&quad_mesh_entity, quad_mesh);
+    ecs.attach_provisional_component(&quad_mesh_entity, quad_mesh_binding);
+    ecs.attach_provisional_component(&quad_mesh_entity, QuadMeshOwner {});
+
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
 
@@ -138,7 +152,11 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
+    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
+    ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
+    ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
+    ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
@@ -188,6 +206,46 @@ const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &Compo
 
         transform.reset_changed_flags();
     });
+};
+
+const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    // TODO: transform, mesh, texture, LevelEntity
+    // TODO check level bounds, pick a random location in range, check if a wall is there
+};
+
+const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    // TODO: check if any walls between player and baddie
+};
+
+const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+
+    const BADDIE_SPEED: f32 = 2.0;
+
+    for e in entites {
+        if let Some(baddie) = components.get_component::<Baddie>(e) {
+            let transform =  components.get_mut_component::<Transform>(e).unwrap();
+
+            if baddie.is_active {
+                let towards_player = vec3(cam.pos.x, 0.0, cam.pos.z) - vec3(transform.get_pos().x, 0.0, transform.get_pos().z).normalized().unwrap();
+
+                transform.set_pos(*transform.get_pos() + towards_player * BADDIE_SPEED);
+
+                let mut angle_to_cam = towards_player.angle_rads_from(&VEC_3_Z_AXIS).unwrap();
+
+                if VEC_3_Z_AXIS.cross(&towards_player).y < 0.0 {
+                    angle_to_cam = 2.0 * std::f32::consts::PI - angle_to_cam;
+                }
+
+                transform.set_rot(Quat::from_axis_spin(&VEC_3_Y_AXIS, angle_to_cam).unwrap());
+            }
+        }
+    }
+};
+
+const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    // TODO: within a certain (xz?) range of camera, destroy the baddie and damage the player
+    // TODO: reset game if health <= 0
 };
 
 const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
@@ -950,6 +1008,13 @@ struct PlaneMeshOwner {}
 impl Component for PlaneMeshOwner {}
 impl ComponentActions for PlaneMeshOwner {}
 
+// QuadMeshOwner
+
+struct QuadMeshOwner {}
+
+impl Component for QuadMeshOwner {}
+impl ComponentActions for QuadMeshOwner {}
+
 // MousePickable
 
 struct MousePickable {}
@@ -971,6 +1036,10 @@ impl ComponentActions for CursorManager {}
 struct Player {
     y_vel: f32,
     is_jumping: bool,
+    health_percentage: f32,
+    max_health: u32,
+    level_width: f32,
+    level_height: f32,
 }
 
 impl Component for Player {}
@@ -988,3 +1057,15 @@ struct LevelEntity {}
 
 impl Component for LevelEntity {}
 impl ComponentActions for LevelEntity {}
+
+struct Baddie {
+    is_active: bool,
+}
+
+impl Component for Baddie {}
+impl ComponentActions for Baddie {}
+
+struct Wall {}
+
+impl Component for Wall {}
+impl ComponentActions for Wall {}
