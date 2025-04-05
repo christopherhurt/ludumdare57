@@ -136,14 +136,14 @@ fn create_scene(ecs: &mut ECS) {
     let quad_tree_entity = ecs.create_entity();
     ecs.attach_provisional_component(&quad_tree_entity, quad_tree);
 
-    let cursor_manager = CursorManager { is_locked: false, cursor_delta: VEC_2_ZERO };
+    let cursor_manager = CursorManager { is_locked: false, just_locked: false, cursor_delta: VEC_2_ZERO };
     let cursor_manager_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cursor_manager_entity, cursor_manager);
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
-    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
+    ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
@@ -205,45 +205,59 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
     if let Ok(window) = render_engine.get_window_mut() {
         let rel_center_pos = vec2(window.get_width() as f32 / 2.0, window.get_height() as f32 / 2.0);
         let window_screen_pos = window.get_screen_position();
+        let cursor_screen_pos = window.get_mouse_screen_position();
 
         let center_pos = window_screen_pos + rel_center_pos;
 
-        if !cursor_manager.is_locked {
-            if window.is_button_pressed(VirtualButton::Left) {
-                window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+        if let Some(cursor_screen_pos) = cursor_screen_pos {
+            if !cursor_manager.just_locked {
+                if !cursor_manager.is_locked {
+                    if window.is_button_pressed(VirtualButton::Left) {
+                        window.set_mouse_screen_position(&center_pos).unwrap_or_default();
 
-                cursor_manager.is_locked = true;
+                        cursor_manager.is_locked = true;
+                        cursor_manager.cursor_delta = VEC_2_ZERO;
+                        cursor_manager.just_locked = true;
 
-                window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
-            }
+                        window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
+                    }
 
-            cursor_manager.cursor_delta = VEC_2_ZERO;
-        } else if cursor_manager.is_locked && esc_pressed {
-            cursor_manager.is_locked = false;
+                    cursor_manager.cursor_delta = VEC_2_ZERO;
+                } else if cursor_manager.is_locked && esc_pressed {
+                    cursor_manager.is_locked = false;
 
-            window.set_mouse_cursor_visible(true).unwrap_or_default();
+                    window.set_mouse_cursor_visible(true).unwrap_or_default();
 
-            cursor_manager.cursor_delta = VEC_2_ZERO;
-        } else {
-            if let Some(screen_pos) = window.get_mouse_screen_position() {
-                cursor_manager.cursor_delta = *screen_pos - rel_center_pos;
+                    cursor_manager.cursor_delta = VEC_2_ZERO;
+                } else {
+                    cursor_manager.cursor_delta = *cursor_screen_pos - rel_center_pos;
 
-                if cursor_manager.cursor_delta.len() > f32::EPSILON {
-                    window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+                    if cursor_manager.cursor_delta.len() > f32::EPSILON {
+                        window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+                    }
                 }
             } else {
-                cursor_manager.cursor_delta = VEC_2_ZERO;
+                if (*cursor_screen_pos - rel_center_pos).len() < 1.0 {
+                    cursor_manager.just_locked = false;
+                }
             }
         }
     } else {
         cursor_manager.is_locked = false;
         cursor_manager.cursor_delta = VEC_2_ZERO;
     }
+
+    if cursor_manager.cursor_delta.x.abs() < 1.0 {
+        cursor_manager.cursor_delta.x = 0.0;
+    } else if cursor_manager.cursor_delta.y.abs() < 1.0 {
+        cursor_manager.cursor_delta.y = 0.0;
+    }
 };
 
-const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let cursor_manager = entites.clone().find_map(|e| components.get_mut_component::<CursorManager>(e)).unwrap();
 
     if let Ok(window) = render_engine.get_window() {
         for e in entites {
@@ -277,30 +291,22 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                     cam.pos += dir * move_speed;
                 }
 
-                let rot_speed = (240.0 * time_delta.since_last_frame.as_secs_f32()).to_radians();
-                if window.is_key_down(VirtualKey::Left) && !window.is_key_down(VirtualKey::Right) {
-                    cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_speed).unwrap().normalized().unwrap();
-                    cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_speed).unwrap().normalized().unwrap();
+                let rot_speed = (70.0 * time_delta.since_last_frame.as_secs_f32()).to_radians();
+                if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
+                    let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
+
+                    cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
+                    cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
                 }
-                if window.is_key_down(VirtualKey::Right) && !window.is_key_down(VirtualKey::Left) {
-                    cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, -rot_speed).unwrap().normalized().unwrap();
-                    cam.up = cam.up.rotated(&VEC_3_Y_AXIS, -rot_speed).unwrap().normalized().unwrap();
-                }
-                if window.is_key_down(VirtualKey::Up) && !window.is_key_down(VirtualKey::Down) {
-                    cam.dir = cam.dir.rotated(&cam_right_norm, rot_speed).unwrap().normalized().unwrap();
-                    cam.up = cam.up.rotated(&cam_right_norm, rot_speed).unwrap().normalized().unwrap();
-                }
-                if window.is_key_down(VirtualKey::Down) && !window.is_key_down(VirtualKey::Up) {
-                    cam.dir = cam.dir.rotated(&cam_right_norm, -rot_speed).unwrap().normalized().unwrap();
-                    cam.up = cam.up.rotated(&cam_right_norm, -rot_speed).unwrap().normalized().unwrap();
+                if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
+                    let rot_amt = rot_speed * -cursor_manager.cursor_delta.y;
+
+                    cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+                    cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
                 }
             }
         }
     }
-
-    // if render_engine.is_key_pressed(VirtualKey::Escape) {
-    //     commands.shutdown();
-    // }
 };
 
 // const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -863,6 +869,7 @@ impl ComponentActions for MousePickable {}
 
 struct CursorManager {
     is_locked: bool,
+    just_locked: bool,
     cursor_delta: Vec2,
 }
 
