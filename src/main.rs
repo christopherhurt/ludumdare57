@@ -1110,7 +1110,7 @@ fn update_target_delta_vel(
 
     let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta);
 
-    affected_collision.cache.as_mut().unwrap().collision_space_vel -= *world_to_collision_space * delta_pen;
+    affected_collision.cache.as_mut().unwrap().collision_space_vel += *world_to_collision_space * delta_pen;
 
     // TODO: calculate target del vel
 }
