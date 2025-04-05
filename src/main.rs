@@ -352,7 +352,16 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
             }
             if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
-                let rot_amt = rot_speed * -cursor_manager.cursor_delta.y;
+                // TODO: FIX THIS
+                let max_rot = VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.01;
+                let min_rot = -(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.01;
+
+                // println!("MAX ROT: {:?}", max_rot);
+                // println!("MIN ROT: {:?}", min_rot);
+
+                let rot_amt = (rot_speed * -cursor_manager.cursor_delta.y).min(max_rot).max(min_rot);
+
+                // println!("ACTUAL ROT: {:?}", rot_amt);
 
                 cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
                 cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
