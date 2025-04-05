@@ -317,13 +317,15 @@ const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentMana
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
 
     const PERCENT_HEALTH_PER_BADDIE: f32 = 0.25;
-    const DAMAGE_DISTANCE: f32 = 3.0;
+    const DAMAGE_DISTANCE: f32 = 8.0;
 
     for e in entites {
         if components.get_component::<Baddie>(e).is_some() {
             let transform =  components.get_mut_component::<Transform>(e).unwrap();
 
-            if (*transform.get_pos() - cam.pos).len() <= DAMAGE_DISTANCE {
+            let dist_to_player = (*transform.get_pos() - cam.pos).len();
+
+            if dist_to_player <= DAMAGE_DISTANCE {
                 commands.destroy_entity(e);
 
                 player.health_percentage -= PERCENT_HEALTH_PER_BADDIE;
