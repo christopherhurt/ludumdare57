@@ -13,7 +13,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
+use crate::physics::{apply_ang_vel, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
 
@@ -56,9 +56,12 @@ fn init_ecs() -> ECS {
         .with_component::<RigidBody>()
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
+        .with_component::<PlaneMeshOwner>()
         .with_component::<MousePickable>()
         .with_component::<CursorManager>()
         .with_component::<Player>()
+        .with_component::<LevelLoader>()
+        .with_component::<LevelEntity>()
         .build()
 }
 
@@ -82,13 +85,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 fn create_scene(ecs: &mut ECS) {
     let mut render_engine = init_render_engine().unwrap_or_else(|e| panic!("{}", e));
 
-    let cam = Camera::new(VEC_3_ZERO, -VEC_3_Z_AXIS, VEC_3_Y_AXIS, 70.0_f32.to_radians());
-    let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
-    let player_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&player_entity, viewport);
-
     let cube_mesh: Mesh = create_cube_mesh();
-    let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, Some(2.0)).unwrap();
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -96,12 +93,9 @@ fn create_scene(ecs: &mut ECS) {
     let cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh);
     ecs.attach_provisional_component(&cube_mesh_entity, cube_mesh_binding);
-    ecs.attach_provisional_component(&cube_mesh_entity, cube_physics_props.clone());
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
     let plane_mesh: Mesh = create_plane_mesh();
-    let (plane_mesh, _plane_physics_props) = generate_physics_mesh(plane_mesh, None).unwrap();
-    let plane_physics_props = PhysicsMeshProperties::new_immovable(1.0, VEC_3_ZERO, 1.0);
     let plane_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(plane_mesh.vertices.clone(), plane_mesh.vertex_indices.clone()))
         .unwrap_or_else(|e| panic!("{}", e));
@@ -109,18 +103,7 @@ fn create_scene(ecs: &mut ECS) {
     let plane_mesh_binding = MeshBinding::new_provisional(Some(plane_mesh_id), Some(plane_mesh_entity));
     ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh);
     ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh_binding);
-    ecs.attach_provisional_component(&plane_mesh_entity, plane_physics_props.clone());
-
-    let test_cube_transform = Transform::new(vec3(0.0, 0.0, -10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
-    let test_cube_material = ColorMaterial::new(RED);
-    let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, cube_physics_props.clone());
-    let test_cube_entity = ecs.create_entity();
-    let test_cube_mesh_binding = MeshBinding::new_provisional(Some(cube_mesh_id), Some(cube_mesh_entity));
-    ecs.attach_provisional_component(&test_cube_entity, test_cube_transform);
-    ecs.attach_provisional_component(&test_cube_entity, test_cube_rigid_body);
-    ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
-    ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding.clone());
-    ecs.attach_provisional_component(&test_cube_entity, MousePickable {});
+    ecs.attach_provisional_component(&cube_mesh_entity, PlaneMeshOwner {});
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -141,12 +124,13 @@ fn create_scene(ecs: &mut ECS) {
     let cursor_manager_entity = ecs.create_entity();
     ecs.attach_provisional_component(&cursor_manager_entity, cursor_manager);
 
-    let player = Player { y_vel: 0.0, is_jumping: false };
-    let player_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&player_entity, player);
+    let level_loader = LevelLoader { should_load: true, next_level_id: 0 };
+    let level_loader_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&level_loader_entity, level_loader);
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
+    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
@@ -157,6 +141,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
+    ecs.register_system(DETECT_LOAD_NEXT_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -197,6 +182,67 @@ const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &Compo
 
         transform.reset_changed_flags();
     });
+};
+
+const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
+
+    if level_loader.should_load {
+        let cube_mesh_binding = entites.clone()
+            .filter(|e| components.get_component::<CubeMeshOwner>(e).is_some())
+            .map(|e| components.get_component::<MeshBinding>(e).unwrap())
+            .next()
+            .unwrap();
+
+        for e in entites.clone() {
+            if components.get_component::<LevelEntity>(e).is_some() {
+                commands.destroy_entity(e);
+            }
+        }
+
+        let cam_pos = VEC_3_ZERO; // TODO load from level/level ID
+        let cam_forward = -VEC_3_Z_AXIS; // TODO load from level/level ID
+
+        let cam = Camera::new(cam_pos, cam_forward, VEC_3_Y_AXIS, 70.0_f32.to_radians());
+        let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
+        let viewport_entity = commands.create_entity();
+        commands.attach_provisional_component(&viewport_entity, viewport);
+        commands.attach_provisional_component(&viewport_entity, LevelEntity {});
+
+        let player = Player { y_vel: 0.0, is_jumping: false };
+        let player_entity = commands.create_entity();
+        commands.attach_provisional_component(&player_entity, player);
+        commands.attach_provisional_component(&player_entity, LevelEntity {});
+
+        // TODO: load from level/level ID
+        const CUBE_SIZE: f32 = 5.0;
+        for i in -10..10 {
+            for j in -10..10 {
+                let cube_pos = vec3(i as f32 * CUBE_SIZE, 0.0, j as f32 * CUBE_SIZE);
+
+                let cube_transform = Transform::new(cube_pos, QUAT_IDENTITY, IDENTITY_SCALE_VEC * CUBE_SIZE);
+                let cube_material = ColorMaterial::new(RED);
+                let cube_entity = commands.create_entity();
+                commands.attach_provisional_component(&cube_entity, cube_transform);
+                commands.attach_provisional_component(&cube_entity, cube_material);
+                commands.attach_provisional_component(&cube_entity, cube_mesh_binding.clone());
+            }
+        }
+
+        level_loader.next_level_id += 1;
+        level_loader.should_load = false;
+    }
+};
+
+const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+
+    // TODO: implement the actual logic
+
+    if cam.pos.xz().len() >= 50.0 {
+        level_loader.should_load = true;
+    }
 };
 
 const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -242,6 +288,7 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
                     }
                 }
             } else {
+                // TODO: better logic here to fix click and drag bug
                 if (*cursor_screen_pos - rel_center_pos).len() < 1.0 {
                     cursor_manager.just_locked = false;
                 }
@@ -268,7 +315,7 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
     let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
 
     const PLAYER_GRAVITY: f32 = -40.0;
-    const MIN_PLAYER_HEIGHT: f32 = -10.0; // TODO: update this to a positive val
+    const MIN_PLAYER_HEIGHT: f32 = 5.0; // TODO: update this to a positive val
     const JUMP_VEL: f32 = 30.0;
 
     player.y_vel += PLAYER_GRAVITY * delta_sec;
@@ -878,6 +925,13 @@ struct CubeMeshOwner {}
 impl Component for CubeMeshOwner {}
 impl ComponentActions for CubeMeshOwner {}
 
+// PlaneMeshOwner
+
+struct PlaneMeshOwner {}
+
+impl Component for PlaneMeshOwner {}
+impl ComponentActions for PlaneMeshOwner {}
+
 // MousePickable
 
 struct MousePickable {}
@@ -903,3 +957,16 @@ struct Player {
 
 impl Component for Player {}
 impl ComponentActions for Player {}
+
+struct LevelLoader {
+    should_load: bool,
+    next_level_id: usize,
+}
+
+impl Component for LevelLoader {}
+impl ComponentActions for LevelLoader {}
+
+struct LevelEntity {}
+
+impl Component for LevelEntity {}
+impl ComponentActions for LevelEntity {}
