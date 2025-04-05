@@ -877,7 +877,7 @@ fn get_vertex_binding_description() -> vk::VertexInputBindingDescription {
         .build()
 }
 
-fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
     let pos = vk::VertexInputAttributeDescription::builder()
         .binding(0)
         .location(0)
@@ -892,5 +892,12 @@ fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 
         .offset(size_of::<Vec3>() as u32)
         .build();
 
-    [pos, norm]
+    let tex_coord = vk::VertexInputAttributeDescription::builder()
+        .binding(0)
+        .location(2)
+        .format(vk::Format::R32G32_SFLOAT)
+        .offset(2 * size_of::<Vec3>() as u32)
+        .build();
+
+    [pos, norm, tex_coord]
 }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::ecs::{ComponentActions, ProvisionalEntity};
 use crate::ecs::component::Component;
 use crate::ecs::entity::Entity;
-use crate::math::{vec3, Vec3, VEC_3_ZERO};
+use crate::math::{vec2, vec3, Vec2, Vec3, VEC_2_ZERO, VEC_3_ZERO};
 
 // MeshBinding
 
@@ -59,6 +59,7 @@ impl ComponentActions for MeshBinding {
 pub struct Vertex {
     pub pos: Vec3,
     pub norm: Vec3,
+    pub tex_coord: Vec2,
 }
 
 // Mesh
@@ -164,7 +165,7 @@ pub fn load_obj_mesh(file_path: &str, normalize_positions: bool, switch_handedne
                 let my_index = vertices.len();
                 source_indices_to_my_indices.insert(source_index, my_index);
 
-                vertices.push(Vertex { pos, norm });
+                vertices.push(Vertex { pos, norm, tex_coord: VEC_2_ZERO }); // TODO: yikes!
                 vertex_indices.push(my_index as u32);
             }
 
@@ -214,35 +215,35 @@ pub fn load_obj_mesh(file_path: &str, normalize_positions: bool, switch_handedne
 
 const CUBE_VERTICES: [Vertex; 24] = [
     // Front
-    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(0.25, 0.5) },
+    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(0.25, 0.25) },
+    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(0.5, 0.25) },
+    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0), tex_coord: vec2(0.5, 0.5) },
     // Left
-    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
-    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
-    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
-    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0), tex_coord: vec2(0.0, 0.5) },
+    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0), tex_coord: vec2(0.0, 0.25) },
+    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0), tex_coord: vec2(0.25, 0.25) },
+    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0), tex_coord: vec2(0.25, 0.5) },
     // Back
-    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0), tex_coord: vec2(0.75, 0.5) },
+    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0), tex_coord: vec2(0.75, 0.25) },
+    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0), tex_coord: vec2(1.0, 0.25) },
+    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0), tex_coord: vec2(1.0, 0.5) },
     // Right
-    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
-    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
-    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
-    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(1.0, 0.0, 0.0), tex_coord: vec2(0.5, 0.5) },
+    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0), tex_coord: vec2(0.5, 0.25) },
+    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0), tex_coord: vec2(0.75, 0.25) },
+    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0), tex_coord: vec2(0.75, 0.5) },
     // Top
-    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(0.25, 0.25) },
+    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(0.25, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(0.5, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(0.5, 0.25) },
     // Down
-    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
-    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
-    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
-    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
+    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0), tex_coord: vec2(0.25, 0.75) },
+    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0), tex_coord: vec2(0.25, 0.5) },
+    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0), tex_coord: vec2(0.5, 0.5) },
+    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0), tex_coord: vec2(0.5, 0.75) },
 ];
 
 const CUBE_INDEXES: [u32; 36] = [
@@ -265,10 +266,10 @@ pub fn create_cube_mesh() -> Mesh {
 }
 
 const PLANE_VERTICES: [Vertex; 4] = [
-    Vertex { pos: vec3(-0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-    Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-    Vertex { pos: vec3(0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-    Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(-0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(0.0, 1.0) },
+    Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(0.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(1.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0), tex_coord: vec2(1.0, 1.0) },
 ];
 
 const PLANE_INDEXES: [u32; 6] = [

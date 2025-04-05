@@ -398,6 +398,7 @@ pub fn generate_physics_mesh(mesh: Mesh, density: Option<f32>) -> Result<(Mesh, 
     let offseted_vertices = mesh.vertices.iter().map(|v| Vertex {
         pos: v.pos - center_of_mass,
         norm: v.norm,
+        tex_coord: v.tex_coord,
     }).collect();
 
     let new_mesh = Mesh::new(offseted_vertices, mesh.vertex_indices.to_vec())
