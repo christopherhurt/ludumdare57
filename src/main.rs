@@ -7,6 +7,8 @@ use core::{TextureBinding, IDENTITY_SCALE_VEC, WHITE};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
+use rand::Rng;
+use std::time::Duration;
 
 use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D};
 use crate::core::mesh::{create_cube_mesh, create_plane_mesh, Mesh, MeshBinding};
@@ -67,6 +69,7 @@ fn init_ecs() -> ECS {
         .with_component::<LevelEntity>()
         .with_component::<Baddie>()
         .with_component::<Wall>()
+        .with_component::<BaddieTextureOwner>()
         .build()
 }
 
@@ -125,6 +128,14 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&quad_mesh_entity, quad_mesh_binding);
     ecs.attach_provisional_component(&quad_mesh_entity, QuadMeshOwner {});
 
+    let baddie_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_entity = ecs.create_entity();
+    let baddie_texture_binding = TextureBinding::new_provisional(Some(baddie_texture_id), Some(baddie_texture_entity));
+    ecs.attach_provisional_component(&baddie_texture_entity, baddie_texture_binding);
+    ecs.attach_provisional_component(&baddie_texture_entity, BaddieTextureOwner {});
+
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
 
@@ -150,9 +161,9 @@ fn create_scene(ecs: &mut ECS) {
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
-    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap()]), -400);
+    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
-    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
+    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
@@ -209,15 +220,70 @@ const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &Compo
 };
 
 const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    // TODO: transform, mesh, texture, LevelEntity
-    // TODO check level bounds, pick a random location in range, check if a wall is there
+    let quad_mesh_binding = entites.clone()
+        .filter(|e| components.get_component::<QuadMeshOwner>(e).is_some())
+        .map(|e| components.get_component::<MeshBinding>(e).unwrap())
+        .next()
+        .unwrap();
+    let baddie_texture_binding = entites.clone()
+        .filter(|e| components.get_component::<BaddieTextureOwner>(e).is_some())
+        .map(|e| components.get_component::<TextureBinding>(e).unwrap())
+        .next()
+        .unwrap();
+    let _cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let player = entites.clone().find_map(|e| components.get_component::<Player>(e)).unwrap();
+    let spawn_timer = entites.clone().find_map(|e| components.get_mut_component::<Timer>(e)).unwrap();
+
+    if spawn_timer.remaining_duration.is_none() {
+        let mut rng = rand::rng();
+
+        if rng.random_range(0.0..1.0) < player.spawn_chance {
+            // TODO: consider the proximity to the camera
+            let spawn_x = rng.random_range((-player.level_width / 2.0)..(player.level_width / 2.0));
+            let spawn_z = rng.random_range((-player.level_height / 2.0)..(player.level_height / 2.0));
+
+            // TODO: check that (spawn_x, spawn_z) isn't inside a wall
+
+            const BADDIE_HEIGHT: f32 = 5.0;
+            const BADDIE_SIZE: f32 = 8.0;
+
+            let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), QUAT_IDENTITY, IDENTITY_SCALE_VEC * BADDIE_SIZE);
+            let baddie_entity = commands.create_entity();
+            commands.attach_provisional_component(&baddie_entity, baddie_transform);
+            commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
+            commands.attach_provisional_component(&baddie_entity, baddie_texture_binding.clone());
+            commands.attach_provisional_component(&baddie_entity, Baddie { is_active: false });
+            commands.attach_provisional_component(&baddie_entity, LevelEntity {});
+        }
+
+        spawn_timer.reset();
+    }
 };
 
-const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    // TODO: check if any walls between player and baddie
+const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let _cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+
+    for e in entites.clone() {
+        if let Some(baddie) = components.get_mut_component::<Baddie>(e) {
+            let _baddie_transform = components.get_component::<Baddie>(e).unwrap();
+
+            let line_of_sight_blocked = entites.clone()
+                .any(|e| {
+                    if components.get_component::<Wall>(e).is_some() {
+                        let _wall_transform = components.get_component::<Transform>(e);
+    
+                        // TODO: check if wall is between player and baddie, then return true if so
+                    }
+
+                    false
+                });
+
+            baddie.is_active = !line_of_sight_blocked;
+        }
+    }
 };
 
-const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
     const BADDIE_SPEED: f32 = 2.0;
@@ -244,8 +310,30 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
 };
 
 const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    // TODO: within a certain (xz?) range of camera, destroy the baddie and damage the player
-    // TODO: reset game if health <= 0
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
+    let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
+
+    const PERCENT_HEALTH_PER_BADDIE: f32 = 0.25;
+    const DAMAGE_DISTANCE: f32 = 3.0;
+
+    for e in entites {
+        if components.get_component::<Baddie>(e).is_some() {
+            let transform =  components.get_mut_component::<Transform>(e).unwrap();
+
+            if (*transform.get_pos() - cam.pos).len() <= DAMAGE_DISTANCE {
+                commands.destroy_entity(e);
+
+                player.health_percentage -= PERCENT_HEALTH_PER_BADDIE;
+
+                if player.health_percentage <= f32::EPSILON {
+                    // ur bad
+                    level_loader.should_load = true;
+                    level_loader.next_level_id = 0;
+                }
+            }
+        }
+    }
 };
 
 const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
@@ -262,6 +350,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             .map(|e| components.get_component::<TextureBinding>(e).unwrap())
             .next()
             .unwrap();
+        let existing_health = entites.clone().find_map(|e| components.get_component::<Player>(e)).map(|p| p.health_percentage);
 
         for e in entites.clone() {
             if components.get_component::<LevelEntity>(e).is_some() {
@@ -297,17 +386,38 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             }
         }
 
-        let player = Player {
-            y_vel: 0.0,
-            is_jumping: false,
-            health_percentage: 1.0,
-            max_health: 100,
-            level_width: level_dim as f32 * CUBE_SIZE,
-            level_height: level_dim  as f32 * CUBE_SIZE,
+        const MAX_HEALTH: u32 = 100;
+
+        let spawn_chance = 0.03; // TODO: ever update this with level?
+
+        let player = if level_loader.next_level_id == 0 {
+            Player {
+                y_vel: 0.0,
+                is_jumping: false,
+                health_percentage: 1.0,
+                max_health: MAX_HEALTH,
+                level_width: level_dim as f32 * CUBE_SIZE,
+                level_height: level_dim  as f32 * CUBE_SIZE,
+                spawn_chance,
+            }
+        } else {
+            Player {
+                y_vel: 0.0,
+                is_jumping: false,
+                health_percentage: existing_health.unwrap(),
+                max_health: MAX_HEALTH,
+                level_width: level_dim as f32 * CUBE_SIZE,
+                level_height: level_dim  as f32 * CUBE_SIZE,
+                spawn_chance,
+            }
         };
+
+        let spawn_timer = Timer::for_initial_duration(Duration::from_millis(100));
+
         let player_entity = commands.create_entity();
         commands.attach_provisional_component(&player_entity, player);
         commands.attach_provisional_component(&player_entity, LevelEntity {});
+        commands.attach_provisional_component(&player_entity, spawn_timer);
 
         level_loader.next_level_id += 1;
         level_loader.should_load = false;
@@ -320,7 +430,7 @@ const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &Comp
 
     // TODO: implement the actual logic
 
-    if cam.pos.xz().len() >= 50.0 {
+    if cam.pos.xz().len() >= 150.0 {
         level_loader.should_load = true;
     }
 };
@@ -1052,6 +1162,7 @@ struct Player {
     max_health: u32,
     level_width: f32,
     level_height: f32,
+    spawn_chance: f32,
 }
 
 impl Component for Player {}
@@ -1081,3 +1192,8 @@ struct Wall {}
 
 impl Component for Wall {}
 impl ComponentActions for Wall {}
+
+struct BaddieTextureOwner {}
+
+impl Component for BaddieTextureOwner {}
+impl ComponentActions for BaddieTextureOwner {}
