@@ -244,7 +244,7 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
 
             // TODO: check that (spawn_x, spawn_z) isn't inside a wall
 
-            const BADDIE_HEIGHT: f32 = 5.0;
+            const BADDIE_HEIGHT: f32 = 10.0;
             const BADDIE_SIZE: f32 = 8.0;
 
             let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), QUAT_IDENTITY, IDENTITY_SCALE_VEC * BADDIE_SIZE);
@@ -285,6 +285,8 @@ const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &Com
 
 const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
     const BADDIE_SPEED: f32 = 2.0;
 
@@ -293,9 +295,9 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
             let transform =  components.get_mut_component::<Transform>(e).unwrap();
 
             if baddie.is_active {
-                let towards_player = vec3(cam.pos.x, 0.0, cam.pos.z) - vec3(transform.get_pos().x, 0.0, transform.get_pos().z).normalized().unwrap();
+                let towards_player = (vec3(cam.pos.x, 0.0, cam.pos.z) - vec3(transform.get_pos().x, 0.0, transform.get_pos().z)).normalized().unwrap();
 
-                transform.set_pos(*transform.get_pos() + towards_player * BADDIE_SPEED);
+                transform.set_pos(*transform.get_pos() + towards_player * BADDIE_SPEED * delta_sec);
 
                 let mut angle_to_cam = towards_player.angle_rads_from(&VEC_3_Z_AXIS).unwrap();
 
@@ -541,10 +543,8 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
 
                 let rot_amt = (rot_speed * -cursor_manager.cursor_delta.y).min(max_rot).max(min_rot);
 
-                if rot_amt.abs() >= 0.001 {
-                    cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
-                    cam.up = cam_right_norm.cross(&cam.dir).normalized().unwrap();
-                }
+                cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+                cam.up = cam_right_norm.cross(&cam.dir).normalized().unwrap();
             }
             if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
                 let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;

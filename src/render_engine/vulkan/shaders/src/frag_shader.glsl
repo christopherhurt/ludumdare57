@@ -14,7 +14,13 @@ void main() {
     float diffuseDot = max(dot(fragNormal, -lightDir), 0.0);
     float ambientFactor = 0.2;
 
+    vec4 texColor = texture(texSampler, fragTexCoord);
+
+    if (texColor.a < 0.01) {
+        discard;
+    }
+
     //outColor = vec4(fragColor.rgb * (diffuseDot + ambientFactor), fragColor.a);
     // outColor = fragColor;
-    outColor = texture(texSampler, fragTexCoord);
+    outColor = texColor;
 }
