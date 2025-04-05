@@ -251,7 +251,7 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
 
     let esc_pressed = render_engine.is_key_pressed(VirtualKey::Escape);
 
-    const DEBUG_CURSOR: bool = false;
+    const DEBUG_CURSOR: bool = true; // TODO
 
     if let Ok(window) = render_engine.get_window_mut() {
         let rel_center_pos = vec2(window.get_width() as f32 / 2.0, window.get_height() as f32 / 2.0);
@@ -261,41 +261,35 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
         let center_pos = window_screen_pos + rel_center_pos;
 
         if let Some(cursor_screen_pos) = cursor_screen_pos {
-            if !cursor_manager.just_locked {
-                if !cursor_manager.is_locked {
-                    if window.is_button_pressed(VirtualButton::Left) {
-                        window.set_mouse_screen_position(&center_pos).unwrap_or_default();
+            if !cursor_manager.is_locked && window.is_button_down(VirtualButton::Left) {
+                window.set_mouse_screen_position(&center_pos).unwrap_or_default();
 
-                        cursor_manager.is_locked = true;
-                        cursor_manager.cursor_delta = VEC_2_ZERO;
-                        cursor_manager.just_locked = true;
+                cursor_manager.cursor_delta = VEC_2_ZERO;
+                cursor_manager.just_locked = true;
 
-                        window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
-                    }
+                window.set_mouse_cursor_visible(false || DEBUG_CURSOR).unwrap_or_default();
 
-                    cursor_manager.cursor_delta = VEC_2_ZERO;
-                } else if cursor_manager.is_locked && esc_pressed {
-                    cursor_manager.is_locked = false;
+                cursor_manager.cursor_delta = VEC_2_ZERO;
+            } else if cursor_manager.is_locked && esc_pressed {
+                cursor_manager.is_locked = false;
 
-                    window.set_mouse_cursor_visible(true).unwrap_or_default();
+                window.set_mouse_cursor_visible(true).unwrap_or_default();
 
-                    cursor_manager.cursor_delta = VEC_2_ZERO;
-                } else {
-                    cursor_manager.cursor_delta = *cursor_screen_pos - rel_center_pos;
+                cursor_manager.cursor_delta = VEC_2_ZERO;
+            } else if cursor_manager.is_locked {
+                cursor_manager.cursor_delta = *cursor_screen_pos - rel_center_pos;
 
-                    if cursor_manager.cursor_delta.len() > f32::EPSILON {
-                        window.set_mouse_screen_position(&center_pos).unwrap_or_default();
-                    }
+                if cursor_manager.cursor_delta.len() > f32::EPSILON {
+                    window.set_mouse_screen_position(&center_pos).unwrap_or_default();
                 }
-            } else {
-                // TODO: better logic here to fix click and drag bug
-                if (*cursor_screen_pos - rel_center_pos).len() < 1.0 {
-                    cursor_manager.just_locked = false;
-                }
+            } else if cursor_manager.just_locked && (*cursor_screen_pos - rel_center_pos).len() < 1.0 {
+                cursor_manager.just_locked = false;
+                cursor_manager.is_locked = true;
             }
         }
     } else {
         cursor_manager.is_locked = false;
+        cursor_manager.just_locked = false;
         cursor_manager.cursor_delta = VEC_2_ZERO;
     }
 
@@ -315,54 +309,56 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
     let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
 
     const PLAYER_GRAVITY: f32 = -40.0;
-    const MIN_PLAYER_HEIGHT: f32 = 5.0; // TODO: update this to a positive val
+    const MIN_PLAYER_HEIGHT: f32 = 8.0;
     const JUMP_VEL: f32 = 30.0;
 
     player.y_vel += PLAYER_GRAVITY * delta_sec;
 
     if let Ok(window) = render_engine.get_window() {
-        let mut move_dir = VEC_3_ZERO;
-        let cam_right_norm = cam.dir.cross(&cam.up).normalized().unwrap();
+        if cursor_manager.is_locked {
+            let mut move_dir = VEC_3_ZERO;
+            let cam_right_norm = cam.dir.cross(&cam.up).normalized().unwrap();
 
-        let move_forward = vec3(cam.dir.x, 0.0, cam.dir.z).normalized().unwrap();
-        let move_right = vec3(cam_right_norm.x, 0.0, cam_right_norm.z).normalized().unwrap();
+            let move_forward = vec3(cam.dir.x, 0.0, cam.dir.z).normalized().unwrap();
+            let move_right = vec3(cam_right_norm.x, 0.0, cam_right_norm.z).normalized().unwrap();
 
-        if window.is_key_down(VirtualKey::W) {
-            move_dir += move_forward;
-        }
-        if window.is_key_down(VirtualKey::S) {
-            move_dir -= move_forward;
-        }
-        if window.is_key_down(VirtualKey::D) {
-            move_dir += move_right;
-        }
-        if window.is_key_down(VirtualKey::A) {
-            move_dir -= move_right;
-        }
+            if window.is_key_down(VirtualKey::W) {
+                move_dir += move_forward;
+            }
+            if window.is_key_down(VirtualKey::S) {
+                move_dir -= move_forward;
+            }
+            if window.is_key_down(VirtualKey::D) {
+                move_dir += move_right;
+            }
+            if window.is_key_down(VirtualKey::A) {
+                move_dir -= move_right;
+            }
 
-        let move_speed = 25.0 * delta_sec;
-        if let Ok(dir) = move_dir.normalized() {
-            cam.pos += dir * move_speed;
-        }
+            let move_speed = 25.0 * delta_sec;
+            if let Ok(dir) = move_dir.normalized() {
+                cam.pos += dir * move_speed;
+            }
 
-        let rot_speed = (70.0 * delta_sec).to_radians();
-        if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
-            let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
+            let rot_speed = (70.0 * delta_sec).to_radians();
+            if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
+                let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
 
-            cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
-            cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
-        }
-        if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
-            let rot_amt = rot_speed * -cursor_manager.cursor_delta.y;
+                cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
+                cam.up = cam.up.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
+            }
+            if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
+                let rot_amt = rot_speed * -cursor_manager.cursor_delta.y;
 
-            cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
-            cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
-        }
+                cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+                cam.up = cam.up.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
+            }
 
-        if window.is_key_down(VirtualKey::Space) && !player.is_jumping {
-            player.y_vel += JUMP_VEL;
+            if window.is_key_down(VirtualKey::Space) && !player.is_jumping {
+                player.y_vel += JUMP_VEL;
 
-            player.is_jumping = true;
+                player.is_jumping = true;
+            }
         }
     }
 
