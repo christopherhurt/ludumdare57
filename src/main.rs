@@ -1,22 +1,21 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Mat3, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use math::{get_proj_matrix, vec2, vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
-use rand::Rng;
-use core::{GRAY, IDENTITY_SCALE_VEC, RED};
+use core::{IDENTITY_SCALE_VEC, RED};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
 
-use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D, BLUE, PURPLE, BLACK, WHITE, MAGENTA, GREEN, BROWN, CYAN};
-use crate::core::mesh::{Mesh, MeshBinding, Vertex, load_obj_mesh};
+use crate::core::{Camera, Color, ColorMaterial, TimeDelta, Timer, Transform, Viewport2D};
+use crate::core::mesh::{create_cube_mesh, create_plane_mesh, Mesh, MeshBinding};
 use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
-use crate::physics::{apply_ang_vel, generate_physics_mesh, generate_ray, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, get_ray_intersection, local_to_world_force, local_to_world_point, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
+use crate::physics::{apply_ang_vel, generate_physics_mesh, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
-use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
+use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualKey, WindowInitProps};
 
 pub mod core;
 pub mod ecs;
@@ -24,7 +23,6 @@ pub mod math;
 pub mod physics;
 pub mod render_engine;
 
-const DAMPING: f32 = 0.999;
 const NEAR_PLANE: f32 = 0.01;
 const FAR_PLANE: f32 = 1000.0;
 
@@ -59,7 +57,6 @@ fn init_ecs() -> ECS {
         .with_component::<Timer>()
         .with_component::<CubeMeshOwner>()
         .with_component::<MousePickable>()
-        .with_component::<DebugController>()
         .build()
 }
 
@@ -67,7 +64,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
     let window_props = WindowInitProps {
         width: 1600,
         height: 1200,
-        title: String::from("My Cool Game"),
+        title: String::from("My Cool Game"), // TODO: make this the game name
         is_resizable: true,
     };
 
@@ -88,53 +85,7 @@ fn create_scene(ecs: &mut ECS) {
     let player_entity = ecs.create_entity();
     ecs.attach_provisional_component(&player_entity, viewport);
 
-    let cube_vertices = vec![
-        // Front
-        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
-        // Left
-        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
-        // Back
-        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
-        // Right
-        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
-        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
-        // Top
-        Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-        // Down
-        Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
-        Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
-        Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
-        Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
-    ];
-    let cube_indexes = vec![
-        // Front
-        0, 1, 2, 2, 3, 0,
-        // Left
-        4, 5, 6, 6, 7, 4,
-        // Back
-        8, 9, 10, 10, 11, 8,
-        // Right
-        12, 13, 14, 14, 15, 12,
-        // Top
-        16, 17, 18, 18, 19, 16,
-        // Down
-        20, 21, 22, 22, 23, 20,
-    ];
-    let cube_mesh: Mesh = Mesh::new(cube_vertices, cube_indexes).unwrap();
+    let cube_mesh: Mesh = create_cube_mesh();
     let (cube_mesh, cube_physics_props) = generate_physics_mesh(cube_mesh, Some(2.0)).unwrap();
     let cube_mesh_id = render_engine.get_device_mut()
         .and_then(|d| d.create_mesh(cube_mesh.vertices.clone(), cube_mesh.vertex_indices.clone()))
@@ -146,16 +97,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&cube_mesh_entity, cube_physics_props.clone());
     ecs.attach_provisional_component(&cube_mesh_entity, CubeMeshOwner {});
 
-    let plane_vertices = vec![
-        Vertex { pos: vec3(-0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
-        Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
-    ];
-    let plane_indexes = vec![
-        0, 1, 2, 2, 3, 0,
-    ];
-    let plane_mesh: Mesh = Mesh::new(plane_vertices, plane_indexes).unwrap();
+    let plane_mesh: Mesh = create_plane_mesh();
     let (plane_mesh, _plane_physics_props) = generate_physics_mesh(plane_mesh, None).unwrap();
     let plane_physics_props = PhysicsMeshProperties::new_immovable(1.0, VEC_3_ZERO, 1.0);
     let plane_mesh_id = render_engine.get_device_mut()
@@ -167,16 +109,6 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&plane_mesh_entity, plane_mesh_binding);
     ecs.attach_provisional_component(&plane_mesh_entity, plane_physics_props.clone());
 
-    let bunny_mesh = load_obj_mesh("res/bunny.obj", true, true).unwrap();
-    let (bunny_mesh, bunny_physics_props) = generate_physics_mesh(bunny_mesh, Some(100.0)).unwrap();
-    let bunny_mesh_id = render_engine.get_device_mut()
-        .and_then(|d| d.create_mesh(bunny_mesh.vertices.clone(), bunny_mesh.vertex_indices.clone()))
-        .unwrap_or_else(|e| panic!("{}", e));
-    let bunny_mesh_entity = ecs.create_entity();
-    let bunny_mesh_binding = MeshBinding::new_provisional(Some(bunny_mesh_id), Some(bunny_mesh_entity));
-    ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh);
-    ecs.attach_provisional_component(&bunny_mesh_entity, bunny_mesh_binding.clone());
-
     let test_cube_transform = Transform::new(vec3(0.0, 0.0, -10.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
     let test_cube_material = ColorMaterial::new(RED);
     let test_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, cube_physics_props.clone());
@@ -187,39 +119,6 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&test_cube_entity, test_cube_material);
     ecs.attach_provisional_component(&test_cube_entity, test_cube_mesh_binding.clone());
     ecs.attach_provisional_component(&test_cube_entity, MousePickable {});
-
-    // TODO: need to handle plane collisions separately from bounding volumes, which require an actual non-zero volume - PlaneCollider component? other collider components?
-    let test_plane_transform = Transform::new(vec3(0.0, -50.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 50.0);
-    let test_plane_material = ColorMaterial::new(BROWN);
-    // let test_plane_physics_props = plane_physics_props.clone();
-    let test_plane_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.6, 0.6, 0.0, plane_physics_props.clone());
-    let test_plane_entity = ecs.create_entity();
-    let _test_plane_mesh_binding = MeshBinding::new_provisional(Some(plane_mesh_id), Some(plane_mesh_entity));
-    ecs.attach_provisional_component(&test_plane_entity, test_plane_transform);
-    ecs.attach_provisional_component(&test_plane_entity, test_plane_rigid_body);
-    ecs.attach_provisional_component(&test_plane_entity, test_plane_material);
-    // ecs.attach_provisional_component(&test_plane_entity, test_plane_mesh_binding.clone());
-    ecs.attach_provisional_component(&test_plane_entity, test_cube_mesh_binding.clone());
-
-    let test_bunny_transform = Transform::new(vec3(20.0, 5.0,0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC * 5.0);
-    let test_bunny_material = ColorMaterial::new(WHITE);
-    let test_bunny_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 0.0, bunny_physics_props.clone());
-    let test_bunny_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_transform);
-    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_rigid_body);
-    ecs.attach_provisional_component(&test_bunny_entity, test_bunny_material);
-    ecs.attach_provisional_component(&test_bunny_entity, bunny_mesh_binding.clone());
-    ecs.attach_provisional_component(&test_bunny_entity, MousePickable {});
-
-    // let tether_cube_transform = Transform::new(vec3(-3.0, 10.0, 0.0), QUAT_IDENTITY, IDENTITY_SCALE_VEC);
-    // let tether_cube_material = ColorMaterial::new(GRAY);
-    // let tether_cube_rigid_body = RigidBody::new(VEC_3_ZERO, VEC_3_ZERO, 0.9, 0.9, 15.0, cube_physics_props.clone());
-    // let tether_cube_entity = ecs.create_entity();
-    // ecs.attach_provisional_component(&tether_cube_entity, tether_cube_transform);
-    // ecs.attach_provisional_component(&tether_cube_entity, tether_cube_rigid_body);
-    // ecs.attach_provisional_component(&tether_cube_entity, tether_cube_material);
-    // ecs.attach_provisional_component(&tether_cube_entity, test_cube_mesh_binding.clone());
-    // ecs.attach_provisional_component(&tether_cube_entity, MousePickable {});
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -236,34 +135,17 @@ fn create_scene(ecs: &mut ECS) {
     let quad_tree_entity = ecs.create_entity();
     ecs.attach_provisional_component(&quad_tree_entity, quad_tree);
 
-    let debug_controller = DebugController { is_paused: false, execute_single_frame: false };
-    let debug_controller_entity = ecs.create_entity();
-    ecs.attach_provisional_component(&debug_controller_entity, debug_controller);
-
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
-    ecs.register_system(APPLY_DEBUG_CONTROLS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<DebugController>().unwrap()]), -900);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
-    ecs.register_system(PICK_MESHES, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
-    ecs.register_system(APPLY_DRAG, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
-    ecs.register_system(APPLY_BUOYANCY, HashSet::from([ecs.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_RIGID_BODY_FORCE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_TETHER_BALL, HashSet::from([ecs.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<MeshBinding>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
-    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
-    ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
     ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
     ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
-    ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
-    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -305,87 +187,6 @@ const RESET_TRANSFORM_FLAGS: System = |entites: Iter<Entity>, components: &Compo
         transform.reset_changed_flags();
     });
 };
-
-const APPLY_DEBUG_CONTROLS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let debug = entites.clone().find_map(|e| components.get_mut_component::<DebugController>(e)).unwrap();
-    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-
-    if let Ok(window) = render_engine.get_window() {
-        if window.is_key_pressed(VirtualKey::J) {
-            if debug.is_paused {
-                unpause(components, commands);
-            } else {
-                pause(commands);
-            }
-
-            debug.is_paused = !debug.is_paused;
-        }
-
-        if !debug.is_paused && debug.execute_single_frame {
-            pause(commands);
-
-            debug.execute_single_frame = false;
-            debug.is_paused = true;
-        }
-
-        if window.is_key_down(VirtualKey::L) {
-            unpause(components, commands);
-
-            debug.execute_single_frame = true;
-            debug.is_paused = false;
-        }
-    }
-};
-
-fn pause(ecs: &mut ECSCommands) {
-    ecs.unregister_system(MOVE_CAMERA);
-    ecs.unregister_system(PICK_MESHES);
-    ecs.unregister_system(APPLY_DRAG);
-    ecs.unregister_system(APPLY_CEILING_SPRING);
-    ecs.unregister_system(APPLY_BUNGEE_SPRING);
-    ecs.unregister_system(APPLY_BUOYANCY);
-    ecs.unregister_system(APPLY_RIGID_BODY_FORCE);
-    ecs.unregister_system(APPLY_TETHER_BALL);
-    ecs.unregister_system(SHOOT_PROJECTILE);
-    ecs.unregister_system(UPDATE_PARTICLES);
-    ecs.unregister_system(UPDATE_RIGID_BODIES);
-    ecs.unregister_system(CHECK_OUT_OF_BOUNDS);
-    ecs.unregister_system(UPDATE_QUAD_TREE);
-    ecs.unregister_system(DETECT_PARTICLE_COLLISIONS);
-    ecs.unregister_system(DETECT_PARTICLE_CABLE_COLLISIONS);
-    ecs.unregister_system(DETECT_PARTICLE_ROD_COLLISIONS);
-    ecs.unregister_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS);
-    ecs.unregister_system(DETECT_RIGID_BODY_COLLISIONS);
-    ecs.unregister_system(UPDATE_RIGID_BODY_COLLISION_CACHES);
-    ecs.unregister_system(RESOLVE_PARTICLE_COLLISIONS);
-    ecs.unregister_system(RESOLVE_RIGID_BODY_COLLISIONS);
-    ecs.unregister_system(RESET_TRANSFORM_FLAGS);
-}
-
-fn unpause(components: &ComponentManager, ecs: &mut ECSCommands) {
-    ecs.register_system(MOVE_CAMERA, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap(), components.get_system_signature_1::<TimeDelta>().unwrap()]), -400);
-    ecs.register_system(PICK_MESHES, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap(), components.get_system_signature_4::<Transform, MeshBinding, RigidBody, MousePickable>().unwrap()]), -400);
-    ecs.register_system(APPLY_DRAG, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_CEILING_SPRING, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_BUNGEE_SPRING, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap()]), -350);
-    ecs.register_system(APPLY_BUOYANCY, HashSet::from([components.get_system_signature_3::<Transform, Particle, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_RIGID_BODY_FORCE, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(APPLY_TETHER_BALL, HashSet::from([components.get_system_signature_3::<Transform, RigidBody, ColorMaterial>().unwrap()]), -350);
-    ecs.register_system(SHOOT_PROJECTILE, HashSet::from([components.get_system_signature_1::<VulkanRenderEngine>().unwrap(), components.get_system_signature_1::<MeshBinding>().unwrap(), components.get_system_signature_1::<Viewport2D>().unwrap(), components.get_system_signature_1::<CubeMeshOwner>().unwrap()]), -250);
-    ecs.register_system(UPDATE_PARTICLES, HashSet::from([components.get_system_signature_2::<Transform, Particle>().unwrap(), components.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
-    ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([components.get_system_signature_2::<Transform, RigidBody>().unwrap(), components.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
-    ecs.register_system(CHECK_OUT_OF_BOUNDS, HashSet::from([components.get_system_signature_1::<Transform>().unwrap()]), -200);
-    ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([components.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), components.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
-    ecs.register_system(DETECT_PARTICLE_COLLISIONS, HashSet::from([components.get_system_signature_2::<Transform, Particle>().unwrap(), components.get_system_signature_1::<ParticleCollisionDetector>().unwrap()]), -100);
-    ecs.register_system(DETECT_PARTICLE_CABLE_COLLISIONS, HashSet::from([components.get_system_signature_1::<ParticleCable>().unwrap()]), -100);
-    ecs.register_system(DETECT_PARTICLE_ROD_COLLISIONS, HashSet::from([components.get_system_signature_1::<ParticleRod>().unwrap()]), -100);
-    ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
-    ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
-    ecs.register_system(UPDATE_RIGID_BODY_COLLISION_CACHES, HashSet::from([components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -90);
-    ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([components.get_system_signature_1::<TimeDelta>().unwrap(), components.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
-    ecs.register_system(RESOLVE_RIGID_BODY_COLLISIONS, HashSet::from([components.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -50);
-    ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([components.get_system_signature_1::<Transform>().unwrap()]), 3);
-}
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
@@ -449,81 +250,39 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
     }
 };
 
-const SHOOT_PROJECTILE: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-    let mesh_binding = &entites.clone()
-        .find(|e| components.get_component::<CubeMeshOwner>(e).is_some())
-        .map(|e| *components.get_component::<MeshBinding>(e).unwrap())
-        .unwrap();
-    let mesh_props = entites.clone()
-        .find(|e| components.get_component::<CubeMeshOwner>(e).is_some())
-        .map(|e| components.get_component::<PhysicsMeshProperties>(e).unwrap())
-        .unwrap();
-    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+// const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+//     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+//     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
-    if render_engine.is_key_pressed(VirtualKey::Space) {
-        let cam_dir_norm = cam.dir.normalized().unwrap();
+//     const FORCE_FACTOR: f32 = 100000.0;
 
-        let color_material = ColorMaterial::new(PURPLE);
-        let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(1.0, 1.0, 1.0));
-        // let particle = Particle::new(cam_dir_norm * 35.0, DAMPING, 5.0, 5.0);
-        let rigid_body= RigidBody::new(cam_dir_norm * 35.0, VEC_3_ZERO, DAMPING, DAMPING, 5.0, mesh_props.clone());
+//     if let Ok(window) = render_engine.get_window() {
+//         if window.is_button_pressed(VirtualButton::Left) {
+//             if let Some(screen_pos) = window.get_mouse_screen_position() {
+//                 let ray = generate_ray(screen_pos, window, cam, NEAR_PLANE, FAR_PLANE);
 
-        let proj_entity = commands.create_entity();
-        commands.attach_provisional_component(&proj_entity, *mesh_binding);
-        commands.attach_provisional_component(&proj_entity, color_material);
-        commands.attach_provisional_component(&proj_entity, transform);
-        // commands.attach_provisional_component(&proj_entity, particle);
-        commands.attach_provisional_component(&proj_entity, rigid_body);
-        commands.attach_provisional_component(&proj_entity, MousePickable {});
-    } else if render_engine.is_key_pressed(VirtualKey::Enter) || render_engine.is_key_released(VirtualKey::Enter) {
-        let cam_dir_norm = cam.dir.normalized().unwrap();
+//                 if let Ok(ray) = ray {
+//                     for e in entites {
+//                         if let Some(_) = components.get_component::<MousePickable>(e) {
+//                             let transform = components.get_mut_component::<Transform>(e).unwrap();
+//                             let mesh_binding = components.get_component::<MeshBinding>(e).unwrap();
+//                             let rigid_body = components.get_mut_component::<RigidBody>(e).unwrap();
 
-        let color_material = ColorMaterial::new(BLUE);
-        let transform = Transform::new(cam.pos + cam_dir_norm * 5.0, QUAT_IDENTITY, vec3(3.0, 3.0, 3.0));
-        let particle = Particle::new(cam_dir_norm * 5.0, 0.9, 1.0, -0.6);
+//                             let mesh = components.get_component::<Mesh>(&mesh_binding.mesh_wrapper.unwrap()).unwrap();
 
-        let proj_entity = commands.create_entity();
-        commands.attach_provisional_component(&proj_entity, *mesh_binding);
-        commands.attach_provisional_component(&proj_entity, color_material);
-        commands.attach_provisional_component(&proj_entity, transform);
-        commands.attach_provisional_component(&proj_entity, particle);
-    }
-};
-
-const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
-
-    const FORCE_FACTOR: f32 = 100000.0;
-
-    if let Ok(window) = render_engine.get_window() {
-        if window.is_button_pressed(VirtualButton::Left) {
-            if let Some(screen_pos) = window.get_mouse_screen_position() {
-                let ray = generate_ray(screen_pos, window, cam, NEAR_PLANE, FAR_PLANE);
-
-                if let Ok(ray) = ray {
-                    for e in entites {
-                        if let Some(_) = components.get_component::<MousePickable>(e) {
-                            let transform = components.get_mut_component::<Transform>(e).unwrap();
-                            let mesh_binding = components.get_component::<MeshBinding>(e).unwrap();
-                            let rigid_body = components.get_mut_component::<RigidBody>(e).unwrap();
-
-                            let mesh = components.get_component::<Mesh>(&mesh_binding.mesh_wrapper.unwrap()).unwrap();
-
-                            // TODO: optimize this by first pruning with a simplified mesh, such as a bounding sphere
-                            //  Maybe formalize the MousePickable component into a built-in and add a bounding sphere field, then add a
-                            //  function to it to do all the intersection checks, pruning, etc...
-                            if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
-                                rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), transform.get_pos());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-};
+//                             // TODO: optimize this by first pruning with a simplified mesh, such as a bounding sphere
+//                             //  Maybe formalize the MousePickable component into a built-in and add a bounding sphere field, then add a
+//                             //  function to it to do all the intersection checks, pruning, etc...
+//                             if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
+//                                 rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), transform.get_pos());
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// };
 
 // TODO: formalize force generator functions and move and generalize them to the physics module as I see fit
 // Built-in
@@ -780,549 +539,6 @@ const DETECT_RIGID_BODY_COLLISIONS: System = |entites: Iter<Entity>, components:
     }
 };
 
-const UPDATE_RIGID_BODY_COLLISION_CACHES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    entites
-        .map(|e| (e, components.get_mut_component::<RigidBodyCollision>(e).unwrap()))
-        .for_each(|(e, c)| if !c.refresh_cache(components) { commands.destroy_entity(e); });
-};
-
-// Built-in
-const RESOLVE_RIGID_BODY_COLLISIONS: System = |entities: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    let time_delta = entities.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
-    let delta_sec = time_delta.since_last_frame.as_secs_f32();
-
-    let num_iterations = entities.len() * 2;
-
-    apply_movements(get_rigid_body_collision_iter(entities.clone(), components, commands), components, num_iterations);
-
-    apply_impulses(get_rigid_body_collision_iter(entities, components, commands), components, num_iterations, delta_sec);
-};
-
-fn get_rigid_body_collision_iter(entities: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands) -> impl Iterator<Item = Entity> + Clone {
-    entities
-        .map(|e| (
-            (e, components.get_mut_component::<RigidBodyCollision>(e))
-        ))
-        .filter(|(_, c)| c.is_some())
-        .map(|(e, c)| (e, c.unwrap()))
-        .filter(|(e, c)| {
-            let transform_a = components.get_mut_component::<Transform>(&c.rigid_body_a);
-            let rigid_body_a = components.get_mut_component::<RigidBody>(&c.rigid_body_a);
-            let transform_b = components.get_mut_component::<Transform>(&c.rigid_body_b);
-            let rigid_body_b = components.get_mut_component::<RigidBody>(&c.rigid_body_b);
-
-            let is_valid_collision = c.cache.is_some() && transform_a.is_some() && rigid_body_a.is_some()
-                && transform_b.is_some() && rigid_body_b.is_some();
-
-            if !is_valid_collision {
-                commands.destroy_entity(e);
-            }
-
-            is_valid_collision
-        })
-        .map(|(e, _)| *e)
-        .collect::<Vec<_>>()
-        .into_iter()
-}
-
-fn get_interpenetration_components(
-    transform: &Transform,
-    collision: &RigidBodyCollision,
-    linear_inertia: f32,
-    ang_inertia: f32,
-    total_collision_inertia: f32,
-    delta_sign: f32,
-) -> (f32, f32) {
-    const ANGULAR_LIMIT_FACTOR: f32 = 0.2;
-
-    let mut linear_movement = delta_sign * collision.penetration * linear_inertia / total_collision_inertia;
-    let mut ang_movement = delta_sign * collision.penetration * ang_inertia / total_collision_inertia;
-
-    let angular_limit = ANGULAR_LIMIT_FACTOR * (collision.point - *transform.get_pos()).len();
-    let total_movement = linear_movement + ang_movement;
-
-    ang_movement = ang_movement.max(-angular_limit).min(angular_limit);
-    linear_movement = total_movement - ang_movement;
-
-    (linear_movement, ang_movement)
-}
-
-fn apply_movements(
-    collisions: impl Iterator<Item = Entity> + Clone,
-    components: &ComponentManager,
-    num_iterations: usize,
-) {
-    for _ in 0..num_iterations {
-        if let Some(worst_collision_entity) = get_highest_penetration_collision(collisions.clone(), components) {
-            let worst_collision = components.get_component::<RigidBodyCollision>(&worst_collision_entity).unwrap();
-
-            let transform_a = components.get_mut_component::<Transform>(&worst_collision.rigid_body_a).unwrap();
-            let rigid_body_a = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_a).unwrap();
-
-            let transform_b = components.get_mut_component::<Transform>(&worst_collision.rigid_body_b).unwrap();
-            let rigid_body_b = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_b).unwrap();
-
-            let cache = worst_collision.cache.as_ref().unwrap();
-
-            // TODO: I think it's something with how these are calculated...
-            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia(), 1.0);
-            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia(), -1.0);
-
-            apply_movement(transform_a, rigid_body_a, worst_collision, linear_movement_a, ang_movement_a, cache.ang_inertia_a);
-            apply_movement(transform_b, rigid_body_b, worst_collision, linear_movement_b, ang_movement_b, cache.ang_inertia_b);
-
-            adjust_penetrations(
-                collisions.clone(),
-                components,
-                worst_collision,
-                linear_movement_a,
-                ang_movement_a,
-                linear_movement_b,
-                ang_movement_b,
-            );
-        } else {
-            // No more collisions are interpenetrating
-            break;
-        }
-    }
-}
-
-fn get_highest_penetration_collision(collisions: impl Iterator<Item = Entity>, components: &ComponentManager) -> Option<Entity> {
-    collisions
-        .map(|e| (e, components.get_component::<RigidBodyCollision>(&e).unwrap()))
-        .max_by(|a, b| a.1.penetration.partial_cmp(&b.1.penetration).unwrap_or(Ordering::Less))
-        .filter(|(_, c)| c.penetration > f32::EPSILON)
-        .map(|(e, _)| e)
-}
-
-fn apply_movement(
-    transform: &mut Transform,
-    rigid_body: &RigidBody,
-    collision: &RigidBodyCollision,
-    linear_movement: f32,
-    ang_movement: f32,
-    ang_inertia: f32,
-) {
-    transform.set_pos(*transform.get_pos() + collision.normal * linear_movement);
-
-    if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
-        let impulsive_torque = (collision.point - *transform.get_pos()).cross(&collision.normal);
-
-        let world_matrix = transform.to_world_mat().to_mat3();
-        let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
-        let inverse_inertia_tensor_world = (world_matrix * inertia_tensor * inverse_world_matrix).inverted()
-            .unwrap_or_else(|_| panic!("Internal error: failed to invert inertia tensor world transform"));
-
-        let impulse_per_movement = inverse_inertia_tensor_world * impulsive_torque;
-        let delta_rot_per_movement = impulse_per_movement / ang_inertia;
-
-        let delta_rot = delta_rot_per_movement * ang_movement;
-
-        transform.set_rot(apply_ang_vel(transform.get_rot(), &delta_rot, 1.0));
-    }
-}
-
-fn adjust_penetrations(
-    collisions: impl Iterator<Item = Entity>,
-    components: &ComponentManager,
-    applied_collision: &RigidBodyCollision,
-    linear_movement_a: f32,
-    ang_movement_a: f32,
-    linear_movement_b: f32,
-    ang_movement_b: f32,
-) {
-    for e in collisions {
-        if let Some(affected_collision) = components.get_mut_component::<RigidBodyCollision>(&e) {
-            if let Some(c_cache) = affected_collision.cache.clone() {
-                if affected_collision.rigid_body_a == applied_collision.rigid_body_a {
-                    update_penetration(applied_collision, affected_collision, &c_cache.collision_point_rel_a, linear_movement_a, ang_movement_a, -1.0);
-                } else if affected_collision.rigid_body_b == applied_collision.rigid_body_a {
-                    update_penetration(applied_collision, affected_collision, &c_cache.collision_point_rel_b, linear_movement_a, ang_movement_a, 1.0);
-                } else if affected_collision.rigid_body_a == applied_collision.rigid_body_b {
-                    update_penetration(applied_collision, affected_collision, &c_cache.collision_point_rel_a, linear_movement_b, ang_movement_b, -1.0);
-                } else if affected_collision.rigid_body_b == applied_collision.rigid_body_b {
-                    update_penetration(applied_collision, affected_collision, &c_cache.collision_point_rel_b, linear_movement_b, ang_movement_b, 1.0);
-                }
-            }
-        }
-    }
-}
-
-fn update_penetration(
-    applied_collision: &RigidBodyCollision,
-    affected_collision: &mut RigidBodyCollision,
-    affected_rel_collision_point: &Vec3,
-    linear_movement: f32,
-    ang_movement: f32,
-    delta_sign: f32,
-) {
-    let linear_delta = applied_collision.normal * linear_movement;
-    let ang_delta = applied_collision.normal * ang_movement;
-
-    let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta);
-
-    affected_collision.penetration += delta_pen.dot(&affected_collision.normal);
-}
-
-fn apply_impulses(
-    collisions: impl Iterator<Item = Entity> + Clone,
-    components: &ComponentManager,
-    num_iterations: usize,
-    delta_sec: f32,
-) {
-    for _ in 0..num_iterations {
-        if let Some(worst_collision_entity) = get_highest_vel_collision(collisions.clone(), components) {
-            let worst_collision = components.get_component::<RigidBodyCollision>(&worst_collision_entity).unwrap();
-
-            let transform_a = components.get_mut_component::<Transform>(&worst_collision.rigid_body_a).unwrap();
-            let rigid_body_a = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_a).unwrap();
-
-            let transform_b = components.get_mut_component::<Transform>(&worst_collision.rigid_body_b).unwrap();
-            let rigid_body_b = components.get_mut_component::<RigidBody>(&worst_collision.rigid_body_b).unwrap();
-
-            let cache = worst_collision.cache.as_ref().unwrap();
-
-            let impulse_collision_space = vec3(cache.target_delta_vel / cache.get_total_inertia(), 0.0, 0.0);
-            let impulse_world = cache.collision_to_world_space * impulse_collision_space;
-
-            apply_impulse(transform_a, rigid_body_a, worst_collision, &impulse_world);
-            apply_impulse(transform_b, rigid_body_b, worst_collision, &-impulse_world);
-
-            let (linear_movement_a, ang_movement_a) = get_interpenetration_components(transform_a, worst_collision, cache.linear_inertia_a, cache.ang_inertia_a, cache.get_total_inertia(), 1.0);
-            let (linear_movement_b, ang_movement_b) = get_interpenetration_components(transform_b, worst_collision, cache.linear_inertia_b, cache.ang_inertia_b, cache.get_total_inertia(), -1.0);
-
-            adjust_target_delta_velocities(collisions.clone(), components, worst_collision, linear_movement_a, ang_movement_a, linear_movement_b, ang_movement_b, delta_sec);
-        } else {
-            // No more collisions are closing
-            break;
-        }
-    }
-}
-
-fn get_highest_vel_collision(
-    collisions: impl Iterator<Item = Entity>,
-    components: &ComponentManager,
-) -> Option<Entity> {
-    collisions
-        .map(|e| (e, components.get_component::<RigidBodyCollision>(&e).unwrap()))
-        .max_by(|a, b| a.1.cache.as_ref().unwrap().target_delta_vel.partial_cmp(&b.1.cache.as_ref().unwrap().target_delta_vel).unwrap_or(Ordering::Less))
-        .filter(|(_, c)| c.cache.as_ref().unwrap().target_delta_vel.abs() > f32::EPSILON)
-        .map(|(e, _)| e)
-}
-
-fn apply_impulse(
-    transform: &mut Transform,
-    rigid_body: &mut RigidBody,
-    collision: &RigidBodyCollision,
-    impulse: &Vec3,
-) {
-    if let Some(mass) = rigid_body.props.mass {
-        rigid_body.linear_vel += *impulse / mass;
-    }
-
-    if let Some(inertia_tensor) = rigid_body.props.inertia_tensor {
-        let collision_point_rel = collision.point - *transform.get_pos();
-
-        let impulsive_torque = impulse.cross(&collision_point_rel);
-
-        let world_matrix = transform.to_world_mat().to_mat3();
-        let inverse_world_matrix = world_matrix.inverted().unwrap_or_else(|_| panic!("Internal error: failed to invert world matrix"));
-        let inverse_inertia_tensor_world = (world_matrix * inertia_tensor * inverse_world_matrix).inverted()
-            .unwrap_or_else(|_| panic!("Internal error: Failed to invert world space inertia tensor"));
-
-        rigid_body.ang_vel += inverse_inertia_tensor_world * impulsive_torque;
-    }
-}
-
-fn adjust_target_delta_velocities(
-    collisions: impl Iterator<Item = Entity>,
-    components: &ComponentManager,
-    applied_collision: &RigidBodyCollision,
-    linear_movement_a: f32,
-    ang_movement_a: f32,
-    linear_movement_b: f32,
-    ang_movement_b: f32,
-    delta_sec: f32,
-) {
-    for e in collisions {
-        if let Some(affected_collision) = components.get_mut_component::<RigidBodyCollision>(&e) {
-            let rigid_body_a = components.get_component::<RigidBody>(&affected_collision.rigid_body_a).unwrap();
-            let rigid_body_b = components.get_component::<RigidBody>(&affected_collision.rigid_body_b).unwrap();
-
-            let rel_linear_acc = rigid_body_a.linear_acc - rigid_body_b.linear_acc;
-
-            if let Some(c_cache) = affected_collision.cache.as_ref() {
-                if affected_collision.rigid_body_a == applied_collision.rigid_body_a {
-                    update_target_delta_vel(
-                        applied_collision,
-                        affected_collision,
-                        &c_cache.collision_point_rel_a.clone(),
-                        &c_cache.world_to_collision_space.clone(),
-                        &rel_linear_acc,
-                        linear_movement_a,
-                        ang_movement_a,
-                        delta_sec,
-                        -1.0,
-                    );
-                } else if affected_collision.rigid_body_b == applied_collision.rigid_body_a {
-                    update_target_delta_vel(
-                        applied_collision,
-                        affected_collision,
-                        &c_cache.collision_point_rel_b.clone(),
-                        &c_cache.world_to_collision_space.clone(),
-                        &rel_linear_acc,
-                        linear_movement_a,
-                        ang_movement_a,
-                        delta_sec,
-                        1.0,
-                    );
-                } else if affected_collision.rigid_body_a == applied_collision.rigid_body_b {
-                    update_target_delta_vel(
-                        applied_collision,
-                        affected_collision,
-                        &c_cache.collision_point_rel_a.clone(),
-                        &c_cache.world_to_collision_space.clone(),
-                        &rel_linear_acc,
-                        linear_movement_b,
-                        ang_movement_b,
-                        delta_sec,
-                        -1.0,
-                    );
-                } else if affected_collision.rigid_body_b == applied_collision.rigid_body_b {
-                    update_target_delta_vel(
-                        applied_collision,
-                        affected_collision,
-                        &c_cache.collision_point_rel_b.clone(),
-                        &c_cache.world_to_collision_space.clone(),
-                        &rel_linear_acc,
-                        linear_movement_b,
-                        ang_movement_b,
-                        delta_sec,
-                        1.0,
-                    );
-                }
-            }
-        }
-    }
-}
-
-fn update_target_delta_vel(
-    applied_collision: &RigidBodyCollision,
-    affected_collision: &mut RigidBodyCollision,
-    affected_rel_collision_point: &Vec3,
-    world_to_collision_space: &Mat3,
-    rel_linear_acc: &Vec3,
-    linear_movement: f32,
-    ang_movement: f32,
-    delta_sec: f32,
-    delta_sign: f32,
-) {
-    let linear_delta = applied_collision.normal * linear_movement;
-    let ang_delta = applied_collision.normal * ang_movement;
-
-    let delta_pen = delta_sign * (ang_delta.cross(affected_rel_collision_point) + linear_delta);
-
-    affected_collision.cache.as_mut().unwrap().collision_space_vel += *world_to_collision_space * delta_pen;
-
-    let vel_from_last_frame_acc = delta_sec * affected_collision.normal.dot(rel_linear_acc);
-
-    let collision_vel = affected_collision.cache.as_mut().unwrap().collision_space_vel.x;
-
-    const ELASTICITY_SPEED_LIMIT: f32 = 0.01;
-
-    let restitution = if collision_vel.abs() < ELASTICITY_SPEED_LIMIT {
-        0.0
-    } else {
-        affected_collision.restitution
-    };
-
-    affected_collision.cache.as_mut().unwrap().target_delta_vel =
-        -collision_vel - restitution * (collision_vel - vel_from_last_frame_acc);
-}
-
-// TODO: make built in
-const APPLY_TETHER_BALL: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    const TETHER_ANCHOR: Vec3 = vec3(0.0, 10.0, 3.0);
-    const TETHER_LOCAL_POINT: Vec3 = vec3(0.0, 0.5, 0.0);
-    const REST_LENGTH: f32 = 4.0;
-    const K: f32 = 10.0;
-
-    for (_, transform, rigid_body, material) in get_rigid_cubes(entites, components) {
-        if material.color == GRAY {
-            let world_point = local_to_world_point(&TETHER_LOCAL_POINT, transform);
-
-            let to_anchor = TETHER_ANCHOR - world_point;
-            let delta_length = to_anchor.len() - REST_LENGTH;
-
-            if delta_length > 0.0 {
-                let to_anchor_dir = to_anchor.normalized().unwrap();
-                let force = K * delta_length * to_anchor_dir;
-
-                rigid_body.add_force_at_point(&world_point, &force, transform.get_pos());
-            }
-        }
-    }
-};
-
-const APPLY_RIGID_BODY_FORCE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-
-    if let Ok(window) = render_engine.get_window() {
-        for e in entites {
-            let transform = components.get_mut_component::<Transform>(e);
-            let rigid_body = components.get_mut_component::<RigidBody>(e);
-
-            if transform.is_some() && rigid_body.is_some() {
-                let transform = transform.unwrap();
-                let rigid_body = rigid_body.unwrap();
-
-                let local_point = vec3(3.0, 0.0, 0.0);
-                let local_force = VEC_3_Z_AXIS * 0.25;
-
-                if window.is_key_down(VirtualKey::I) {
-                    let world_point = local_to_world_point(&local_point, transform);
-                    let world_force = local_to_world_force(&local_force, transform);
-
-                    rigid_body.add_force_at_point(&world_point, &world_force, transform.get_pos());
-                    rigid_body.linear_force_accum = VEC_3_ZERO;
-                }
-                if window.is_key_down(VirtualKey::K) {
-                    let world_point = local_to_world_point(&local_point, transform);
-                    let world_force = local_to_world_force(&-local_force, transform);
-
-                    rigid_body.add_force_at_point(&world_point, &world_force, transform.get_pos());
-                    rigid_body.linear_force_accum = VEC_3_ZERO;
-                }
-            }
-        }
-    }
-};
-
-const CHECK_OUT_OF_BOUNDS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    for e in entites {
-        let transform = components.get_component::<Transform>(e).unwrap();
-
-        const GAME_BOUNDS: f32 = 100.0;
-
-        if transform.get_pos().len() >= GAME_BOUNDS {
-            commands.destroy_entity(e);
-        }
-    }
-};
-
-// TODO: make built in
-const APPLY_DRAG: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    const K1: f32 = 0.05;
-    const K2: f32 = 0.05;
-
-    for (_, _, particle, material) in get_cubes(entites, components) {
-        let speed = particle.vel.len();
-
-        if let Ok(vel_dir) = particle.vel.normalized() {
-            if material.color == PURPLE {
-                particle.force_accum += -vel_dir * (K1 * speed + K2 * speed * speed);
-            } else if material.color == GREEN {
-                particle.force_accum += -vel_dir * (2.0 * speed + 2.0 * speed * speed);
-            } else if material.color == BLACK || material.color == WHITE {
-                particle.force_accum += -vel_dir * (1.0 * speed + 1.0 * speed * speed);
-            } else if material.color == MAGENTA {
-                particle.force_accum += -vel_dir * (1.0 * speed + 1.0 * speed * speed);
-            } else if material.color == BROWN || material.color == CYAN {
-                particle.force_accum += -vel_dir * (0.1 * speed + 0.1 * speed * speed);
-            }
-        }
-    }
-};
-
-// TODO: make a struct for particle springs
-const APPLY_CEILING_SPRING: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    const CEIL_HEIGHT: f32 = 10.0;
-    const REST_LENGTH: f32 = 3.0;
-    const K: f32 = 10.0;
-
-    for (_, transform, particle, material) in get_cubes(entites, components) {
-        if material.color == WHITE || material.color == BLACK {
-            let pos = transform.get_pos();
-            let d = *pos - vec3(pos.x, CEIL_HEIGHT, pos.z);
-            let delta_length = d.len() - REST_LENGTH;
-
-            if let Ok(d_norm) = d.normalized() {
-                particle.force_accum += -K * delta_length * d_norm;
-            }
-        }
-    }
-};
-
-const APPLY_BUNGEE_SPRING: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let cam_pos = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam.pos;
-
-    const K: f32 = 50.0;
-    const REST_LENGTH: f32 = 5.0;
-
-    for (_, transform, particle, material) in get_cubes(entites, components) {
-        if material.color == GREEN {
-            let d = *transform.get_pos() - *cam_pos;
-            let delta_length = d.len() - REST_LENGTH;
-
-            if delta_length > 0.0 {
-                if let Ok(d_norm) = d.normalized() {
-                    particle.force_accum += -K * delta_length * d_norm;
-                }
-            }
-        }
-    }
-};
-
-// TODO: make built-in
-const APPLY_BUOYANCY: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    const DENSITY: f32 = 10.0;
-    const WATER_HEIGHT: f32 = 0.0;
-
-    for (_, transform, particle, material) in get_cubes(entites, components) {
-        if material.color == MAGENTA {
-            let submersion_depth = -transform.get_scl().y / 2.0;
-            let volume = transform.get_scl().x * transform.get_scl().y * transform.get_scl().z;
-
-            let d = ((transform.get_pos().y - WATER_HEIGHT - submersion_depth) / (2.0 * submersion_depth)).max(0.0).min(1.0);
-
-            particle.force_accum += vec3(0.0, d * DENSITY * volume, 0.0);
-        }
-    }
-};
-
-// Built-in
-const DETECT_PARTICLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
-    // TODO: this system will be overhauled later, this is just a simple collision detector for testing
-
-    let collision_detector = entites.clone().find_map(|e| components.get_component::<ParticleCollisionDetector>(e)).unwrap();
-
-    const FLOOR_HEIGHT: f32 = -15.0;
-
-    let mut rng = rand::rng();
-
-    for e in entites {
-        let transform = components.get_component::<Transform>(e);
-        let particle = components.get_component::<Particle>(e);
-
-        if transform.is_some() && particle.is_some() { // Only check that a Particle component exists, otherwise it's not needed
-            let transform = transform.unwrap();
-
-            if transform.get_pos().y <= FLOOR_HEIGHT {
-                let restitution = if rng.random_range(0.0..1.0) < 0.5 {
-                    rng.random_range(0.0..1.0)
-                } else {
-                    collision_detector.default_restitution
-                };
-
-                let collision = ParticleCollision::new(e.clone(), None, restitution, VEC_3_Y_AXIS, FLOOR_HEIGHT - transform.get_pos().y);
-
-                let collision_entity = commands.create_entity();
-                commands.attach_provisional_component(&collision_entity, collision);
-            }
-        }
-    }
-};
-
 // Built-in
 const DETECT_PARTICLE_CABLE_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let cables = entites
@@ -1576,38 +792,6 @@ const SHUTDOWN_RENDER_ENGINE: System = |entites: Iter<Entity>, components: &Comp
     }
 };
 
-fn get_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -> impl Iterator<Item = (&'a Entity, &'a Transform, &'a mut Particle, &'a ColorMaterial)> {
-    entities.map(|e| {
-        let transform = components.get_component::<Transform>(e);
-        let particle = components.get_mut_component::<Particle>(e);
-        let material = components.get_component::<ColorMaterial>(e);
-
-        if transform.is_some() && particle.is_some() && material.is_some() {
-            Some((e, transform.unwrap(), particle.unwrap(), material.unwrap()))
-        } else {
-            None
-        }
-    })
-    .filter(|e| e.is_some())
-    .map(|e| e.unwrap())
-}
-
-fn get_rigid_cubes<'a>(entities: Iter<'a, Entity>, components: &'a ComponentManager) -> impl Iterator<Item = (&'a Entity, &'a mut Transform, &'a mut RigidBody, &'a ColorMaterial)> {
-    entities.map(|e| {
-        let transform = components.get_mut_component::<Transform>(e);
-        let rigid_body = components.get_mut_component::<RigidBody>(e);
-        let material = components.get_component::<ColorMaterial>(e);
-
-        if transform.is_some() && rigid_body.is_some() && material.is_some() {
-            Some((e, transform.unwrap(), rigid_body.unwrap(), material.unwrap()))
-        } else {
-            None
-        }
-    })
-    .filter(|e| e.is_some())
-    .map(|e| e.unwrap())
-}
-
 // CubeMeshOwner
 
 struct CubeMeshOwner {}
@@ -1621,13 +805,3 @@ struct MousePickable {}
 
 impl Component for MousePickable {}
 impl ComponentActions for MousePickable {}
-
-// DebugController
-
-struct DebugController {
-    is_paused: bool,
-    execute_single_frame: bool,
-}
-
-impl Component for DebugController {}
-impl ComponentActions for DebugController {}

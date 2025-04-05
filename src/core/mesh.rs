@@ -209,3 +209,72 @@ pub fn load_obj_mesh(file_path: &str, normalize_positions: bool, switch_handedne
 
     Ok(Mesh::new(vertices, vertex_indices).unwrap_or_else(|_| panic!("Internal error: an invalid Mesh was constructed")))
 }
+
+// Built-ins
+
+const CUBE_VERTICES: [Vertex; 24] = [
+    // Front
+    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, 0.0, 1.0) },
+    // Left
+    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(-1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(-1.0, 0.0, 0.0) },
+    // Back
+    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, 0.0, -1.0) },
+    // Right
+    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
+    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(1.0, 0.0, 0.0) },
+    // Top
+    Vertex { pos: vec3(-0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(-0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.5, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+    // Down
+    Vertex { pos: vec3(-0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
+    Vertex { pos: vec3(-0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
+    Vertex { pos: vec3(0.5, -0.5, 0.5), norm: vec3(0.0, -1.0, 0.0) },
+    Vertex { pos: vec3(0.5, -0.5, -0.5), norm: vec3(0.0, -1.0, 0.0) },
+];
+
+const CUBE_INDEXES: [u32; 36] = [
+    // Front
+    0, 1, 2, 2, 3, 0,
+    // Left
+    4, 5, 6, 6, 7, 4,
+    // Back
+    8, 9, 10, 10, 11, 8,
+    // Right
+    12, 13, 14, 14, 15, 12,
+    // Top
+    16, 17, 18, 18, 19, 16,
+    // Down
+    20, 21, 22, 22, 23, 20,
+];
+
+pub fn create_cube_mesh() -> Mesh {
+    Mesh::new(CUBE_VERTICES.to_vec(), CUBE_INDEXES.to_vec()).unwrap()
+}
+
+const PLANE_VERTICES: [Vertex; 4] = [
+    Vertex { pos: vec3(-0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(-0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.0, -0.5), norm: vec3(0.0, 1.0, 0.0) },
+    Vertex { pos: vec3(0.5, 0.0, 0.5), norm: vec3(0.0, 1.0, 0.0) },
+];
+
+const PLANE_INDEXES: [u32; 6] = [
+    0, 1, 2, 2, 3, 0,
+];
+
+pub fn create_plane_mesh() -> Mesh {
+    Mesh::new(PLANE_VERTICES.to_vec(), PLANE_INDEXES.to_vec()).unwrap()
+}
