@@ -87,7 +87,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 
     let render_engine_props = RenderEngineInitProps {
         debug_enabled: true,
-        clear_color: Color::rgb(0.5, 0.0, 0.0),
+        clear_color: Color::rgb(0.25, 0.0, 0.0),
         window_props,
     };
 
@@ -268,20 +268,33 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
             let spawn_x = rng.random_range((-player.level_width / 2.0)..(player.level_width / 2.0));
             let spawn_z = rng.random_range((-player.level_height / 2.0)..(player.level_height / 2.0));
 
-            // TODO: check that (spawn_x, spawn_z) isn't inside a wall
+            if !entites.clone()
+                .filter(|e| components.get_component::<Wall>(e).is_some_and(|w| w.is_lowest_wall))
+                .any(|e| {
+                    let wall_transform = components.get_component::<Transform>(e).unwrap();
 
-            const BADDIE_HEIGHT: f32 = 10.0;
-            const BADDIE_SIZE: f32 = 8.0;
+                    let min_x = wall_transform.get_pos().x - wall_transform.get_scl().x / 2.0;
+                    let max_x = wall_transform.get_pos().x + wall_transform.get_scl().x / 2.0;
 
-            let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
+                    let min_z = wall_transform.get_pos().z - wall_transform.get_scl().z / 2.0;
+                    let max_z = wall_transform.get_pos().z + wall_transform.get_scl().z / 2.0;
 
-            let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
-            let baddie_entity = commands.create_entity();
-            commands.attach_provisional_component(&baddie_entity, baddie_transform);
-            commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
-            commands.attach_provisional_component(&baddie_entity, baddie_texture_binding.clone());
-            commands.attach_provisional_component(&baddie_entity, Baddie { is_active: false });
-            commands.attach_provisional_component(&baddie_entity, LevelEntity {});
+                    spawn_x >= min_x && spawn_x <= max_x && spawn_z >= min_z && spawn_z <= max_z
+                })
+            {
+                const BADDIE_HEIGHT: f32 = 10.0;
+                const BADDIE_SIZE: f32 = 8.0;
+
+                let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
+
+                let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
+                let baddie_entity = commands.create_entity();
+                commands.attach_provisional_component(&baddie_entity, baddie_transform);
+                commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
+                commands.attach_provisional_component(&baddie_entity, baddie_texture_binding.clone());
+                commands.attach_provisional_component(&baddie_entity, Baddie { is_active: false });
+                commands.attach_provisional_component(&baddie_entity, LevelEntity {});
+            }
         }
 
         spawn_timer.reset();
@@ -670,7 +683,7 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
                 if cursor_manager.cursor_delta.len() > f32::EPSILON {
                     window.set_mouse_screen_position(&center_pos).unwrap_or_default();
                 }
-            } else if cursor_manager.just_locked && (cursor_screen_pos - rel_center_pos).len() < 1.0 {
+            } else if cursor_manager.just_locked && (cursor_screen_pos - rel_center_pos).len() < 2.0 {
                 cursor_manager.just_locked = false;
                 cursor_manager.is_locked = true;
             }
@@ -725,7 +738,7 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 cam.pos += dir * move_speed;
             }
 
-            let rot_speed = (70.0 * delta_sec).to_radians();
+            let rot_speed = (45.0 * delta_sec).to_radians();
             if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
                 let max_rot = VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.1;
                 let min_rot = -(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.1;
@@ -812,7 +825,6 @@ fn get_wall_collision(point: &Vec3, collision_dist: f32, transform: &mut Transfo
     None
 }
 
-// TODO: formalize force generator functions and move and generalize them to the physics module as I see fit
 // Built-in
 const UPDATE_PARTICLES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
