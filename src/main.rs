@@ -79,6 +79,8 @@ fn init_ecs() -> ECS {
         .with_component::<GunAnimationTimer>()
         .with_component::<GunReloadTimer>()
         .with_component::<DigitsTextureOwner>()
+        .with_component::<Ladder>()
+        .with_component::<LadderTextureOwner>()
         .build()
 }
 
@@ -147,6 +149,15 @@ fn create_scene(ecs: &mut ECS) {
     let digits_texture_owner_entity = ecs.create_entity();
     ecs.attach_provisional_component(&digits_texture_owner_entity, digits_texture_owner);
 
+    let ladder_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/ladder.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let ladder_texture_entity = ecs.create_entity();
+    let ladder_texture_binding = TextureBinding::new_provisional(Some(ladder_texture_id), Some(ladder_texture_entity));
+    ecs.attach_provisional_component(&ladder_texture_entity, ladder_texture_binding);
+    ecs.attach_provisional_component(&ladder_texture_entity, quad_mesh_binding.clone());
+    ecs.attach_provisional_component(&ladder_texture_entity, LadderTextureOwner {});
+
     ////////////////////
     // GUI
     ////////////////////
@@ -203,7 +214,7 @@ fn create_scene(ecs: &mut ECS) {
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
-    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<GunTextureOwner>().unwrap()]), -400);
+    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<GunTextureOwner>().unwrap(), ecs.get_system_signature_1::<LadderTextureOwner>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(UPDATE_SPRITE_ANIMATIONS, HashSet::from([ecs.get_system_signature_2::<SpriteAnimation, Timer>().unwrap(), ecs.get_system_signature_1::<GunReloadTimer>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Timer, Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap()]), -400);
@@ -211,6 +222,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap()]), -400);
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
+    ecs.register_system(UPDATE_LADDER, HashSet::from([ecs.get_system_signature_1::<Ladder>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(UPDATE_DEAD_BADDIES, HashSet::from([ecs.get_system_signature_1::<DeadBaddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
     ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<GunAnimationTimer>().unwrap(), ecs.get_system_signature_1::<GunReloadTimer>().unwrap()]), -400);
@@ -223,7 +235,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_POTENTIAL_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap()]), -100);
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
-    ecs.register_system(DETECT_LOAD_NEXT_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -50);
+    ecs.register_system(DETECT_LOAD_NEXT_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Ladder>().unwrap()]), -50);
     ecs.register_system(UPDATE_GUI_ELEMENTS, HashSet::from([ecs.get_system_signature_1::<GuiElement>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<GunReloadTimer>().unwrap(), ecs.get_system_signature_1::<GunAnimationTimer>().unwrap(), ecs.get_system_signature_1::<DigitsTextureOwner>().unwrap(), ecs.get_system_signature_1::<GunTextureOwner>().unwrap()]), 2);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
@@ -537,6 +549,26 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
     }
 };
 
+const UPDATE_LADDER: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+
+    for e in entites {
+        if components.get_component::<Ladder>(e).is_some() {
+            let transform = components.get_mut_component::<Transform>(e).unwrap();
+
+            let towards_player = (vec3(cam.pos.x, 0.0, cam.pos.z) - vec3(transform.get_pos().x, 0.0, transform.get_pos().z)).normalized().unwrap();
+
+            let mut angle_to_cam = towards_player.angle_rads_from(&VEC_3_Z_AXIS).unwrap();
+
+            if VEC_3_Z_AXIS.cross(&towards_player).y < 0.0 {
+                angle_to_cam = 2.0 * std::f32::consts::PI - angle_to_cam;
+            }
+
+            transform.set_rot(Quat::from_axis_spin(&VEC_3_Y_AXIS, angle_to_cam).unwrap());
+        }
+    }
+};
+
 const UPDATE_DEAD_BADDIES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
@@ -757,6 +789,16 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             .map(|e| components.get_component::<TextureBinding>(e).unwrap())
             .next()
             .unwrap();
+        let ladder_texture_binding = entites.clone()
+            .filter(|e| components.get_component::<LadderTextureOwner>(e).is_some())
+            .map(|e| components.get_component::<TextureBinding>(e).unwrap())
+            .next()
+            .unwrap();
+        let ladder_mesh_binding = entites.clone()
+            .filter(|e| components.get_component::<LadderTextureOwner>(e).is_some())
+            .map(|e| components.get_component::<MeshBinding>(e).unwrap())
+            .next()
+            .unwrap();
         let existing_health = entites.clone().find_map(|e| components.get_component::<Player>(e)).map(|p| p.health_percentage);
         let gun_animation = entites.clone()
             .filter(|e| components.get_component::<GunTextureOwner>(e).is_some())
@@ -880,6 +922,24 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
 
         level_loader.next_level_id += 1;
         level_loader.should_load = false;
+
+        let ladder_x_index = 0; // TODO: load from file
+        let ladder_z_index = 0; // TODO: load from file
+
+        let ladder_x_pos = CUBE_SIZE * (ladder_x_index as f32 - (level_dim as f32 - 1.0) / 2.0);
+        let ladder_z_pos = CUBE_SIZE * (ladder_z_index as f32 - (level_dim as f32 - 1.0) / 2.0);
+
+        const LADDER_WIDTH: f32 = 5.0;
+        const LADDER_HEIGHT: f32 = LADDER_WIDTH * 2.0;
+        const LADDER_Y_POS: f32 = CUBE_SIZE / 2.0 + LADDER_HEIGHT / 2.0;
+
+        let ladder_transform = Transform::new(vec3(ladder_x_pos, LADDER_Y_POS, ladder_z_pos), QUAT_IDENTITY, vec3(LADDER_WIDTH, LADDER_HEIGHT, 1.0));
+        let ladder_entity = commands.create_entity();
+        commands.attach_provisional_component(&ladder_entity, ladder_transform);
+        commands.attach_provisional_component(&ladder_entity, ladder_texture_binding.clone());
+        commands.attach_provisional_component(&ladder_entity, ladder_mesh_binding.clone());
+        commands.attach_provisional_component(&ladder_entity, LevelEntity {});
+        commands.attach_provisional_component(&ladder_entity, Ladder {});
     }
 };
 
@@ -900,10 +960,20 @@ const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &Comp
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
-    // TODO: implement the actual logic
+    const LOAD_DISTANCE: f32 = 10.0;
 
-    if cam.pos.xz().len() >= 150.0 {
-        level_loader.should_load = true;
+    for e in entites {
+        if components.get_component::<Ladder>(e).is_some() {
+            let transform = components.get_component::<Transform>(e).unwrap();
+
+            let cam_xz = vec3(cam.pos.x, 0.0, cam.pos.z);
+            let ladder_xz = vec3(transform.get_pos().x, 0.0, transform.get_pos().z);
+            let xz_dist_to_player = (cam_xz - ladder_xz).len();
+
+            if xz_dist_to_player <= LOAD_DISTANCE {
+                level_loader.should_load = true;
+            }
+        }
     }
 };
 
@@ -1875,3 +1945,13 @@ struct DigitsTextureOwner {
 
 impl Component for DigitsTextureOwner {}
 impl ComponentActions for DigitsTextureOwner {}
+
+struct LadderTextureOwner {}
+
+impl Component for LadderTextureOwner {}
+impl ComponentActions for LadderTextureOwner {}
+
+struct Ladder {}
+
+impl Component for Ladder {}
+impl ComponentActions for Ladder {}
