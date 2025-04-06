@@ -285,11 +285,11 @@ impl VulkanContext {
             self.device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer.buffer], &[0]);
             self.device.cmd_bind_index_buffer(command_buffer, mesh.index_buffer.buffer, 0, vk::IndexType::UINT32);
             self.device.cmd_draw_indexed(command_buffer, mesh.index_count as u32, 1, 0, 0, 0);
-
-            // TODO: bind texture...
         }
 
         self.device.cmd_end_render_pass(command_buffer);
+
+        // TODO: bind and render GUI stuff
 
         self.device.end_command_buffer(command_buffer)?;
 
@@ -797,8 +797,11 @@ impl VulkanApplication {
                         proj: render_state.proj,
                         color: e.color,
                     }
-                }).collect();
+                }).collect::<Vec<_>>();
+
                 update_uniforms(&context.device, context.uniform_buffers[image_index].memory, &ubos, context.ubo_alignment)?;
+
+                // TODO: update gui uniforms
 
                 context.update_command_buffer(image_index, render_state)?;
 

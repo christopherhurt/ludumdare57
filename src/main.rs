@@ -2,6 +2,7 @@ use anyhow::Result;
 use ecs::ComponentActions;
 use math::{get_proj_matrix, vec2, vec3, Quat, Vec2, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
 use physics::PotentialRigidBodyCollision;
+use render_engine::GuiState;
 use core::mesh::create_quad_mesh;
 use core::{TextureBinding, IDENTITY_SCALE_VEC, WHITE};
 use std::cmp::Ordering;
@@ -70,6 +71,7 @@ fn init_ecs() -> ECS {
         .with_component::<Baddie>()
         .with_component::<Wall>()
         .with_component::<BaddieTextureOwner>()
+        .with_component::<GuiElement>()
         .build()
 }
 
@@ -83,7 +85,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
 
     let render_engine_props = RenderEngineInitProps {
         debug_enabled: true,
-        clear_color: Color::rgb(0.0, 0.3, 0.0),
+        clear_color: Color::rgb(0.5, 0.0, 0.0),
         window_props,
     };
 
@@ -136,6 +138,24 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&baddie_texture_entity, baddie_texture_binding);
     ecs.attach_provisional_component(&baddie_texture_entity, BaddieTextureOwner {});
 
+    ////////////////////
+    // GUI
+    ////////////////////
+
+    // Crosshair
+    let crosshair_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/crosshair.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let crosshair_element = GuiElement {
+        id: String::from("crosshair"),
+        position: vec2(0.0, 0.0),
+        dimensions: vec2(1.0, 1.0),
+    };
+    let crosshair_entity = ecs.create_entity();
+    let crosshair_texture_binding = TextureBinding::new_provisional(Some(crosshair_texture_id), Some(crosshair_entity));
+    ecs.attach_provisional_component(&crosshair_entity, crosshair_element);
+    ecs.attach_provisional_component(&crosshair_entity, crosshair_texture_binding);
+
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
 
@@ -177,6 +197,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
     ecs.register_system(DETECT_LOAD_NEXT_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -50);
+    ecs.register_system(UPDATE_GUI_ELEMENTS, HashSet::from([ecs.get_system_signature_1::<GuiElement>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 2);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -435,7 +456,7 @@ const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &Comp
     // TODO: implement the actual logic
 
     if cam.pos.xz().len() >= 150.0 {
-        level_loader.should_load = true;
+        // level_loader.should_load = true;
     }
 };
 
@@ -491,11 +512,8 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
         cursor_manager.cursor_delta = VEC_2_ZERO;
     }
 
-    if cursor_manager.cursor_delta.x.abs() < 1.0 {
-        cursor_manager.cursor_delta.x = 0.0;
-    } else if cursor_manager.cursor_delta.y.abs() < 1.0 {
-        cursor_manager.cursor_delta.y = 0.0;
-    }
+    cursor_manager.cursor_delta.x = cursor_manager.cursor_delta.x as i32 as f32;
+    cursor_manager.cursor_delta.y = cursor_manager.cursor_delta.y as i32 as f32;
 };
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -1066,10 +1084,35 @@ fn resolve_interpenetration(collision: &ParticleCollision, components: &Componen
     }
 }
 
+const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+
+    if let Ok(window) = render_engine.get_window() {
+        let aspect_ratio = window.get_width() as f32 / window.get_height() as f32;
+
+        for e in entites {
+            if let Some(gui_element) = components.get_mut_component::<GuiElement>(e) {
+                if gui_element.id == "crosshair" {
+                    const CROSSHAIR_SIZE: f32 = 0.1;
+
+                    gui_element.dimensions = vec2(CROSSHAIR_SIZE * aspect_ratio, CROSSHAIR_SIZE);
+                } else {
+                    panic!("Bad GUI element ID {:?}", gui_element.id);
+                }
+            }
+        }
+    }
+};
+
 // Built-in
 const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
     let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
+    let quad_mesh_id = entites.clone()
+        .filter(|e| components.get_component::<QuadMeshOwner>(e).is_some())
+        .map(|e| components.get_component::<MeshBinding>(e).unwrap())
+        .next()
+        .unwrap().id.unwrap();
 
     let entity_states = entites.clone().filter(|e|
         components.get_component::<Transform>(e).is_some()
@@ -1082,6 +1125,15 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
         color: WHITE,
     }).collect();
 
+    let gui_states = entites.clone()
+        .filter(|e| components.get_component::<TextureBinding>(e).is_some() && components.get_component::<GuiElement>(e).is_some())
+        .map(|e| GuiState {
+            mesh_id: quad_mesh_id,
+            texture_id: components.get_component::<TextureBinding>(e).unwrap().id.unwrap(),
+            position: components.get_component::<GuiElement>(e).unwrap().position,
+            dimensions: components.get_component::<GuiElement>(e).unwrap().dimensions,
+        }).collect();
+
     let aspect_ratio = render_engine.get_window().and_then(|w| {
         Ok((w.get_width() as f32) / (w.get_height() as f32))
     }).unwrap_or(1.0);
@@ -1091,6 +1143,7 @@ const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &Component
         view: viewport.cam.to_view_mat().unwrap(),
         proj,
         entity_states,
+        gui_states,
     };
 
     render_engine.sync_state(render_state).unwrap_or_default();
@@ -1199,3 +1252,12 @@ struct BaddieTextureOwner {}
 
 impl Component for BaddieTextureOwner {}
 impl ComponentActions for BaddieTextureOwner {}
+
+struct GuiElement {
+    id: String,
+    position: Vec2,
+    dimensions: Vec2,
+}
+
+impl Component for GuiElement {}
+impl ComponentActions for GuiElement {}

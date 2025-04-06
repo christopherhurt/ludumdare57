@@ -60,6 +60,7 @@ pub struct RenderState {
     pub view: Mat4,
     pub proj: Mat4,
     pub entity_states: Vec<EntityRenderState>,
+    pub gui_states: Vec<GuiState>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +69,14 @@ pub struct EntityRenderState {
     pub mesh_id: RenderMeshId,
     pub texture_id: RenderTextureId,
     pub color: Color,
+}
+
+#[derive(Clone, Debug)]
+pub struct GuiState {
+    pub mesh_id: RenderMeshId,
+    pub texture_id: RenderTextureId,
+    pub position: Vec2,
+    pub dimensions: Vec2,
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]
