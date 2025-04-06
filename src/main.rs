@@ -456,7 +456,7 @@ const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &Comp
     // TODO: implement the actual logic
 
     if cam.pos.xz().len() >= 150.0 {
-        // level_loader.should_load = true;
+        level_loader.should_load = true;
     }
 };
 

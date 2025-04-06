@@ -86,3 +86,21 @@ impl UniformBufferObject {
         }
     }
 }
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub(in crate::render_engine::vulkan) struct GuiUniformBufferObject {
+    pub(in crate::render_engine::vulkan) world: Mat4,
+}
+
+impl GuiUniformBufferObject {
+    pub(in crate::render_engine::vulkan) fn get_offset_alignment(min_offset_alignment: usize) -> usize {
+        let ubo_size = size_of::<GuiUniformBufferObject>();
+
+        if ubo_size % min_offset_alignment == 0 {
+            ubo_size
+        } else {
+            ubo_size + (min_offset_alignment - ubo_size % min_offset_alignment)
+        }
+    }
+}

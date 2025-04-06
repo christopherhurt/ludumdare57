@@ -542,6 +542,123 @@ pub(in crate::render_engine::vulkan) unsafe fn create_pipeline(
     )
 }
 
+pub(in crate::render_engine::vulkan) unsafe fn create_gui_pipeline(
+    device: &Device,
+    render_pass: vk::RenderPass,
+    swapchain: &Swapchain,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+) -> Result<Pipeline> {
+    let vert_shader_bytes = include_bytes!("shaders/generated/gui_vert_shader.spv");
+    let frag_shader_bytes = include_bytes!("shaders/generated/gui_frag_shader.spv");
+
+    let vert_shader_module = create_shader_module(device, vert_shader_bytes)?;
+    let frag_shader_module = create_shader_module(device, frag_shader_bytes)?;
+
+    let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::VERTEX)
+        .module(vert_shader_module)
+        .name(b"main\0");
+    let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::FRAGMENT)
+        .module(frag_shader_module)
+        .name(b"main\0");
+
+    let binding_descriptions = &[get_vertex_binding_description()];
+    let attribute_descriptions = get_vertex_attribute_descriptions();
+    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+        .vertex_binding_descriptions(binding_descriptions)
+        .vertex_attribute_descriptions(&attribute_descriptions);
+
+    let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .primitive_restart_enable(false);
+
+    let viewport = vk::Viewport::builder()
+        .x(0.0)
+        .y(0.0)
+        .width(swapchain.extent.width as f32)
+        .height(swapchain.extent.height as f32)
+        .min_depth(0.0)
+        .max_depth(1.0);
+    let scissor = vk::Rect2D::builder()
+        .offset(vk::Offset2D { x: 0, y: 0 })
+        .extent(swapchain.extent);
+
+    let viewports = &[viewport];
+    let scissors = &[scissor];
+    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+        .viewports(viewports)
+        .scissors(scissors);
+
+    let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
+        .depth_clamp_enable(false)
+        .rasterizer_discard_enable(false)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.0)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::CLOCKWISE)
+        .depth_bias_enable(false);
+
+    let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(vk::SampleCountFlags::_1);
+
+    let attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::all())
+        .blend_enable(true)
+        .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .color_blend_op(vk::BlendOp::ADD)
+        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+        .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+        .alpha_blend_op(vk::BlendOp::ADD);
+
+    let attachments = &[attachment];
+    let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+        .logic_op_enable(false)
+        .logic_op(vk::LogicOp::COPY)
+        .attachments(attachments)
+        .blend_constants([0.0, 0.0, 0.0, 0.0]);
+
+    let set_layouts=  &[descriptor_set_layout];
+    let layout_info = vk::PipelineLayoutCreateInfo::builder()
+        .set_layouts(set_layouts);
+
+    let pipeline_layout = device.create_pipeline_layout(&layout_info, None)?;
+
+    let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::builder()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_bounds_test_enable(false)
+        .stencil_test_enable(false);
+
+    let stages = &[vert_stage, frag_stage];
+    let info = vk::GraphicsPipelineCreateInfo::builder()
+        .stages(stages)
+        .vertex_input_state(&vertex_input_state)
+        .input_assembly_state(&input_assembly_state)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization_state)
+        .multisample_state(&multisample_state)
+        .depth_stencil_state(&depth_stencil_state)
+        .color_blend_state(&color_blend_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+
+    let pipeline = device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)?.0[0];
+
+    device.destroy_shader_module(vert_shader_module, None);
+    device.destroy_shader_module(frag_shader_module, None);
+
+    Ok(
+        Pipeline {
+            pipeline,
+            layout: pipeline_layout,
+        }
+    )
+}
+
 // Framebuffers + Attachments
 
 pub(in crate::render_engine::vulkan) unsafe fn create_depth_objects(

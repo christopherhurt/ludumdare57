@@ -62,6 +62,15 @@ pub struct Vertex {
     pub tex_coord: Vec2,
 }
 
+// GuiVertex
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct GuiVertex {
+    pub pos: Vec2,
+    pub tex_coord: Vec2,
+}
+
 // Mesh
 
 pub type Edge = (u32, u32);
