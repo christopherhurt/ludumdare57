@@ -618,7 +618,7 @@ const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         .next()
         .unwrap();
 
-    if player.is_reloading && gun_animation_timer.remaining_duration.is_none() {
+    if player.is_reloading && gun_reload_timer.remaining_duration.is_none() {
         player.is_reloading = false;
         player.ammo_count = player.max_ammo;
     }
