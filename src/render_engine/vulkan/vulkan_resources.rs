@@ -1048,7 +1048,7 @@ pub(in crate::render_engine::vulkan) unsafe fn create_texture_image(
     let (width, height) = reader.info().size();
 
     if reader.info().color_type != png::ColorType::Rgba {
-        panic!("Invalid texture image.");
+        panic!("Invalid texture image: {:?}", file_path);
     }
 
     let staging_buffer = create_buffer(
