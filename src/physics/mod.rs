@@ -1243,7 +1243,7 @@ pub(in crate) fn get_point_collision(
     None
 }
 
-fn is_inside_tetrahedron(p0: &Vec3, p1: &Vec3, p2: &Vec3, p3: &Vec3, q: &Vec3) -> bool {
+pub fn is_inside_tetrahedron(p0: &Vec3, p1: &Vec3, p2: &Vec3, p3: &Vec3, q: &Vec3) -> bool {
     // https://stackoverflow.com/questions/25179693/how-to-check-whether-the-point-is-in-the-tetrahedron-or-not
     is_same_side_of_plane(p0, p1, p2, p3, q)
         && is_same_side_of_plane(p3, p1, p0, p2, q)
