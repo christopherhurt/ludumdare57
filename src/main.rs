@@ -1,13 +1,14 @@
 use anyhow::Result;
 use ecs::ComponentActions;
 use math::{get_proj_matrix, vec2, vec3, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
-use physics::{generate_ray, get_ray_intersection, is_inside_tetrahedron, PotentialRigidBodyCollision};
+use physics::{generate_ray, get_ray_intersection, PotentialRigidBodyCollision};
 use render_engine::GuiState;
 use core::mesh::create_quad_mesh;
 use core::{TextureBinding, IDENTITY_SCALE_VEC, WHITE};
 use std::cmp::Ordering;
 use std::collections::hash_set::Iter;
 use std::collections::HashSet;
+use std::f32;
 use rand::Rng;
 use std::time::Duration;
 
@@ -185,7 +186,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
-    ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
+    ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap()]), -400);
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
@@ -496,7 +497,6 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
-                cube_size: CUBE_SIZE,
             }
         } else {
             Player {
@@ -507,7 +507,6 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
-                cube_size: CUBE_SIZE,
             }
         };
 
@@ -682,7 +681,6 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
 
 const APPLY_PLAYER_WALL_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let cam = &mut entites.clone().find_map(|e| components.get_mut_component::<Viewport2D>(e)).unwrap().cam;
-    let player = entites.clone().find_map(|e| components.get_component::<Player>(e)).unwrap();
 
     const COLLISION_DIST: f32 = 5.0;
 
@@ -690,52 +688,42 @@ const APPLY_PLAYER_WALL_COLLISIONS: System = |entites: Iter<Entity>, components:
         if let Some(wall) = components.get_component::<Wall>(e) {
             if wall.is_lowest_wall {
                 let wall_transform = components.get_mut_component::<Transform>(e).unwrap();
-                let wall_mesh = components.get_component::<Mesh>(
-                    components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
-                ).unwrap();
 
-                let dist_to_cam = (cam.pos - *wall_transform.get_pos()).len();
-
-                if dist_to_cam <= (COLLISION_DIST + player.cube_size) * 2.0 { // prune
-                    if let Some(collision) = get_wall_collision(&cam.pos, COLLISION_DIST, wall_mesh, wall_transform) {
-                        cam.pos += collision;
-                    }
+                if let Some(collision) = get_wall_collision(&cam.pos, COLLISION_DIST, wall_transform) {
+                    cam.pos += collision;
                 }
             }
         }
     }
 };
 
-fn get_wall_collision(point: &Vec3, collision_dist: f32, mesh: &Mesh, transform: &mut Transform) -> Option<Vec3> {
-    let world_matrix = *transform.to_world_mat();
+fn get_wall_collision(point: &Vec3, collision_dist: f32, transform: &mut Transform) -> Option<Vec3> {
+    let min_x = transform.get_pos().x - transform.get_scl().x / 2.0 - collision_dist;
+    let max_x = transform.get_pos().x + transform.get_scl().x / 2.0 + collision_dist;
 
-    for i in mesh.vertex_indices.chunks(3) {
-        let p0 = (world_matrix * mesh.vertices[i[0] as usize].pos.to_vec4(1.0)).xyz();
-        let p1 = (world_matrix * mesh.vertices[i[1] as usize].pos.to_vec4(1.0)).xyz();
-        let p2 = (world_matrix * mesh.vertices[i[2] as usize].pos.to_vec4(1.0)).xyz();
+    let min_z = transform.get_pos().z - transform.get_scl().z / 2.0 - collision_dist;
+    let max_z = transform.get_pos().z + transform.get_scl().z / 2.0 + collision_dist;
 
-        if let Some(collision) = get_wall_collision_for_face(point, collision_dist, (p0, p1, p2), &*transform.get_pos()) {
-            return Some(collision);
-        }
-    }
+    if point.x > min_x && point.x < max_x && point.z > min_z && point.z < max_z {
+        let dist_min_x = (point.x - min_x).abs();
+        let dist_max_x = (point.x - max_x).abs();
 
-    None
-}
+        let dist_min_z = (point.z - min_z).abs();
+        let dist_max_z = (point.z - max_z).abs();
 
-fn get_wall_collision_for_face(point: &Vec3, collision_dist: f32, face: (Vec3, Vec3, Vec3), center: &Vec3) -> Option<Vec3> {
-    if let Ok(n) = (face.0 - face.1).cross(&(face.2 - face.1)).normalized() {
-        if n.x > f32::EPSILON || n.z > f32::EPSILON {
-            let point_xz = vec3(point.x, 0.0, point.z);
-            let center_xz = vec3(center.x, 0.0, center.z);
+        let min_dist = dist_min_x.min(dist_max_x).min(dist_min_z).min(dist_max_z);
 
-            let proj_point = point_xz - n * collision_dist;
+        let epsilon = f32::EPSILON;
 
-            if is_inside_tetrahedron(&face.0, &face.1, &face.2, &center_xz, &proj_point) {
-                let penetration = (face.0 - proj_point).dot(&n);
-
-                return Some(penetration * n);
-            }
-        }
+        return if min_dist == dist_min_x {
+            Some(vec3(-dist_min_x - epsilon, 0.0, 0.0))
+        } else if min_dist == dist_max_x {
+            Some(vec3(dist_max_x + epsilon, 0.0, 0.0))
+        } else if min_dist == dist_min_z {
+            Some(vec3(0.0, 0.0, -dist_min_z - epsilon))
+        } else {
+            Some(vec3(0.0, 0.0, dist_max_z + epsilon))
+        };
     }
 
     None
@@ -1331,7 +1319,6 @@ struct Player {
     max_health: u32,
     level_width: f32,
     level_height: f32,
-    cube_size: f32,
     spawn_chance: f32,
 }
 
