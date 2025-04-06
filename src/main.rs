@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ecs::ComponentActions;
-use math::{get_proj_matrix, vec2, vec3, Quat, Vec2, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
-use physics::PotentialRigidBodyCollision;
+use math::{get_proj_matrix, vec2, vec3, Quat, Vec2, Vec3, QUAT_IDENTITY, VEC_2_ZERO, VEC_3_Y_AXIS, VEC_3_ZERO, VEC_3_Z_AXIS};
+use physics::{generate_ray, get_ray_intersection, PotentialRigidBodyCollision};
 use render_engine::GuiState;
 use core::mesh::create_quad_mesh;
 use core::{TextureBinding, IDENTITY_SCALE_VEC, WHITE};
@@ -188,6 +188,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
+    ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
@@ -360,6 +361,63 @@ const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentMana
         }
     }
 };
+
+const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
+    let cursor_manager = entites.clone().find_map(|e| components.get_mut_component::<CursorManager>(e)).unwrap();
+
+    if let Ok(window) = render_engine.get_window() {
+        if cursor_manager.is_locked && window.is_button_pressed(VirtualButton::Left) {
+            let screen_coords = window.get_mouse_screen_position().unwrap();
+            let ray_dir = generate_ray(&screen_coords, window, cam, NEAR_PLANE, FAR_PLANE).unwrap();
+
+            let mut closest_baddie: Option<Entity> = None;
+            let mut closest_obstacle = f32::MAX;
+
+            for e in entites.clone() {
+                let is_baddie = components.get_component::<Baddie>(e).is_some();
+
+                if is_baddie || components.get_component::<Wall>(e).is_some() {
+                    let mesh = components.get_component::<Mesh>(
+                        components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
+                    ).unwrap();
+                    let transform = components.get_mut_component::<Transform>(e).unwrap();
+
+                    if let Some(dist) = check_ray_intersects(&cam.pos, &ray_dir, mesh, transform, is_baddie) {
+                        if dist < closest_obstacle {
+                            closest_baddie = if is_baddie {
+                                Some(*e)
+                            } else {
+                                None
+                            };
+
+                            closest_obstacle = dist;
+                        }
+                    }
+                }
+            }
+
+            if let Some(baddie) = closest_baddie {
+                commands.destroy_entity(&baddie); // TODO: spinneroni
+            }
+        }
+    }
+};
+
+fn check_ray_intersects(ray_origin: &Vec3, ray_dir: &Vec3, mesh: &Mesh, transform: &mut Transform, is_baddie: bool) -> Option<f32> {
+    const BADDIE_COLLISION_Y_THRESHOLD: f32 = 0.25;
+
+    let inverse_world_matrix = transform.to_world_mat().inverted().unwrap();
+
+    get_ray_intersection(ray_origin, ray_dir, mesh, transform)
+        .filter(|p| {
+            let local_space_p = inverse_world_matrix * p.to_vec4(1.0);
+
+            !is_baddie || local_space_p.x.abs() < BADDIE_COLLISION_Y_THRESHOLD
+        })
+        .map(|p| (*ray_origin - p).len())
+}
 
 const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
