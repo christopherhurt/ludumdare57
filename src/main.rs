@@ -269,7 +269,9 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
             const BADDIE_HEIGHT: f32 = 10.0;
             const BADDIE_SIZE: f32 = 8.0;
 
-            let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), QUAT_IDENTITY, IDENTITY_SCALE_VEC * BADDIE_SIZE);
+            let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
+
+            let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
             let baddie_entity = commands.create_entity();
             commands.attach_provisional_component(&baddie_entity, baddie_transform);
             commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
