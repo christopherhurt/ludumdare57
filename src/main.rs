@@ -185,6 +185,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
     ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
+    ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
@@ -495,6 +496,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
+                cube_size: CUBE_SIZE,
             }
         } else {
             Player {
@@ -505,6 +507,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
+                cube_size: CUBE_SIZE,
             }
         };
 
@@ -677,39 +680,35 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
     }
 };
 
-// const PICK_MESHES: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-//     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
-//     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+const APPLY_PLAYER_WALL_COLLISIONS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+    let cam = &mut entites.clone().find_map(|e| components.get_mut_component::<Viewport2D>(e)).unwrap().cam;
+    let player = entites.clone().find_map(|e| components.get_component::<Player>(e)).unwrap();
 
-//     const FORCE_FACTOR: f32 = 100000.0;
+    const COLLISION_DIST: f32 = 5.0;
 
-//     if let Ok(window) = render_engine.get_window() {
-//         if window.is_button_pressed(VirtualButton::Left) {
-//             if let Some(screen_pos) = window.get_mouse_screen_position() {
-//                 let ray = generate_ray(screen_pos, window, cam, NEAR_PLANE, FAR_PLANE);
+    for e in entites {
+        if components.get_component::<Wall>(e).is_some() {
+            let wall_transform = components.get_mut_component::<Transform>(e).unwrap();
+            let wall_mesh = components.get_component::<Mesh>(
+                components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
+            ).unwrap();
 
-//                 if let Ok(ray) = ray {
-//                     for e in entites {
-//                         if let Some(_) = components.get_component::<MousePickable>(e) {
-//                             let transform = components.get_mut_component::<Transform>(e).unwrap();
-//                             let mesh_binding = components.get_component::<MeshBinding>(e).unwrap();
-//                             let rigid_body = components.get_mut_component::<RigidBody>(e).unwrap();
+            let dist_to_cam = (cam.pos - *wall_transform.get_pos()).len();
 
-//                             let mesh = components.get_component::<Mesh>(&mesh_binding.mesh_wrapper.unwrap()).unwrap();
+            if dist_to_cam <= COLLISION_DIST + player.cube_size / 2.0 { // prune
+                if let Some(collision) = get_wall_collision(&cam.pos, COLLISION_DIST, wall_mesh, &wall_transform) {
+                    cam.pos += collision;
+                }
+            }
+        }
+    }
+};
 
-//                             // TODO: optimize this by first pruning with a simplified mesh, such as a bounding sphere
-//                             //  Maybe formalize the MousePickable component into a built-in and add a bounding sphere field, then add a
-//                             //  function to it to do all the intersection checks, pruning, etc...
-//                             if let Some(intersection_point) = get_ray_intersection(&cam.pos, &ray, mesh, transform) {
-//                                 rigid_body.add_force_at_point(&intersection_point, &(ray * FORCE_FACTOR), transform.get_pos());
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// };
+fn get_wall_collision(point: &Vec3, collision_dist: f32, mesh: &Mesh, transform: &Transform) -> Option<Vec3> {
+    // TODO
+
+    None
+}
 
 // TODO: formalize force generator functions and move and generalize them to the physics module as I see fit
 // Built-in
@@ -1301,6 +1300,7 @@ struct Player {
     max_health: u32,
     level_width: f32,
     level_height: f32,
+    cube_size: f32,
     spawn_chance: f32,
 }
 
