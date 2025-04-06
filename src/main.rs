@@ -299,8 +299,8 @@ const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &Com
                             components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
                         ).unwrap();
     
-                        if let Some(dist) = check_ray_intersects(baddie_transform.get_pos(), &(cam.dir - *baddie_transform.get_pos()).normalized().unwrap(), wall_mesh, wall_transform, false) {
-                            return dist < (cam.dir - *baddie_transform.get_pos()).len();
+                        if let Some(dist) = check_ray_intersects(baddie_transform.get_pos(), &(cam.pos - *baddie_transform.get_pos()).normalized().unwrap(), wall_mesh, wall_transform, false) {
+                            return dist < (cam.pos - *baddie_transform.get_pos()).len();
                         }
                     }
 
@@ -317,7 +317,7 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
     let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-    const BADDIE_SPEED: f32 = 2.0;
+    const BADDIE_SPEED: f32 = 10.0;
 
     for e in entites {
         if let Some(baddie) = components.get_component::<Baddie>(e) {
@@ -463,16 +463,22 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
 
         for i in 0..level_dim {
             for j in 0..level_dim {
-                let x_pos = i as f32 - (level_dim as f32 - 1.0) / 2.0;
-                let z_pos = j as f32 - (level_dim as f32 - 1.0) / 2.0;
+                let x_pos = CUBE_SIZE * (i as f32 - (level_dim as f32 - 1.0) / 2.0);
+                let z_pos = CUBE_SIZE * (j as f32 - (level_dim as f32 - 1.0) / 2.0);
 
-                let cube_pos = vec3(x_pos * CUBE_SIZE, 0.0, z_pos * CUBE_SIZE);
+                let cube_pos = vec3(x_pos, 0.0, z_pos);
 
                 let cube_transform = Transform::new(cube_pos, QUAT_IDENTITY, IDENTITY_SCALE_VEC * CUBE_SIZE);
                 let cube_entity = commands.create_entity();
                 commands.attach_provisional_component(&cube_entity, cube_transform);
                 commands.attach_provisional_component(&cube_entity, cube_texture_binding.clone());
                 commands.attach_provisional_component(&cube_entity, cube_mesh_binding.clone());
+                commands.attach_provisional_component(&cube_entity, LevelEntity {});
+
+                // TODO: check from level file
+                if i == 6 && j > 3 && j < 10 {
+                    create_walls(commands, cube_texture_binding, cube_mesh_binding, x_pos, z_pos, CUBE_SIZE, 3);
+                }
             }
         }
 
@@ -513,6 +519,19 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         level_loader.should_load = false;
     }
 };
+
+fn create_walls(commands: &mut ECSCommands, texture_binding: &TextureBinding, mesh_binding: &MeshBinding, x: f32, z: f32, cube_size: f32, stack_height: u32) {
+    for i in 0..stack_height {
+        let wall_transform = Transform::new(vec3(x, (i + 1) as f32 * cube_size, z), QUAT_IDENTITY, IDENTITY_SCALE_VEC * cube_size);
+
+        let wall_entity = commands.create_entity();
+        commands.attach_provisional_component(&wall_entity, wall_transform);
+        commands.attach_provisional_component(&wall_entity, texture_binding.clone());
+        commands.attach_provisional_component(&wall_entity, mesh_binding.clone());
+        commands.attach_provisional_component(&wall_entity, LevelEntity {});
+        commands.attach_provisional_component(&wall_entity, Wall {});
+    }
+}
 
 const DETECT_LOAD_NEXT_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
