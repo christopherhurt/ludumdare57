@@ -327,6 +327,11 @@ impl Timer {
         self.remaining_duration = get_remaining_duration(self.start_value, self.end_value, self.initial_duration);
     }
 
+    pub fn stop(&mut self) {
+        self.current_value = self.end_value;
+        self.remaining_duration = None;
+    }
+
     pub(in crate) fn update(&mut self, time_delta: &Duration) {
         if let Some(d) = self.remaining_duration {
             self.remaining_duration = d.checked_sub(*time_delta);

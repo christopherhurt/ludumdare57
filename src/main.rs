@@ -73,8 +73,12 @@ fn init_ecs() -> ECS {
         .with_component::<DeadBaddie>()
         .with_component::<Wall>()
         .with_component::<BaddieTextureOwner>()
+        .with_component::<GunTextureOwner>()
         .with_component::<GuiElement>()
         .with_component::<SpriteAnimation>()
+        .with_component::<GunAnimationTimer>()
+        .with_component::<GunReloadTimer>()
+        .with_component::<DigitsTextureOwner>()
         .build()
 }
 
@@ -139,6 +143,10 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&baddie_texture_entity, BaddieTextureOwner {});
     ecs.attach_provisional_component(&baddie_texture_entity, baddie_animation);
 
+    let digits_texture_owner = create_digits_texture_owner(&mut render_engine);
+    let digits_texture_owner_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&digits_texture_owner_entity, digits_texture_owner);
+
     ////////////////////
     // GUI
     ////////////////////
@@ -156,6 +164,19 @@ fn create_scene(ecs: &mut ECS) {
     let crosshair_texture_binding = TextureBinding::new_provisional(Some(crosshair_texture_id), Some(crosshair_entity));
     ecs.attach_provisional_component(&crosshair_entity, crosshair_element);
     ecs.attach_provisional_component(&crosshair_entity, crosshair_texture_binding);
+
+    // Gun
+    let gun_texture_entity = ecs.create_entity();
+    let gun_animation = create_gun_sprite_animation(&mut render_engine);
+    ecs.attach_provisional_component(&gun_texture_entity, gun_animation.frames[0]);
+    ecs.attach_provisional_component(&gun_texture_entity, GunTextureOwner {});
+    ecs.attach_provisional_component(&gun_texture_entity, gun_animation);
+
+    // Ammo
+    let ammo_0_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&ammo_0_entity, GuiElement { id: String::from("ammo_counter_0"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    let ammo_1_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&ammo_1_entity, GuiElement { id: String::from("ammo_counter_1"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -182,9 +203,9 @@ fn create_scene(ecs: &mut ECS) {
 
     ecs.register_system(SHUTDOWN_ECS, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), -999);
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
-    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
+    ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<GunTextureOwner>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
-    ecs.register_system(UPDATE_SPRITE_ANIMATIONS, HashSet::from([ecs.get_system_signature_2::<SpriteAnimation, Timer>().unwrap()]), -400);
+    ecs.register_system(UPDATE_SPRITE_ANIMATIONS, HashSet::from([ecs.get_system_signature_2::<SpriteAnimation, Timer>().unwrap(), ecs.get_system_signature_1::<GunReloadTimer>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Timer, Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap()]), -400);
@@ -192,7 +213,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(UPDATE_DEAD_BADDIES, HashSet::from([ecs.get_system_signature_1::<DeadBaddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
-    ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap()]), -400);
+    ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<GunAnimationTimer>().unwrap(), ecs.get_system_signature_1::<GunReloadTimer>().unwrap()]), -400);
     ecs.register_system(DESPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
@@ -203,7 +224,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(DETECT_RIGID_BODY_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<PotentialRigidBodyCollision>().unwrap(), ecs.get_system_signature_1::<RigidBodyCollision>().unwrap()]), -99);
     ecs.register_system(RESOLVE_PARTICLE_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<ParticleCollision>().unwrap()]), -50);
     ecs.register_system(DETECT_LOAD_NEXT_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -50);
-    ecs.register_system(UPDATE_GUI_ELEMENTS, HashSet::from([ecs.get_system_signature_1::<GuiElement>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 2);
+    ecs.register_system(UPDATE_GUI_ELEMENTS, HashSet::from([ecs.get_system_signature_1::<GuiElement>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<GunReloadTimer>().unwrap(), ecs.get_system_signature_1::<GunAnimationTimer>().unwrap(), ecs.get_system_signature_1::<DigitsTextureOwner>().unwrap(), ecs.get_system_signature_1::<GunTextureOwner>().unwrap()]), 2);
     ecs.register_system(SYNC_RENDER_STATE, HashSet::from([ecs.get_system_signature_0().unwrap()]), 2);
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
@@ -244,6 +265,87 @@ fn create_baddie_sprite_animation(render_engine: &mut VulkanRenderEngine) -> Spr
     SpriteAnimation {
         base: None,
         frames: vec![baddie_texture_binding, baddie_texture_binding_2, baddie_texture_binding_3, baddie_texture_binding_4, baddie_texture_binding_5, baddie_texture_binding_6, baddie_texture_binding_7],
+    }
+}
+
+fn create_gun_sprite_animation(render_engine: &mut VulkanRenderEngine) -> SpriteAnimation {
+    let gun_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/gun.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let gun_texture_id_2 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/gun_2.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let gun_texture_id_3 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/gun_3.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let gun_texture_id_4 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/gun_4.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let gun_texture_id_5 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/gun_5.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let gun_texture_id_6 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/gun_6.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+
+    let gun_texture_binding = TextureBinding::new_provisional(Some(gun_texture_id), None);
+    let gun_texture_binding_2 = TextureBinding::new_provisional(Some(gun_texture_id_2), None);
+    let gun_texture_binding_3 = TextureBinding::new_provisional(Some(gun_texture_id_3), None);
+    let gun_texture_binding_4 = TextureBinding::new_provisional(Some(gun_texture_id_4), None);
+    let gun_texture_binding_5 = TextureBinding::new_provisional(Some(gun_texture_id_5), None);
+    let gun_texture_binding_6 = TextureBinding::new_provisional(Some(gun_texture_id_6), None);
+
+    SpriteAnimation {
+        base: Some(gun_texture_binding),
+        frames: vec![gun_texture_binding, gun_texture_binding_2, gun_texture_binding_3, gun_texture_binding_4, gun_texture_binding_5, gun_texture_binding_6],
+    }
+}
+
+fn create_digits_texture_owner(render_engine: &mut VulkanRenderEngine) -> DigitsTextureOwner {
+    let texture_id_0 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/0.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_1 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/1.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_2 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/2.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_3 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/3.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_4 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/4.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_5 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/5.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_6 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/6.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_7 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/7.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_8 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/8.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let texture_id_9 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/9.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+
+    let texture_binding_0 = TextureBinding::new_provisional(Some(texture_id_0), None);
+    let texture_binding_1 = TextureBinding::new_provisional(Some(texture_id_1), None);
+    let texture_binding_2 = TextureBinding::new_provisional(Some(texture_id_2), None);
+    let texture_binding_3 = TextureBinding::new_provisional(Some(texture_id_3), None);
+    let texture_binding_4 = TextureBinding::new_provisional(Some(texture_id_4), None);
+    let texture_binding_5 = TextureBinding::new_provisional(Some(texture_id_5), None);
+    let texture_binding_6 = TextureBinding::new_provisional(Some(texture_id_6), None);
+    let texture_binding_7 = TextureBinding::new_provisional(Some(texture_id_7), None);
+    let texture_binding_8 = TextureBinding::new_provisional(Some(texture_id_8), None);
+    let texture_binding_9 = TextureBinding::new_provisional(Some(texture_id_9), None);
+
+    DigitsTextureOwner {
+        digits: vec![texture_binding_0, texture_binding_1, texture_binding_2, texture_binding_3, texture_binding_4, texture_binding_5, texture_binding_6, texture_binding_7, texture_binding_8, texture_binding_9],
     }
 }
 
@@ -504,68 +606,93 @@ const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         .map(|e| components.get_component::<TextureBinding>(e).unwrap())
         .next()
         .unwrap();
+    let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
+    let gun_animation_timer = entites.clone()
+        .filter(|e| components.get_component::<GunAnimationTimer>(e).is_some())
+        .map(|e| components.get_mut_component::<Timer>(e).unwrap())
+        .next()
+        .unwrap();
+    let gun_reload_timer = entites.clone()
+        .filter(|e| components.get_component::<GunReloadTimer>(e).is_some())
+        .map(|e| components.get_mut_component::<Timer>(e).unwrap())
+        .next()
+        .unwrap();
+
+    if player.is_reloading && gun_animation_timer.remaining_duration.is_none() {
+        player.is_reloading = false;
+        player.ammo_count = player.max_ammo;
+    }
 
     if let Ok(window) = render_engine.get_window() {
-        if cursor_manager.is_locked && window.is_button_pressed(VirtualButton::Left) {
-            let screen_coords = window.get_mouse_screen_position().unwrap();
-            let ray_dir = generate_ray(&screen_coords, window, cam, NEAR_PLANE, FAR_PLANE).unwrap();
+        if cursor_manager.is_locked && gun_reload_timer.remaining_duration.is_none() {
+            if window.is_button_pressed(VirtualButton::Left) && player.ammo_count > 0 {
+                player.ammo_count -= 1;
+                gun_animation_timer.reset();
 
-            let mut closest_baddie: Option<Entity> = None;
-            let mut closest_obstacle = f32::MAX;
+                let screen_coords = window.get_mouse_screen_position().unwrap();
+                let ray_dir = generate_ray(&screen_coords, window, cam, NEAR_PLANE, FAR_PLANE).unwrap();
 
-            for e in entites.clone() {
-                let is_baddie = components.get_component::<Baddie>(e).is_some();
+                let mut closest_baddie: Option<Entity> = None;
+                let mut closest_obstacle = f32::MAX;
 
-                if is_baddie || components.get_component::<Wall>(e).is_some() {
-                    let mesh = components.get_component::<Mesh>(
-                        components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
-                    ).unwrap();
-                    let transform = components.get_mut_component::<Transform>(e).unwrap();
+                for e in entites.clone() {
+                    let is_baddie = components.get_component::<Baddie>(e).is_some();
 
-                    if let Some(dist) = check_ray_intersects(&cam.pos, &ray_dir, mesh, transform, is_baddie) {
-                        if dist < closest_obstacle {
-                            closest_baddie = if is_baddie {
-                                Some(*e)
-                            } else {
-                                None
-                            };
+                    if is_baddie || components.get_component::<Wall>(e).is_some() {
+                        let mesh = components.get_component::<Mesh>(
+                            components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
+                        ).unwrap();
+                        let transform = components.get_mut_component::<Transform>(e).unwrap();
 
-                            closest_obstacle = dist;
+                        if let Some(dist) = check_ray_intersects(&cam.pos, &ray_dir, mesh, transform, is_baddie) {
+                            if dist < closest_obstacle {
+                                closest_baddie = if is_baddie {
+                                    Some(*e)
+                                } else {
+                                    None
+                                };
+
+                                closest_obstacle = dist;
+                            }
                         }
                     }
                 }
-            }
 
-            if let Some(baddie) = closest_baddie {
-                commands.destroy_entity(&baddie);
+                if let Some(baddie) = closest_baddie {
+                    commands.destroy_entity(&baddie);
 
-                let baddie_transform = components.get_component::<Transform>(&baddie).unwrap();
+                    let baddie_transform = components.get_component::<Transform>(&baddie).unwrap();
 
-                let from_player = *baddie_transform.get_pos() - cam.pos;
-                let fly_base = vec3(from_player.x, 0.0, from_player.z).normalized().unwrap();
+                    let from_player = *baddie_transform.get_pos() - cam.pos;
+                    let fly_base = vec3(from_player.x, 0.0, from_player.z).normalized().unwrap();
 
-                let mut rng = rand::rng();
+                    let mut rng = rand::rng();
 
-                let fly_angle = 20.0_f32.to_radians();
-                let actual_angle = rng.random_range(-fly_angle..fly_angle);
+                    let fly_angle = 20.0_f32.to_radians();
+                    let actual_angle = rng.random_range(-fly_angle..fly_angle);
 
-                const XZ_SPEED: f32 = 75.0;
+                    const XZ_SPEED: f32 = 75.0;
 
-                let now_fly = fly_base.rotated(&VEC_3_Y_AXIS, actual_angle).unwrap() * XZ_SPEED;
+                    let now_fly = fly_base.rotated(&VEC_3_Y_AXIS, actual_angle).unwrap() * XZ_SPEED;
 
-                let y_vel = rng.random_range(20.0..50.0);
+                    let y_vel = rng.random_range(20.0..50.0);
 
-                let dead_vel = vec3(now_fly.x, y_vel, now_fly.z);
+                    let dead_vel = vec3(now_fly.x, y_vel, now_fly.z);
 
-                let dead_transform = baddie_transform.clone();
-                let dead_mesh_binding = components.get_component::<MeshBinding>(&baddie).unwrap().clone();
-                let dead_entity = commands.create_entity();
-                commands.attach_provisional_component(&dead_entity, dead_transform);
-                commands.attach_provisional_component(&dead_entity, dead_mesh_binding);
-                commands.attach_provisional_component(&dead_entity, baddie_texture_binding.clone());
-                commands.attach_provisional_component(&dead_entity, Timer::for_initial_duration(Duration::from_secs_f32(2.0)));
-                commands.attach_provisional_component(&dead_entity, DeadBaddie { vel: dead_vel });
-                commands.attach_provisional_component(&dead_entity, LevelEntity {});
+                    let dead_transform = baddie_transform.clone();
+                    let dead_mesh_binding = components.get_component::<MeshBinding>(&baddie).unwrap().clone();
+                    let dead_entity = commands.create_entity();
+                    commands.attach_provisional_component(&dead_entity, dead_transform);
+                    commands.attach_provisional_component(&dead_entity, dead_mesh_binding);
+                    commands.attach_provisional_component(&dead_entity, baddie_texture_binding.clone());
+                    commands.attach_provisional_component(&dead_entity, Timer::for_initial_duration(Duration::from_secs_f32(2.0)));
+                    commands.attach_provisional_component(&dead_entity, DeadBaddie { vel: dead_vel });
+                    commands.attach_provisional_component(&dead_entity, LevelEntity {});
+                }
+            } else if player.ammo_count < player.max_ammo && window.is_key_pressed(VirtualKey::R) {
+                gun_reload_timer.reset();
+                gun_animation_timer.stop();
+                player.is_reloading = true;
             }
         }
     }
@@ -623,6 +750,11 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             .next()
             .unwrap();
         let existing_health = entites.clone().find_map(|e| components.get_component::<Player>(e)).map(|p| p.health_percentage);
+        let gun_animation = entites.clone()
+            .filter(|e| components.get_component::<GunTextureOwner>(e).is_some())
+            .map(|e| components.get_component::<SpriteAnimation>(e).unwrap())
+            .next()
+            .unwrap();
 
         for e in entites.clone() {
             if components.get_component::<LevelEntity>(e).is_some() {
@@ -675,6 +807,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         }
 
         const MAX_HEALTH: u32 = 100;
+        const MAX_AMMO: usize = 12;
 
         let spawn_chance = 0.05; // TODO: ever update this with level?
         let baddie_cap = 50; // TODO: ever update this with level?
@@ -689,6 +822,9 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
                 baddie_cap,
+                ammo_count: MAX_AMMO,
+                max_ammo: MAX_AMMO,
+                is_reloading: false,
             }
         } else {
             Player {
@@ -700,6 +836,9 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
                 baddie_cap,
+                ammo_count: MAX_AMMO,
+                max_ammo: MAX_AMMO,
+                is_reloading: false,
             }
         };
 
@@ -708,7 +847,28 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         let player_entity = commands.create_entity();
         commands.attach_provisional_component(&player_entity, player);
         commands.attach_provisional_component(&player_entity, LevelEntity {});
+        commands.attach_provisional_component(&player_entity, GuiElement { id: String::from("gun"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
         commands.attach_provisional_component(&player_entity, spawn_timer);
+        commands.attach_provisional_component(&player_entity, gun_animation.clone());
+        commands.attach_provisional_component(&player_entity, gun_animation.base.unwrap().clone());
+
+        const GUN_ANIMATION_SPEED: f32 = 0.3;
+        let mut gun_animation_timer = Timer::new(0.0, 1.0, Duration::from_secs_f32(GUN_ANIMATION_SPEED));
+        gun_animation_timer.stop();
+
+        let gun_animation_timer_entity = commands.create_entity();
+        commands.attach_provisional_component(&gun_animation_timer_entity, LevelEntity {});
+        commands.attach_provisional_component(&gun_animation_timer_entity, GunAnimationTimer {});
+        commands.attach_provisional_component(&gun_animation_timer_entity, gun_animation_timer);
+
+        const GUN_RELOAD_SPEED: f32 = 2.0;
+        let mut gun_reload_timer = Timer::for_initial_duration(Duration::from_secs_f32(GUN_RELOAD_SPEED));
+        gun_reload_timer.stop();
+
+        let gun_reload_timer_entity = commands.create_entity();
+        commands.attach_provisional_component(&gun_reload_timer_entity, LevelEntity {});
+        commands.attach_provisional_component(&gun_reload_timer_entity, GunReloadTimer {});
+        commands.attach_provisional_component(&gun_reload_timer_entity, gun_reload_timer);
 
         level_loader.next_level_id += 1;
         level_loader.should_load = false;
@@ -796,16 +956,28 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
 };
 
 const UPDATE_SPRITE_ANIMATIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let gun_reload_timer = entites.clone()
+        .filter(|e| components.get_component::<GunReloadTimer>(e).is_some())
+        .map(|e| components.get_mut_component::<Timer>(e).unwrap())
+        .next()
+        .unwrap();
+    let player_entity = entites.clone().filter(|e| components.get_component::<Player>(e).is_some()).next().unwrap();
+
     for e in entites {
         if let Some(animation) = components.get_component::<SpriteAnimation>(e) {
             let animation_timer = components.get_mut_component::<Timer>(e).unwrap();
 
             if animation_timer.remaining_duration.is_none() {
-                if let Some(base_texture) = animation.base {
-                    commands.detach_component::<TextureBinding>(e);
-                    commands.attach_component(e, base_texture);
-                } else {
-                    animation_timer.reset();
+                // hacky af
+                if e != player_entity || gun_reload_timer.remaining_duration.is_none() {
+                    if let Some(base_texture) = animation.base {
+                        if components.get_component::<TextureBinding>(e).is_some() {
+                            commands.detach_component::<TextureBinding>(e);
+                        }
+                        commands.attach_component(e, base_texture);
+                    } else {
+                        animation_timer.reset();
+                    }
                 }
             }
 
@@ -813,7 +985,9 @@ const UPDATE_SPRITE_ANIMATIONS: System = |entites: Iter<Entity>, components: &Co
                 let curr_frame_index = (animation_timer.current_value * animation.frames.len() as f32) as usize;
                 let curr_frame = animation.frames[curr_frame_index];
 
-                commands.detach_component::<TextureBinding>(e);
+                if components.get_component::<TextureBinding>(e).is_some() {
+                    commands.detach_component::<TextureBinding>(e);
+                }
                 commands.attach_component(e, curr_frame);
             }
         }
@@ -1403,8 +1577,25 @@ fn resolve_interpenetration(collision: &ParticleCollision, components: &Componen
     }
 }
 
-const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
+const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_component::<VulkanRenderEngine>(e)).unwrap();
+    let gun_animation_timer = entites.clone()
+        .filter(|e| components.get_component::<GunAnimationTimer>(e).is_some())
+        .map(|e| components.get_mut_component::<Timer>(e).unwrap())
+        .next()
+        .unwrap();
+    let gun_reload_timer = entites.clone()
+        .filter(|e| components.get_component::<GunReloadTimer>(e).is_some())
+        .map(|e| components.get_mut_component::<Timer>(e).unwrap())
+        .next()
+        .unwrap();
+    let digits_texture_owner = entites.clone().find_map(|e| components.get_component::<DigitsTextureOwner>(e)).unwrap();
+    let player = entites.clone().find_map(|e| components.get_component::<Player>(e)).unwrap();
+    let gun_animation = entites.clone()
+        .filter(|e| components.get_component::<GunTextureOwner>(e).is_some())
+        .map(|e| components.get_component::<SpriteAnimation>(e).unwrap())
+        .next()
+        .unwrap();
 
     if let Ok(window) = render_engine.get_window() {
         let aspect_ratio = window.get_width() as f32 / window.get_height() as f32;
@@ -1415,6 +1606,57 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
                     const CROSSHAIR_SIZE: f32 = 0.05;
 
                     gui_element.dimensions = vec2(CROSSHAIR_SIZE, CROSSHAIR_SIZE * aspect_ratio);
+                } else if gui_element.id == "gun" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    if gun_reload_timer.remaining_duration.is_none() {
+                        if gun_animation_timer.remaining_duration.is_some() {
+                            let curr_frame = (gun_animation_timer.current_value * gun_animation.frames.len() as f32) as usize;
+
+                            commands.attach_component(e, gun_animation.frames[curr_frame]);
+                        } else {
+                            commands.attach_component(e, gun_animation.base.unwrap());
+                        }
+
+                        // TODO: set pos and dim
+                        gui_element.position = vec2(0.0, 0.5);
+                        gui_element.dimensions = vec2(0.1, 0.1 * aspect_ratio);
+                    }
+                } else if gui_element.id == "ammo_counter_0" {
+                    let digit = player.ammo_count % 10;
+
+                    let texture_binding = digits_texture_owner.digits[digit];
+
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+                    commands.attach_component(e, texture_binding);
+
+                    // TODO: set pos and dim
+                    gui_element.position = vec2(0.6, 0.0);
+                    gui_element.dimensions = vec2(0.1, 0.1 * aspect_ratio);
+                } else if gui_element.id == "ammo_counter_1" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    if player.ammo_count >= 10 {
+                        let digit = player.ammo_count / 10;
+
+                        if digit >= 10 {
+                            panic!("Only 2 digits ammo counter is supported");
+                        }
+
+                        let texture_binding = digits_texture_owner.digits[digit];
+
+                        commands.attach_component(e, texture_binding);
+
+                        // TODO: set pos and dim
+                        gui_element.position = vec2(0.5, 0.0);
+                        gui_element.dimensions = vec2(0.1, 0.1 * aspect_ratio);
+                    }
                 } else {
                     panic!("Bad GUI element ID {:?}", gui_element.id);
                 }
@@ -1538,6 +1780,9 @@ struct Player {
     level_height: f32,
     spawn_chance: f32,
     baddie_cap: usize,
+    ammo_count: usize,
+    max_ammo: usize,
+    is_reloading: bool,
 }
 
 impl Component for Player {}
@@ -1582,6 +1827,11 @@ struct BaddieTextureOwner {}
 impl Component for BaddieTextureOwner {}
 impl ComponentActions for BaddieTextureOwner {}
 
+struct GunTextureOwner {}
+
+impl Component for GunTextureOwner {}
+impl ComponentActions for GunTextureOwner {}
+
 struct GuiElement {
     id: String,
     position: Vec2,
@@ -1599,3 +1849,21 @@ struct SpriteAnimation {
 
 impl Component for SpriteAnimation {}
 impl ComponentActions for SpriteAnimation {}
+
+// Yikes, need a parentage system
+struct GunAnimationTimer {}
+
+impl Component for GunAnimationTimer {}
+impl ComponentActions for GunAnimationTimer {}
+
+struct GunReloadTimer {}
+
+impl Component for GunReloadTimer {}
+impl ComponentActions for GunReloadTimer {}
+
+struct DigitsTextureOwner {
+    digits: Vec<TextureBinding>,
+}
+
+impl Component for DigitsTextureOwner {}
+impl ComponentActions for DigitsTextureOwner {}
