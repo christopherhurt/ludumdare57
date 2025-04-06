@@ -1093,9 +1093,9 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
         for e in entites {
             if let Some(gui_element) = components.get_mut_component::<GuiElement>(e) {
                 if gui_element.id == "crosshair" {
-                    const CROSSHAIR_SIZE: f32 = 0.1;
+                    const CROSSHAIR_SIZE: f32 = 0.05;
 
-                    gui_element.dimensions = vec2(CROSSHAIR_SIZE * aspect_ratio, CROSSHAIR_SIZE);
+                    gui_element.dimensions = vec2(CROSSHAIR_SIZE, CROSSHAIR_SIZE * aspect_ratio);
                 } else {
                     panic!("Bad GUI element ID {:?}", gui_element.id);
                 }

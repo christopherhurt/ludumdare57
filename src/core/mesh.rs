@@ -300,6 +300,7 @@ const QUAD_INDEXES: [u32; 6] = [
     0, 1, 2, 2, 3, 0,
 ];
 
+// TODO: this should really have 2D vertices and no normals, and have a way to create a vulkan vertex buffer with different attributes for the GUI pipeline
 pub fn create_quad_mesh() -> Mesh {
     Mesh::new(QUAD_VERTICES.to_vec(), QUAD_INDEXES.to_vec()).unwrap()
 }

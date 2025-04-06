@@ -27,7 +27,7 @@ use crate::core::{Color, RenderTextureId};
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::math::{mat3, vec2, Mat3, Vec2, MAT_4_IDENTITY, VEC_2_ZERO};
+use crate::math::{mat3, mat4, vec2, Mat3, Vec2, VEC_2_ZERO};
 use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualButton, VirtualKey, VirtualElementState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
@@ -306,7 +306,7 @@ impl VulkanContext {
         // GUI
         //////////////////////////////////////
 
-        self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.pipeline);
+        self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.gui_pipeline.pipeline);
 
         for (i, g) in state.gui_states.iter().enumerate() {
             let mesh = self.meshes.get(&g.mesh_id).unwrap_or_else(|| panic!("No mesh exists for ID {}", g.mesh_id.0));
@@ -896,8 +896,12 @@ impl VulkanApplication {
 
                 let gui_ubos = render_state.gui_states.iter().map(|g| {
                     GuiUniformBufferObject {
-                        // TODO
-                        world: MAT_4_IDENTITY,
+                        world: mat4(
+                            g.dimensions.x, 0.0, 0.0, g.position.x,
+                            0.0, -g.dimensions.y, 0.0, g.position.y,
+                            0.0, 0.0, 1.0, 0.0,
+                            0.0, 0.0, 0.0, 1.0,
+                        ),
                     }
                 }).collect::<Vec<_>>();
 
