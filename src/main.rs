@@ -533,6 +533,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         commands.attach_provisional_component(&viewport_entity, LevelEntity {});
 
         const CUBE_SIZE: f32 = 10.0;
+        const STACK_HEIGHT: u32 = 5;
 
         let level_dim: u32 = 21; // TODO: load from file?
 
@@ -550,9 +551,18 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 commands.attach_provisional_component(&cube_entity, cube_mesh_binding.clone());
                 commands.attach_provisional_component(&cube_entity, LevelEntity {});
 
+                let ceiling_pos = vec3(x_pos, (STACK_HEIGHT + 1) as f32 * CUBE_SIZE, z_pos);
+
+                let ceiling_transform = Transform::new(ceiling_pos, QUAT_IDENTITY, IDENTITY_SCALE_VEC * CUBE_SIZE);
+                let ceiling_entity = commands.create_entity();
+                commands.attach_provisional_component(&ceiling_entity, ceiling_transform);
+                commands.attach_provisional_component(&ceiling_entity, cube_texture_binding.clone());
+                commands.attach_provisional_component(&ceiling_entity, cube_mesh_binding.clone());
+                commands.attach_provisional_component(&ceiling_entity, LevelEntity {});
+
                 // TODO: check from level file
                 if i == 6 && j > 3 && j < 10 {
-                    create_walls(commands, cube_texture_binding, cube_mesh_binding, x_pos, z_pos, CUBE_SIZE, 3);
+                    create_walls(commands, cube_texture_binding, cube_mesh_binding, x_pos, z_pos, CUBE_SIZE, STACK_HEIGHT);
                 }
             }
         }
