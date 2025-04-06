@@ -930,7 +930,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         let ladder_z_pos = CUBE_SIZE * (ladder_z_index as f32 - (level_dim as f32 - 1.0) / 2.0);
 
         const LADDER_WIDTH: f32 = 5.0;
-        const LADDER_HEIGHT: f32 = LADDER_WIDTH * 2.0;
+        const LADDER_HEIGHT: f32 = LADDER_WIDTH * 4.6;
         const LADDER_Y_POS: f32 = CUBE_SIZE / 2.0 + LADDER_HEIGHT / 2.0;
 
         let ladder_transform = Transform::new(vec3(ladder_x_pos, LADDER_Y_POS, ladder_z_pos), QUAT_IDENTITY, vec3(LADDER_WIDTH, LADDER_HEIGHT, 1.0));
