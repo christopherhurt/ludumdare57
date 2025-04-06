@@ -285,18 +285,23 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
 };
 
 const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
-    let _cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
 
     for e in entites.clone() {
         if let Some(baddie) = components.get_mut_component::<Baddie>(e) {
-            let _baddie_transform = components.get_component::<Baddie>(e).unwrap();
+            let baddie_transform = components.get_component::<Transform>(e).unwrap();
 
             let line_of_sight_blocked = entites.clone()
                 .any(|e| {
                     if components.get_component::<Wall>(e).is_some() {
-                        let _wall_transform = components.get_component::<Transform>(e);
+                        let wall_transform = components.get_mut_component::<Transform>(e).unwrap();
+                        let wall_mesh = components.get_component::<Mesh>(
+                            components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
+                        ).unwrap();
     
-                        // TODO: check if wall is between player and baddie, then return true if so
+                        if let Some(dist) = check_ray_intersects(baddie_transform.get_pos(), &(cam.dir - *baddie_transform.get_pos()).normalized().unwrap(), wall_mesh, wall_transform, false) {
+                            return dist < (cam.dir - *baddie_transform.get_pos()).len();
+                        }
                     }
 
                     false
