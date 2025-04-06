@@ -263,7 +263,7 @@ fn create_baddie_sprite_animation(render_engine: &mut VulkanRenderEngine) -> Spr
     let baddie_texture_binding_7 = TextureBinding::new_provisional(Some(baddie_texture_id_7), None);
 
     SpriteAnimation {
-        base: None,
+        base: Some(baddie_texture_binding),
         frames: vec![baddie_texture_binding, baddie_texture_binding_2, baddie_texture_binding_3, baddie_texture_binding_4, baddie_texture_binding_5, baddie_texture_binding_6, baddie_texture_binding_7],
     }
 }
@@ -496,6 +496,14 @@ const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &Com
                     });
 
                 baddie.is_active = !line_of_sight_blocked;
+            }
+
+            let animation_timer = components.get_mut_component::<Timer>(e).unwrap();
+
+            if !baddie.is_active {
+                animation_timer.stop();
+            } else if animation_timer.remaining_duration.is_none() {
+                animation_timer.reset();
             }
         }
     }
@@ -982,7 +990,7 @@ const UPDATE_SPRITE_ANIMATIONS: System = |entites: Iter<Entity>, components: &Co
             }
 
             if animation_timer.remaining_duration.is_some() {
-                let curr_frame_index = (animation_timer.current_value * animation.frames.len() as f32) as usize;
+                let curr_frame_index = (animation_timer.current_value.min(0.9999) * animation.frames.len() as f32) as usize;
                 let curr_frame = animation.frames[curr_frame_index];
 
                 if components.get_component::<TextureBinding>(e).is_some() {
@@ -1613,7 +1621,7 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
 
                     if gun_reload_timer.remaining_duration.is_none() {
                         if gun_animation_timer.remaining_duration.is_some() {
-                            let curr_frame = (gun_animation_timer.current_value * gun_animation.frames.len() as f32) as usize;
+                            let curr_frame = (gun_animation_timer.current_value.min(0.9999) * gun_animation.frames.len() as f32) as usize;
 
                             commands.attach_component(e, gun_animation.frames[curr_frame]);
                         } else {
