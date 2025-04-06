@@ -470,7 +470,7 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
     let ray_dir = inverse_rot_matrix * *ray_dir;
 
     let mut closest_intersection_point=  None;
-    let mut closest_intersection_dist = f32::INFINITY;
+    let mut closest_intersection_dist = f32::MAX;
 
     if let Ok(ray_dir) = ray_dir.normalized() {
         for i in mesh.vertex_indices.chunks_exact(3) {
@@ -486,7 +486,7 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
                     let intersection_dist = (n.dot(&p0) - n.dot(&ray_source)) / n_dot_dir;
                     let intersection_point = ray_source + intersection_dist * ray_dir;
 
-                    if is_inside_triangle(p0, p1, p2, &intersection_point, &n, 0.0)
+                    if intersection_dist > 0.0 && is_inside_triangle(p0, p1, p2, &intersection_point, &n, 0.0)
                             && intersection_dist < closest_intersection_dist {
                         closest_intersection_point = Some((*transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
                         closest_intersection_dist = intersection_dist;
