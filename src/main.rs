@@ -74,6 +74,7 @@ fn init_ecs() -> ECS {
         .with_component::<Wall>()
         .with_component::<BaddieTextureOwner>()
         .with_component::<GuiElement>()
+        .with_component::<SpriteAnimation>()
         .build()
 }
 
@@ -132,13 +133,11 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&quad_mesh_entity, quad_mesh_binding);
     ecs.attach_provisional_component(&quad_mesh_entity, QuadMeshOwner {});
 
-    let baddie_texture_id = render_engine.get_device_mut()
-        .and_then(|d| d.create_texture(String::from("res/baddie.png")))
-        .unwrap_or_else(|e| panic!("{}", e));
     let baddie_texture_entity = ecs.create_entity();
-    let baddie_texture_binding = TextureBinding::new_provisional(Some(baddie_texture_id), Some(baddie_texture_entity));
-    ecs.attach_provisional_component(&baddie_texture_entity, baddie_texture_binding);
+    let baddie_animation = create_baddie_sprite_animation(&mut render_engine);
+    ecs.attach_provisional_component(&baddie_texture_entity, baddie_animation.frames[0]);
     ecs.attach_provisional_component(&baddie_texture_entity, BaddieTextureOwner {});
+    ecs.attach_provisional_component(&baddie_texture_entity, baddie_animation);
 
     ////////////////////
     // GUI
@@ -185,6 +184,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
+    ecs.register_system(UPDATE_SPRITE_ANIMATIONS, HashSet::from([ecs.get_system_signature_2::<SpriteAnimation, Timer>().unwrap()]), -400);
     ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Timer, Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap()]), -400);
@@ -208,6 +208,43 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(RESET_TRANSFORM_FLAGS, HashSet::from([ecs.get_system_signature_1::<Transform>().unwrap()]), 3);
     ecs.register_system(UPDATE_TIMERS, HashSet::from([ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), 5);
     ecs.register_system(SHUTDOWN_RENDER_ENGINE, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap()]), 999);
+}
+
+fn create_baddie_sprite_animation(render_engine: &mut VulkanRenderEngine) -> SpriteAnimation {
+    let baddie_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_id_2 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie_2.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_id_3 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie_3.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_id_4 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie_4.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_id_5 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie_5.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_id_6 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie_6.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let baddie_texture_id_7 = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/baddie_7.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+
+    let baddie_texture_binding = TextureBinding::new_provisional(Some(baddie_texture_id), None);
+    let baddie_texture_binding_2 = TextureBinding::new_provisional(Some(baddie_texture_id_2), None);
+    let baddie_texture_binding_3 = TextureBinding::new_provisional(Some(baddie_texture_id_3), None);
+    let baddie_texture_binding_4 = TextureBinding::new_provisional(Some(baddie_texture_id_4), None);
+    let baddie_texture_binding_5 = TextureBinding::new_provisional(Some(baddie_texture_id_5), None);
+    let baddie_texture_binding_6 = TextureBinding::new_provisional(Some(baddie_texture_id_6), None);
+    let baddie_texture_binding_7 = TextureBinding::new_provisional(Some(baddie_texture_id_7), None);
+
+    SpriteAnimation {
+        base: None,
+        frames: vec![baddie_texture_binding, baddie_texture_binding_2, baddie_texture_binding_3, baddie_texture_binding_4, baddie_texture_binding_5, baddie_texture_binding_6, baddie_texture_binding_7],
+    }
 }
 
 // Built-in
@@ -252,9 +289,9 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         .map(|e| components.get_component::<MeshBinding>(e).unwrap())
         .next()
         .unwrap();
-    let baddie_texture_binding = entites.clone()
+    let baddie_animation = entites.clone()
         .filter(|e| components.get_component::<BaddieTextureOwner>(e).is_some())
-        .map(|e| components.get_component::<TextureBinding>(e).unwrap())
+        .map(|e| components.get_component::<SpriteAnimation>(e).unwrap())
         .next()
         .unwrap();
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
@@ -266,7 +303,7 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
 
         if rng.random_range(0.0..1.0) < player.spawn_chance {
             const MIN_DISTANCE_FROM_PLAYER: f32 = 40.0;
-            const MAX_DISTANCE_FROM_PLAYER: f32 = 250.0;
+            const MAX_DISTANCE_FROM_PLAYER: f32 = 100.0; // TODO: increase 250.0?
 
             let mut rel_spawn_x = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
             let mut rel_spawn_z = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
@@ -305,6 +342,7 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
                 if current_baddie_count < player.baddie_cap {
                     const BADDIE_HEIGHT: f32 = 10.0;
                     const BADDIE_SIZE: f32 = 8.0;
+                    const BADDIE_ANIMATION_SPEED: f32 = 0.25;
 
                     let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
 
@@ -312,9 +350,11 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
                     let baddie_entity = commands.create_entity();
                     commands.attach_provisional_component(&baddie_entity, baddie_transform);
                     commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
-                    commands.attach_provisional_component(&baddie_entity, baddie_texture_binding.clone());
+                    commands.attach_provisional_component(&baddie_entity, baddie_animation.frames[0].clone());
+                    commands.attach_provisional_component(&baddie_entity, baddie_animation.clone());
                     commands.attach_provisional_component(&baddie_entity, Baddie { is_active: false });
                     commands.attach_provisional_component(&baddie_entity, LevelEntity {});
+                    commands.attach_provisional_component(&baddie_entity, Timer::new(0.0, 1.0, Duration::from_secs_f32(BADDIE_ANIMATION_SPEED)));
                 }
             }
         }
@@ -753,6 +793,31 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
 
     cursor_manager.cursor_delta.x = cursor_manager.cursor_delta.x as i32 as f32;
     cursor_manager.cursor_delta.y = cursor_manager.cursor_delta.y as i32 as f32;
+};
+
+const UPDATE_SPRITE_ANIMATIONS: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    for e in entites {
+        if let Some(animation) = components.get_component::<SpriteAnimation>(e) {
+            let animation_timer = components.get_mut_component::<Timer>(e).unwrap();
+
+            if animation_timer.remaining_duration.is_none() {
+                if let Some(base_texture) = animation.base {
+                    commands.detach_component::<TextureBinding>(e);
+                    commands.attach_component(e, base_texture);
+                } else {
+                    animation_timer.reset();
+                }
+            }
+
+            if animation_timer.remaining_duration.is_some() {
+                let curr_frame_index = (animation_timer.current_value * animation.frames.len() as f32) as usize;
+                let curr_frame = animation.frames[curr_frame_index];
+
+                commands.detach_component::<TextureBinding>(e);
+                commands.attach_component(e, curr_frame);
+            }
+        }
+    }
 };
 
 const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
@@ -1525,3 +1590,12 @@ struct GuiElement {
 
 impl Component for GuiElement {}
 impl ComponentActions for GuiElement {}
+
+#[derive(Debug, Clone)]
+struct SpriteAnimation {
+    base: Option<TextureBinding>,
+    frames: Vec<TextureBinding>,
+}
+
+impl Component for SpriteAnimation {}
+impl ComponentActions for SpriteAnimation {}
