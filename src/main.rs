@@ -748,7 +748,7 @@ const MANAGE_CURSOR: System = |entites: Iter<Entity>, components: &ComponentMana
     const DEBUG_CURSOR: bool = false;
 
     if let Ok(window) = render_engine.get_window_mut() {
-        let rel_center_pos = vec2(window.get_width() as f32 / 2.0, window.get_height() as f32 / 2.0);
+        let rel_center_pos = vec2((window.get_width() / 2) as f32, (window.get_height() / 2) as f32);
         let window_screen_pos = window.get_screen_position();
         let cursor_screen_pos = window.get_mouse_screen_position().map(|p| *p);
 
