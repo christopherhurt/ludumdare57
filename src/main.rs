@@ -256,7 +256,7 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         .map(|e| components.get_component::<TextureBinding>(e).unwrap())
         .next()
         .unwrap();
-    let _cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
     let player = entites.clone().find_map(|e| components.get_component::<Player>(e)).unwrap();
     let spawn_timer = entites.clone().find_map(|e| components.get_mut_component::<Timer>(e)).unwrap();
 
@@ -264,11 +264,26 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         let mut rng = rand::rng();
 
         if rng.random_range(0.0..1.0) < player.spawn_chance {
-            // TODO: consider the proximity to the camera
-            let spawn_x = rng.random_range((-player.level_width / 2.0)..(player.level_width / 2.0));
-            let spawn_z = rng.random_range((-player.level_height / 2.0)..(player.level_height / 2.0));
+            const MIN_DISTANCE_FROM_PLAYER: f32 = 30.0;
+            const MAX_DISTANCE_FROM_PLAYER: f32 = 100.0;
 
-            if !entites.clone()
+            let mut rel_spawn_x = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
+            let mut rel_spawn_z = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
+
+            if rng.random_range(0.0..1.0) < 0.5 {
+                rel_spawn_x *= -1.0;
+            }
+            if rng.random_range(0.0..1.0) < 0.5 {
+                rel_spawn_z *= -1.0;
+            }
+
+            let spawn_x = cam.pos.x + rel_spawn_x;
+            let spawn_z = cam.pos.x + rel_spawn_z;
+
+            let x_in_bounds = spawn_x > -player.level_width / 2.0 && spawn_x < player.level_width / 2.0;
+            let z_in_bounds = spawn_z > -player.level_height / 2.0 && spawn_z < player.level_height / 2.0;
+
+            if x_in_bounds && z_in_bounds && !entites.clone()
                 .filter(|e| components.get_component::<Wall>(e).is_some_and(|w| w.is_lowest_wall))
                 .any(|e| {
                     let wall_transform = components.get_component::<Transform>(e).unwrap();
