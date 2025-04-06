@@ -70,6 +70,7 @@ fn init_ecs() -> ECS {
         .with_component::<LevelLoader>()
         .with_component::<LevelEntity>()
         .with_component::<Baddie>()
+        .with_component::<DeadBaddie>()
         .with_component::<Wall>()
         .with_component::<BaddieTextureOwner>()
         .with_component::<GuiElement>()
@@ -184,13 +185,14 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
-    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Timer>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
+    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Timer, Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap()]), -400);
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
     ecs.register_system(MOVE_BADDIE, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
+    ecs.register_system(UPDATE_DEAD_BADDIES, HashSet::from([ecs.get_system_signature_1::<DeadBaddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
-    ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
+    ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
@@ -342,6 +344,45 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
     }
 };
 
+const UPDATE_DEAD_BADDIES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
+
+    const DEAD_BADDIE_SPIN_SPEED: f32 = 50.0;
+    const DEAD_BADDIE_GRAVITY: f32 = -30.0;
+
+    for e in entites {
+        if let Some(baddie) = components.get_mut_component::<DeadBaddie>(e) {
+            let transform = components.get_mut_component::<Transform>(e).unwrap();
+            let timer = components.get_component::<Timer>(e).unwrap();
+
+            if let Some(remainder) = timer.remaining_duration {
+                baddie.vel.y += DEAD_BADDIE_GRAVITY * delta_sec;
+
+                transform.set_pos(*transform.get_pos() + baddie.vel * delta_sec);
+
+                let spin_amt = (timer.initial_duration.as_secs_f32() - remainder.as_secs_f32()) * DEAD_BADDIE_SPIN_SPEED;
+
+                let towards_player = (cam.pos - *transform.get_pos()).normalized().unwrap();
+
+                let mut angle_to_cam = towards_player.angle_rads_from(&VEC_3_Z_AXIS).unwrap();
+
+                if VEC_3_Z_AXIS.cross(&towards_player).y < 0.0 {
+                    angle_to_cam = 2.0 * std::f32::consts::PI - angle_to_cam;
+                }
+
+                let to_player_rot = Quat::from_axis_spin(&VEC_3_Y_AXIS, angle_to_cam).unwrap();
+                let spin_rot = Quat::from_axis_spin(&towards_player, spin_amt).unwrap();
+
+                transform.set_rot(spin_rot * to_player_rot);
+            } else {
+                commands.destroy_entity(e);
+            }
+        }
+    }
+};
+
 const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
     let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
@@ -375,6 +416,11 @@ const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
     let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
     let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
     let cursor_manager = entites.clone().find_map(|e| components.get_mut_component::<CursorManager>(e)).unwrap();
+    let baddie_texture_binding = entites.clone()
+        .filter(|e: &&Entity| components.get_component::<BaddieTextureOwner>(e).is_some())
+        .map(|e| components.get_component::<TextureBinding>(e).unwrap())
+        .next()
+        .unwrap();
 
     if let Ok(window) = render_engine.get_window() {
         if cursor_manager.is_locked && window.is_button_pressed(VirtualButton::Left) {
@@ -408,7 +454,34 @@ const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
             }
 
             if let Some(baddie) = closest_baddie {
-                commands.destroy_entity(&baddie); // TODO: spinneroni
+                commands.destroy_entity(&baddie);
+
+                let baddie_transform = components.get_component::<Transform>(&baddie).unwrap();
+
+                let from_player = *baddie_transform.get_pos() - cam.pos;
+                let fly_base = vec3(from_player.x, 0.0, from_player.z).normalized().unwrap();
+
+                let mut rng = rand::rng();
+
+                let fly_angle = 20.0_f32.to_radians();
+                let actual_angle = rng.random_range(-fly_angle..fly_angle);
+
+                const XZ_SPEED: f32 = 75.0;
+
+                let now_fly = fly_base.rotated(&VEC_3_Y_AXIS, actual_angle).unwrap() * XZ_SPEED;
+
+                let y_vel = rng.random_range(20.0..50.0);
+
+                let dead_vel = vec3(now_fly.x, y_vel, now_fly.z);
+
+                let dead_transform = baddie_transform.clone();
+                let dead_mesh_binding = components.get_component::<MeshBinding>(&baddie).unwrap().clone();
+                let dead_entity = commands.create_entity();
+                commands.attach_provisional_component(&dead_entity, dead_transform);
+                commands.attach_provisional_component(&dead_entity, dead_mesh_binding);
+                commands.attach_provisional_component(&dead_entity, baddie_texture_binding.clone());
+                commands.attach_provisional_component(&dead_entity, Timer::for_initial_duration(Duration::from_secs_f32(2.0)));
+                commands.attach_provisional_component(&dead_entity, DeadBaddie { vel: dead_vel });
             }
         }
     }
@@ -1344,6 +1417,13 @@ struct Baddie {
 
 impl Component for Baddie {}
 impl ComponentActions for Baddie {}
+
+struct DeadBaddie {
+    vel: Vec3,
+}
+
+impl Component for DeadBaddie {}
+impl ComponentActions for DeadBaddie {}
 
 struct Wall {
     is_lowest_wall: bool,
