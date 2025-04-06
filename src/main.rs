@@ -185,7 +185,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(TIME_SINCE_LAST_FRAME, HashSet::from([ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -500);
     ecs.register_system(LOAD_LEVEL, HashSet::from([ecs.get_system_signature_1::<LevelLoader>().unwrap(), ecs.get_system_signature_1::<LevelEntity>().unwrap(), ecs.get_system_signature_1::<CubeMeshOwner>().unwrap(), ecs.get_system_signature_1::<PlaneMeshOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(MANAGE_CURSOR, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap()]), -400);
-    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Timer, Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
+    ecs.register_system(SPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<QuadMeshOwner>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_2::<Timer, Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap()]), -400);
     ecs.register_system(MOVE_CAMERA, HashSet::from([ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap()]), -400);
     ecs.register_system(APPLY_PLAYER_WALL_COLLISIONS, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Wall>().unwrap()]), -400);
     ecs.register_system(UPDATE_BADDIE_IS_ACTIVE, HashSet::from([ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap()]), -400);
@@ -193,6 +193,7 @@ fn create_scene(ecs: &mut ECS) {
     ecs.register_system(UPDATE_DEAD_BADDIES, HashSet::from([ecs.get_system_signature_1::<DeadBaddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(DAMAGE_PLAYER, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Player>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_1::<LevelLoader>().unwrap()]), -400);
     ecs.register_system(SHOOT_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap(), ecs.get_system_signature_2::<Wall, Transform>().unwrap(), ecs.get_system_signature_1::<VulkanRenderEngine>().unwrap(), ecs.get_system_signature_1::<CursorManager>().unwrap(), ecs.get_system_signature_1::<BaddieTextureOwner>().unwrap()]), -400);
+    ecs.register_system(DESPAWN_BADDIES, HashSet::from([ecs.get_system_signature_1::<Baddie>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap(), ecs.get_system_signature_1::<Viewport2D>().unwrap()]), -400);
     ecs.register_system(UPDATE_PARTICLES, HashSet::from([ecs.get_system_signature_2::<Transform, Particle>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_RIGID_BODIES, HashSet::from([ecs.get_system_signature_2::<Transform, RigidBody>().unwrap(), ecs.get_system_signature_1::<TimeDelta>().unwrap()]), -200);
     ecs.register_system(UPDATE_QUAD_TREE, HashSet::from([ecs.get_system_signature_1::<QuadTree<BoundingSphere>>().unwrap(), ecs.get_system_signature_2::<Transform, RigidBody>().unwrap()]), -150);
@@ -264,8 +265,8 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         let mut rng = rand::rng();
 
         if rng.random_range(0.0..1.0) < player.spawn_chance {
-            const MIN_DISTANCE_FROM_PLAYER: f32 = 30.0;
-            const MAX_DISTANCE_FROM_PLAYER: f32 = 100.0;
+            const MIN_DISTANCE_FROM_PLAYER: f32 = 40.0;
+            const MAX_DISTANCE_FROM_PLAYER: f32 = 250.0;
 
             let mut rel_spawn_x = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
             let mut rel_spawn_z = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
@@ -297,18 +298,24 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
                     spawn_x >= min_x && spawn_x <= max_x && spawn_z >= min_z && spawn_z <= max_z
                 })
             {
-                const BADDIE_HEIGHT: f32 = 10.0;
-                const BADDIE_SIZE: f32 = 8.0;
+                let current_baddie_count = entites.clone()
+                    .filter(|e| components.get_component::<Baddie>(e).is_some())
+                    .count();
 
-                let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
+                if current_baddie_count < player.baddie_cap {
+                    const BADDIE_HEIGHT: f32 = 10.0;
+                    const BADDIE_SIZE: f32 = 8.0;
 
-                let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
-                let baddie_entity = commands.create_entity();
-                commands.attach_provisional_component(&baddie_entity, baddie_transform);
-                commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
-                commands.attach_provisional_component(&baddie_entity, baddie_texture_binding.clone());
-                commands.attach_provisional_component(&baddie_entity, Baddie { is_active: false });
-                commands.attach_provisional_component(&baddie_entity, LevelEntity {});
+                    let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
+
+                    let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
+                    let baddie_entity = commands.create_entity();
+                    commands.attach_provisional_component(&baddie_entity, baddie_transform);
+                    commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
+                    commands.attach_provisional_component(&baddie_entity, baddie_texture_binding.clone());
+                    commands.attach_provisional_component(&baddie_entity, Baddie { is_active: false });
+                    commands.attach_provisional_component(&baddie_entity, LevelEntity {});
+                }
             }
         }
 
@@ -323,23 +330,31 @@ const UPDATE_BADDIE_IS_ACTIVE: System = |entites: Iter<Entity>, components: &Com
         if let Some(baddie) = components.get_mut_component::<Baddie>(e) {
             let baddie_transform = components.get_component::<Transform>(e).unwrap();
 
-            let line_of_sight_blocked = entites.clone()
-                .any(|e| {
-                    if components.get_component::<Wall>(e).is_some() {
-                        let wall_transform = components.get_mut_component::<Transform>(e).unwrap();
-                        let wall_mesh = components.get_component::<Mesh>(
-                            components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
-                        ).unwrap();
-    
-                        if let Some(dist) = check_ray_intersects(baddie_transform.get_pos(), &(cam.pos - *baddie_transform.get_pos()).normalized().unwrap(), wall_mesh, wall_transform, false) {
-                            return dist < (cam.pos - *baddie_transform.get_pos()).len();
+            let distance_to_camera = (cam.pos - *baddie_transform.get_pos()).len();
+
+            const MAX_ACTIVE_DISTANCE_TO_PLAYER: f32 = 175.0;
+
+            if distance_to_camera > MAX_ACTIVE_DISTANCE_TO_PLAYER {
+                baddie.is_active = false;
+            } else {
+                let line_of_sight_blocked = entites.clone()
+                    .any(|e| {
+                        if components.get_component::<Wall>(e).is_some() {
+                            let wall_transform = components.get_mut_component::<Transform>(e).unwrap();
+                            let wall_mesh = components.get_component::<Mesh>(
+                                components.get_component::<MeshBinding>(e).unwrap().mesh_wrapper.as_ref().unwrap()
+                            ).unwrap();
+        
+                            if let Some(dist) = check_ray_intersects(baddie_transform.get_pos(), &(cam.pos - *baddie_transform.get_pos()).normalized().unwrap(), wall_mesh, wall_transform, false) {
+                                return dist < (cam.pos - *baddie_transform.get_pos()).len();
+                            }
                         }
-                    }
 
-                    false
-                });
+                        false
+                    });
 
-            baddie.is_active = !line_of_sight_blocked;
+                baddie.is_active = !line_of_sight_blocked;
+            }
         }
     }
 };
@@ -510,6 +525,7 @@ const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
                 commands.attach_provisional_component(&dead_entity, baddie_texture_binding.clone());
                 commands.attach_provisional_component(&dead_entity, Timer::for_initial_duration(Duration::from_secs_f32(2.0)));
                 commands.attach_provisional_component(&dead_entity, DeadBaddie { vel: dead_vel });
+                commands.attach_provisional_component(&dead_entity, LevelEntity {});
             }
         }
     }
@@ -528,6 +544,29 @@ fn check_ray_intersects(ray_origin: &Vec3, ray_dir: &Vec3, mesh: &Mesh, transfor
         })
         .map(|p| (*ray_origin - p).len())
 }
+
+const DESPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
+    let cam = &entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap().cam;
+    let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
+    let delta_sec = time_delta.since_last_frame.as_secs_f32();
+
+    let mut rng = rand::rng();
+
+    const DESPAWN_CHANCE: f32 = 0.03;
+    const MIN_DESPAWN_DISTANCE: f32 = 150.0;
+
+    for e in entites {
+        if let Some(baddie) = components.get_component::<Baddie>(e) {
+            let baddie_transform = components.get_component::<Transform>(e).unwrap();
+
+            let dist_to_player= (cam.pos - *baddie_transform.get_pos()).len();
+
+            if !baddie.is_active && dist_to_player >= MIN_DESPAWN_DISTANCE && rng.random_range(0.0..1.0) < DESPAWN_CHANCE * delta_sec {
+                commands.destroy_entity(e);
+            }
+        }
+    }
+};
 
 const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager, commands: &mut ECSCommands| {
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
@@ -597,27 +636,30 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
 
         const MAX_HEALTH: u32 = 100;
 
-        let spawn_chance = 0.03; // TODO: ever update this with level?
+        let spawn_chance = 0.05; // TODO: ever update this with level?
+        let baddie_cap = 50; // TODO: ever update this with level?
 
         let player = if level_loader.next_level_id == 0 {
             Player {
                 y_vel: 0.0,
                 is_jumping: false,
                 health_percentage: 1.0,
-                max_health: MAX_HEALTH,
+                _max_health: MAX_HEALTH,
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
+                baddie_cap,
             }
         } else {
             Player {
                 y_vel: 0.0,
                 is_jumping: false,
                 health_percentage: existing_health.unwrap(),
-                max_health: MAX_HEALTH,
+                _max_health: MAX_HEALTH,
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
+                baddie_cap,
             }
         };
 
@@ -1426,10 +1468,11 @@ struct Player {
     y_vel: f32,
     is_jumping: bool,
     health_percentage: f32,
-    max_health: u32,
+    _max_health: u32,
     level_width: f32,
     level_height: f32,
     spawn_chance: f32,
+    baddie_cap: usize,
 }
 
 impl Component for Player {}
