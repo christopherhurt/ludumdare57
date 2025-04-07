@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use std::collections::HashSet;
+use std::fs::File;
 use std::sync::Arc;
 use vulkanalia::Device as vk_Device;
 use vulkanalia::bytecode::Bytecode;
@@ -14,6 +15,7 @@ use crate::render_engine::Vertex;
 use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, Pipeline, Swapchain};
 use crate::render_engine::vulkan::vulkan_utils::{
     copy_buffer,
+    copy_buffer_to_image,
     debug_callback,
     destroy_buffer,
     get_depth_format,
@@ -96,7 +98,21 @@ pub(in crate::render_engine::vulkan) unsafe fn pick_physical_device(instance: &I
     for physical_device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(physical_device);
 
-        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties);
+        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties, true);
+        if let Err(error) = is_suitable {
+            warn!("Skipping physical device (`{}`): {}", properties.device_name, error);
+        } else if !is_suitable.unwrap() {
+            warn!("Skipping unsuitable physical device (`{}`)", properties.device_name);
+        } else {
+            info!("Selected physical device (`{}`).", properties.device_name);
+            return Ok(physical_device);
+        }
+    }
+
+    for physical_device in instance.enumerate_physical_devices()? {
+        let properties = instance.get_physical_device_properties(physical_device);
+
+        let is_suitable = is_suitable_physical_device(instance, surface, physical_device, properties, false);
         if let Err(error) = is_suitable {
             warn!("Skipping physical device (`{}`): {}", properties.device_name, error);
         } else if !is_suitable.unwrap() {
@@ -115,9 +131,10 @@ unsafe fn is_suitable_physical_device(
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
     properties: vk::PhysicalDeviceProperties,
+    want_discrete_gpu: bool,
 ) -> Result<bool> {
     // Check whether the user is poor
-    if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+    if want_discrete_gpu && properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
         return Ok(false);
     }
 
@@ -525,6 +542,123 @@ pub(in crate::render_engine::vulkan) unsafe fn create_pipeline(
     )
 }
 
+pub(in crate::render_engine::vulkan) unsafe fn create_gui_pipeline(
+    device: &Device,
+    render_pass: vk::RenderPass,
+    swapchain: &Swapchain,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+) -> Result<Pipeline> {
+    let vert_shader_bytes = include_bytes!("shaders/generated/gui_vert_shader.spv");
+    let frag_shader_bytes = include_bytes!("shaders/generated/gui_frag_shader.spv");
+
+    let vert_shader_module = create_shader_module(device, vert_shader_bytes)?;
+    let frag_shader_module = create_shader_module(device, frag_shader_bytes)?;
+
+    let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::VERTEX)
+        .module(vert_shader_module)
+        .name(b"main\0");
+    let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
+        .stage(vk::ShaderStageFlags::FRAGMENT)
+        .module(frag_shader_module)
+        .name(b"main\0");
+
+    let binding_descriptions = &[get_vertex_binding_description()];
+    let attribute_descriptions = get_vertex_attribute_descriptions();
+    let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+        .vertex_binding_descriptions(binding_descriptions)
+        .vertex_attribute_descriptions(&attribute_descriptions);
+
+    let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .primitive_restart_enable(false);
+
+    let viewport = vk::Viewport::builder()
+        .x(0.0)
+        .y(0.0)
+        .width(swapchain.extent.width as f32)
+        .height(swapchain.extent.height as f32)
+        .min_depth(0.0)
+        .max_depth(1.0);
+    let scissor = vk::Rect2D::builder()
+        .offset(vk::Offset2D { x: 0, y: 0 })
+        .extent(swapchain.extent);
+
+    let viewports = &[viewport];
+    let scissors = &[scissor];
+    let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+        .viewports(viewports)
+        .scissors(scissors);
+
+    let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
+        .depth_clamp_enable(false)
+        .rasterizer_discard_enable(false)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .line_width(1.0)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::CLOCKWISE)
+        .depth_bias_enable(false);
+
+    let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+        .sample_shading_enable(false)
+        .rasterization_samples(vk::SampleCountFlags::_1);
+
+    let attachment = vk::PipelineColorBlendAttachmentState::builder()
+        .color_write_mask(vk::ColorComponentFlags::all())
+        .blend_enable(true)
+        .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+        .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+        .color_blend_op(vk::BlendOp::ADD)
+        .src_alpha_blend_factor(vk::BlendFactor::ONE)
+        .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+        .alpha_blend_op(vk::BlendOp::ADD);
+
+    let attachments = &[attachment];
+    let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+        .logic_op_enable(false)
+        .logic_op(vk::LogicOp::COPY)
+        .attachments(attachments)
+        .blend_constants([0.0, 0.0, 0.0, 0.0]);
+
+    let set_layouts=  &[descriptor_set_layout];
+    let layout_info = vk::PipelineLayoutCreateInfo::builder()
+        .set_layouts(set_layouts);
+
+    let pipeline_layout = device.create_pipeline_layout(&layout_info, None)?;
+
+    let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::builder()
+        .depth_test_enable(false)
+        .depth_write_enable(false)
+        .depth_bounds_test_enable(false)
+        .stencil_test_enable(false);
+
+    let stages = &[vert_stage, frag_stage];
+    let info = vk::GraphicsPipelineCreateInfo::builder()
+        .stages(stages)
+        .vertex_input_state(&vertex_input_state)
+        .input_assembly_state(&input_assembly_state)
+        .viewport_state(&viewport_state)
+        .rasterization_state(&rasterization_state)
+        .multisample_state(&multisample_state)
+        .depth_stencil_state(&depth_stencil_state)
+        .color_blend_state(&color_blend_state)
+        .layout(pipeline_layout)
+        .render_pass(render_pass)
+        .subpass(0);
+
+    let pipeline = device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)?.0[0];
+
+    device.destroy_shader_module(vert_shader_module, None);
+    device.destroy_shader_module(frag_shader_module, None);
+
+    Ok(
+        Pipeline {
+            pipeline,
+            layout: pipeline_layout,
+        }
+    )
+}
+
 // Framebuffers + Attachments
 
 pub(in crate::render_engine::vulkan) unsafe fn create_depth_objects(
@@ -790,7 +924,13 @@ pub(in crate::render_engine::vulkan) unsafe fn create_descriptor_set_layout(
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::VERTEX);
 
-    let bindings = &[ubo_binding];
+    let sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+        .binding(1)
+        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+
+    let bindings = &[ubo_binding, sampler_binding];
     let info = vk::DescriptorSetLayoutCreateInfo::builder()
         .bindings(bindings);
 
@@ -862,7 +1002,7 @@ fn get_vertex_binding_description() -> vk::VertexInputBindingDescription {
         .build()
 }
 
-fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
     let pos = vk::VertexInputAttributeDescription::builder()
         .binding(0)
         .location(0)
@@ -877,5 +1017,137 @@ fn get_vertex_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 
         .offset(size_of::<Vec3>() as u32)
         .build();
 
-    [pos, norm]
+    let tex_coord = vk::VertexInputAttributeDescription::builder()
+        .binding(0)
+        .location(2)
+        .format(vk::Format::R32G32_SFLOAT)
+        .offset(2 * size_of::<Vec3>() as u32)
+        .build();
+
+    [pos, norm, tex_coord]
+}
+
+// Textures
+
+pub(in crate::render_engine::vulkan) unsafe fn create_texture_image(
+    instance: &Instance,
+    device: &Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    file_path: &String,
+) -> Result<(ImageResources, vk::ImageView)> {
+    let image = File::open(file_path)?;
+
+    let decoder = png::Decoder::new(image);
+    let mut reader = decoder.read_info()?;
+    let mut pixels = vec![0; reader.info().raw_bytes()];
+    reader.next_frame(&mut pixels)?;
+
+    let size = reader.info().raw_bytes() as u64;
+    let (width, height) = reader.info().size();
+
+    if reader.info().color_type != png::ColorType::Rgba {
+        panic!("Invalid texture image: {:?}", file_path);
+    }
+
+    let staging_buffer = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+    )?;
+
+    let memory = device.map_memory(staging_buffer.memory,
+        0,
+        size,
+        vk::MemoryMapFlags::empty(),
+    )?;
+
+    std::ptr::copy_nonoverlapping(pixels.as_ptr(), memory.cast(), pixels.len());
+
+    device.unmap_memory(staging_buffer.memory);
+
+    let texture_image = create_image(
+        instance,
+        device,
+        physical_device,
+        width,
+        height,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageTiling::OPTIMAL,
+        vk::ImageUsageFlags::SAMPLED
+            | vk::ImageUsageFlags::TRANSFER_DST
+            | vk::ImageUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+    )?;
+
+    transition_image_layout(
+        device,
+        command_pool,
+        queue,
+        texture_image.image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+    )?;
+
+    copy_buffer_to_image(
+        device,
+        command_pool,
+        queue,
+        staging_buffer.buffer,
+        texture_image.image,
+        width,
+        height,
+    )?;
+
+    transition_image_layout(
+        device,
+        command_pool,
+        queue,
+        texture_image.image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+    )?;
+
+    device.destroy_buffer(staging_buffer.buffer, None);
+    device.free_memory(staging_buffer.memory, None);
+
+    let texture_image_view = create_image_view(
+        device,
+        texture_image.image,
+        vk::Format::R8G8B8A8_SRGB,
+        vk::ImageAspectFlags::COLOR,
+    )?;
+
+    Ok((texture_image, texture_image_view))
+}
+
+pub(in crate::render_engine::vulkan) unsafe fn create_texture_sampler(
+    device: &Device,
+) -> Result<vk::Sampler> {
+    let info = vk::SamplerCreateInfo::builder()
+        .mag_filter(vk::Filter::NEAREST)
+        .min_filter(vk::Filter::NEAREST)
+        .address_mode_u(vk::SamplerAddressMode::REPEAT)
+        .address_mode_v(vk::SamplerAddressMode::REPEAT)
+        .address_mode_w(vk::SamplerAddressMode::REPEAT)
+        .anisotropy_enable(false)
+        .max_anisotropy(1.0)
+        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+        .unnormalized_coordinates(false)
+        .compare_enable(false)
+        .compare_op(vk::CompareOp::ALWAYS)
+        .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+        .mip_lod_bias(0.0)
+        .min_lod(0.0)
+        .max_lod(1.0);
+
+    let texture_sampler = device.create_sampler(&info, None)?;
+
+    Ok(texture_sampler)
 }

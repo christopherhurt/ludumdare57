@@ -246,7 +246,7 @@ impl Vec3 {
     }
 
     #[inline]
-    pub fn rotated(&self, axis: &Vec3, spin_rads: f32) -> Result<Vec3> {
+    pub fn rotated(&self, axis: &Vec3, spin_rads: f64) -> Result<Vec3> {
         // https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation
         let axis_norm = match axis.normalized() {
             Ok(a) => Ok(a),
@@ -254,8 +254,8 @@ impl Vec3 {
         }?;
 
         let half_spin_rads = spin_rads / 2.0;
-        let cos_half_spin = half_spin_rads.cos();
-        let sin_half_spin = half_spin_rads.sin();
+        let cos_half_spin = half_spin_rads.cos() as f32;
+        let sin_half_spin = half_spin_rads.sin() as f32;
         let crossed = axis_norm.cross(self);
 
         Ok(*self + (2.0 * cos_half_spin * sin_half_spin * crossed) + (2.0 * sin_half_spin * sin_half_spin * axis_norm.cross(&crossed)))
