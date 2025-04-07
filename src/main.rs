@@ -97,7 +97,7 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
     };
 
     let render_engine_props = RenderEngineInitProps {
-        debug_enabled: true,
+        debug_enabled: false,
         clear_color: Color::rgb(0.0, 0.0, 0.0),
         window_props,
     };
