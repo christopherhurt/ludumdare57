@@ -4,7 +4,7 @@ const CELL_WIDTH: usize = 5;
 const EDGE_WIDTH: usize = 1;
 const MIN_SIDE_LENGTH: usize = 6;
 
-fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
+pub fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
     let grid_width;
 
@@ -541,7 +541,7 @@ fn create_output_vec(grid: Vec<Vec<Cell>>) -> Vec<Vec<char>> {
 
 }
 
-fn print_output(output: Vec<Vec<char>>) {
+fn _print_output(output: Vec<Vec<char>>) {
     let array_width:usize = output.len();
     let array_length:usize = output[0].len();
     for i in 0..array_width {
