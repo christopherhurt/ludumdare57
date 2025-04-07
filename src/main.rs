@@ -1716,6 +1716,8 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
     const GUI_LABEL_SIZE: f32 = 0.1;
     const Y_PADDING: f32 = 0.03;
     const DIGIT_WIDTH_TO_HEIGHT: f32 = 0.86667;
+    const GUN_SIZE: f32 = 0.38;
+    const GUN_OFFSET_X: f32 = 0.25;
 
     if let Ok(window) = render_engine.get_window() {
         let aspect_ratio = window.get_width() as f32 / window.get_height() as f32;
@@ -1741,9 +1743,8 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
                             commands.attach_component(e, gun_animation.base.unwrap());
                         }
 
-                        // TODO: set pos and dim
-                        gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
-                        gui_element.position = vec2(0.0, 0.5);
+                        gui_element.dimensions = vec2(GUN_SIZE / aspect_ratio, GUN_SIZE);
+                        gui_element.position = vec2(GUN_OFFSET_X, 1.0 - gui_element.dimensions.y / 2.0 + 0.01);
                     }
                 } else if gui_element.id == "ammo_counter_0" {
                     let digit = player.ammo_count % 10;
