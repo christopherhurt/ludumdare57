@@ -1,4 +1,6 @@
 use anyhow::{anyhow, Result};
+use vulkan_resources::{create_gui_pipeline, create_texture_image, create_texture_sampler};
+use vulkan_structs::GuiUniformBufferObject;
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use core::panic;
 use std::collections::HashMap;
@@ -13,6 +15,7 @@ use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::{DebugUtilsMessengerEXT, ExtDebugUtilsExtension, KhrSurfaceExtension, KhrSwapchainExtension, SurfaceKHR};
 use vulkanalia::window as vk_window;
+use winapi::um::winuser::{SetCursorPos, ShowCursor};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -20,11 +23,11 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window as winit_Window, WindowAttributes};
 
-use crate::core::Color;
+use crate::core::{Color, RenderTextureId};
 use crate::core::mesh::Vertex;
 use crate::ecs::ComponentActions;
 use crate::ecs::component::Component;
-use crate::math::{mat3, Mat3, vec2, Vec2};
+use crate::math::{mat3, mat4, vec2, Mat3, Vec2, VEC_2_ZERO};
 use crate::render_engine::{Device, RenderMeshId, RenderEngine, RenderEngineInitProps, RenderState, VirtualButton, VirtualKey, VirtualElementState, Window};
 use crate::render_engine::vulkan::vulkan_resources::{
     create_vk_instance,
@@ -45,7 +48,7 @@ use crate::render_engine::vulkan::vulkan_resources::{
     create_vertex_buffer,
     create_index_buffer,
 };
-use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, VulkanMesh, Pipeline, Swapchain, UniformBufferObject};
+use crate::render_engine::vulkan::vulkan_structs::{BufferResources, FrameSyncObjects, ImageResources, VulkanMesh, VulkanTexture, Pipeline, Swapchain, UniformBufferObject};
 
 mod vulkan_resources;
 mod vulkan_structs;
@@ -53,12 +56,14 @@ mod vulkan_utils;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 3;
 // TODO: we'll want a way to resize the uniform buffer and/or overwrite it multiple times per frame, instead of capping the limit on total uniform desciptors like this
-const NUM_UNIFORM_DESCRIPTORS: usize = 4096;
+const NUM_UNIFORM_DESCRIPTORS: usize = 2048;
 
 pub struct VulkanRenderEngine {
     mesh_id_counter: usize,
+    texture_id_counter: usize,
     state_sender: SyncSender<RenderState>,
     mesh_sender: Sender<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
+    texture_sender: Sender<(RenderTextureId, String)>,
     keys_down: HashMap<VirtualKey, bool>,
     keys_pressed: HashMap<VirtualKey, bool>,
     keys_released: HashMap<VirtualKey, bool>,
@@ -69,8 +74,12 @@ pub struct VulkanRenderEngine {
     buttons_receiver: Receiver<(VirtualButton, VirtualElementState)>,
     mouse_pos: Option<Vec2>,
     mouse_pos_receiver: Receiver<Option<Vec2>>,
+    mouse_pos_sender: SyncSender<Vec2>,
+    mouse_visible_sender: SyncSender<bool>,
     window_extent: vk::Extent2D,
     window_extent_receiver: Receiver<vk::Extent2D>,
+    window_screen_position: Vec2,
+    window_screen_position_receiver: Receiver<Vec2>,
     is_closing: Arc<AtomicBool>,
     render_thread_join_handle: Option<JoinHandle<()>>,
 }
@@ -82,16 +91,21 @@ struct VulkanApplication {
     init_props: RenderEngineInitProps,
     state_receiver: Receiver<RenderState>,
     mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
+    texture_receiver: Receiver<(RenderTextureId, String)>,
     is_minimized: bool,
     is_resized: bool,
     is_closing: Arc<AtomicBool>,
     keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
     buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
     mouse_pos_sender: SyncSender<Option<Vec2>>,
+    mouse_pos_receiver: Receiver<Vec2>,
+    mouse_visible_receiver: Receiver<bool>,
     window_extent_sender: SyncSender<vk::Extent2D>,
+    window_screen_position_sender: SyncSender<Vec2>,
     context: Option<VulkanContext>,
     swapchain_fences: Vec<vk::Fence>,
     frame: usize,
+    window_pos_sent: bool, // TODO: THIS IS SCUFFED
 }
 
 struct VulkanContext {
@@ -116,6 +130,7 @@ struct VulkanContext {
     pipeline: Pipeline,
     single_time_command_pool: vk::CommandPool,
     per_frame_command_pools: Vec<vk::CommandPool>,
+    texture_sampler: vk::Sampler,
     depth_image_resources: ImageResources,
     depth_image_view: vk::ImageView,
     framebuffers: Vec<vk::Framebuffer>,
@@ -125,7 +140,13 @@ struct VulkanContext {
     per_frame_command_buffers: Vec<vk::CommandBuffer>,
     sync_objects: Vec<FrameSyncObjects>,
 
+    gui_pipeline: Pipeline,
+    gui_uniform_buffers: Vec<BufferResources>,
+    gui_ubo_alignment: usize,
+    gui_descriptor_sets: Vec<Vec<vk::DescriptorSet>>,
+
     meshes: HashMap<RenderMeshId, VulkanMesh>,
+    textures: HashMap<RenderTextureId, VulkanTexture>,
 }
 
 impl VulkanContext {
@@ -152,20 +173,25 @@ impl VulkanContext {
             let physical_device = pick_physical_device(&vk_instance, surface).unwrap_or_else(|e| panic!("{}", e));
 
             let ubo_alignment = UniformBufferObject::get_offset_alignment(vk_instance.get_physical_device_properties(physical_device).limits.min_uniform_buffer_offset_alignment as usize);
+            let gui_ubo_alignment = GuiUniformBufferObject::get_offset_alignment(vk_instance.get_physical_device_properties(physical_device).limits.min_uniform_buffer_offset_alignment as usize);
 
             let (device, graphics_queue, present_queue) = create_logical_device(&vk_instance, surface, physical_device, init_properties.debug_enabled).unwrap_or_else(|e| panic!("{}", e));
             let swapchain = create_swapchain(MAX_FRAMES_IN_FLIGHT as u32, &winit_window, &vk_instance, surface, &device, physical_device).unwrap_or_else(|e| panic!("{}", e));
             let render_pass = create_render_pass(&vk_instance, &device, physical_device, swapchain.format).unwrap_or_else(|e| panic!("{}", e));
             let descriptor_set_layout = create_descriptor_set_layout(&device).unwrap_or_else(|e| panic!("{}", e));
             let pipeline = create_pipeline(&device, render_pass, &swapchain, descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
+            let gui_pipeline = create_gui_pipeline(&device, render_pass, &swapchain, descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
             let single_time_command_pool = create_command_pool(&vk_instance, &device, surface, physical_device).unwrap_or_else(|e| panic!("{}", e));
             let per_frame_command_pools = (0..swapchain.images.len()).map(|_| create_command_pool(&vk_instance, &device, surface, physical_device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let texture_sampler = create_texture_sampler(&device).unwrap_or_else(|e| panic!("{}", e));
             let (depth_image_resources, depth_image_view) = create_depth_objects(&vk_instance, &device, physical_device, &swapchain.extent, single_time_command_pool, graphics_queue).unwrap_or_else(|e| panic!("{}", e));
             let framebuffers = swapchain.image_views.iter().map(|i| create_framebuffer(&device, render_pass, swapchain.extent, *i, depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
             // TODO: split up into more than one uniform buffer per frame
             let uniform_buffers = (0..swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&vk_instance, &device, physical_device, NUM_UNIFORM_DESCRIPTORS, ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
-            let descriptor_pool = create_descriptor_pool(&device, swapchain.images.len() * NUM_UNIFORM_DESCRIPTORS).unwrap_or_else(|e| panic!("{}", e));
+            let gui_uniform_buffers = (0..swapchain.images.len()).map(|_| create_uniform_buffer::<GuiUniformBufferObject>(&vk_instance, &device, physical_device, NUM_UNIFORM_DESCRIPTORS, gui_ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let descriptor_pool = create_descriptor_pool(&device, swapchain.images.len() * NUM_UNIFORM_DESCRIPTORS * 2).unwrap_or_else(|e| panic!("{}", e));
             let descriptor_sets = (0..swapchain.images.len()).map(|i| create_descriptor_sets(&device, descriptor_set_layout, descriptor_pool, &uniform_buffers[i], NUM_UNIFORM_DESCRIPTORS, size_of::<UniformBufferObject>(), ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+            let gui_descriptor_sets = (0..swapchain.images.len()).map(|i| create_descriptor_sets(&device, descriptor_set_layout, descriptor_pool, &gui_uniform_buffers[i], NUM_UNIFORM_DESCRIPTORS, size_of::<GuiUniformBufferObject>(), gui_ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
             let per_frame_command_buffers = per_frame_command_pools.iter().map(|p| create_command_buffer(&device, *p).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
             let sync_objects = (0..MAX_FRAMES_IN_FLIGHT).map(|_| create_sync_objects(&device).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
 
@@ -190,6 +216,7 @@ impl VulkanContext {
                 pipeline,
                 single_time_command_pool,
                 per_frame_command_pools,
+                texture_sampler,
                 depth_image_resources,
                 depth_image_view,
                 framebuffers,
@@ -199,7 +226,13 @@ impl VulkanContext {
                 per_frame_command_buffers,
                 sync_objects,
 
+                gui_pipeline,
+                gui_uniform_buffers,
+                gui_ubo_alignment,
+                gui_descriptor_sets,
+
                 meshes: HashMap::new(),
+                textures: HashMap::new(),
             }
         }
     }
@@ -238,6 +271,23 @@ impl VulkanContext {
         //  Also, we don't want to all uniforms every entity... only the per-entity uniforms
         for (i, e) in state.entity_states.iter().enumerate() {
             let mesh = self.meshes.get(&e.mesh_id).unwrap_or_else(|| panic!("No mesh exists for ID {}", e.mesh_id.0));
+            let texture = self.textures.get(&e.texture_id).unwrap_or_else(|| panic!("No texture exists for ID {}", e.texture_id.0));
+
+            let image_info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(texture.image_view)
+                .sampler(self.texture_sampler);
+            let image_buffer_info = &[image_info];
+            let sampler_write = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[image_index][i])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(image_buffer_info);
+            self.device.update_descriptor_sets(
+                &[sampler_write],
+                &[] as &[vk::CopyDescriptorSet],
+            );
 
             self.device.cmd_bind_descriptor_sets(
                 command_buffer,
@@ -252,6 +302,47 @@ impl VulkanContext {
             self.device.cmd_draw_indexed(command_buffer, mesh.index_count as u32, 1, 0, 0, 0);
         }
 
+        //////////////////////////////////////
+        // GUI
+        //////////////////////////////////////
+
+        self.device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, self.gui_pipeline.pipeline);
+
+        for (i, g) in state.gui_states.iter().enumerate() {
+            let mesh = self.meshes.get(&g.mesh_id).unwrap_or_else(|| panic!("No mesh exists for ID {}", g.mesh_id.0));
+            let texture = self.textures.get(&g.texture_id).unwrap_or_else(|| panic!("No texture exists for ID {}", g.texture_id.0));
+
+            let image_info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(texture.image_view)
+                .sampler(self.texture_sampler);
+            let image_buffer_info = &[image_info];
+            let sampler_write = vk::WriteDescriptorSet::builder()
+                .dst_set(self.gui_descriptor_sets[image_index][i])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(image_buffer_info);
+            self.device.update_descriptor_sets(
+                &[sampler_write],
+                &[] as &[vk::CopyDescriptorSet],
+            );
+
+            self.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline.layout,
+                0,
+                &[self.gui_descriptor_sets[image_index][i]],
+                &[],
+            );
+            self.device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer.buffer], &[0]);
+            self.device.cmd_bind_index_buffer(command_buffer, mesh.index_buffer.buffer, 0, vk::IndexType::UINT32);
+            self.device.cmd_draw_indexed(command_buffer, mesh.index_count as u32, 1, 0, 0, 0);
+        }
+
+        //////////////////////////////////////
+
         self.device.cmd_end_render_pass(command_buffer);
 
         self.device.end_command_buffer(command_buffer)?;
@@ -265,11 +356,14 @@ impl VulkanContext {
         self.swapchain = create_swapchain(MAX_FRAMES_IN_FLIGHT as u32, &self.winit_window, &self.vk_instance, self.surface, &self.device, self.physical_device).unwrap_or_else(|e| panic!("{}", e));
         self.render_pass = create_render_pass(&self.vk_instance, &self.device, self.physical_device, self.swapchain.format).unwrap_or_else(|e| panic!("{}", e));
         self.pipeline = create_pipeline(&self.device, self.render_pass, &self.swapchain, self.descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
+        self.gui_pipeline = create_gui_pipeline(&self.device, self.render_pass, &self.swapchain, self.descriptor_set_layout).unwrap_or_else(|e| panic!("{}", e));
         (self.depth_image_resources, self.depth_image_view) = create_depth_objects(&self.vk_instance, &self.device, self.physical_device, &self.swapchain.extent, self.single_time_command_pool, self.graphics_queue).unwrap_or_else(|e| panic!("{}", e));
         self.framebuffers = self.swapchain.image_views.iter().map(|i| create_framebuffer(&self.device, self.render_pass, self.swapchain.extent, *i, self.depth_image_view).unwrap_or_else(|e| panic!("{}", e))).collect();
         self.uniform_buffers = (0..self.swapchain.images.len()).map(|_| create_uniform_buffer::<UniformBufferObject>(&self.vk_instance, &self.device, self.physical_device, NUM_UNIFORM_DESCRIPTORS, self.ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
-        self.descriptor_pool = create_descriptor_pool(&self.device, self.swapchain.images.len() * NUM_UNIFORM_DESCRIPTORS).unwrap_or_else(|e| panic!("{}", e));
+        self.gui_uniform_buffers = (0..self.swapchain.images.len()).map(|_| create_uniform_buffer::<GuiUniformBufferObject>(&self.vk_instance, &self.device, self.physical_device, NUM_UNIFORM_DESCRIPTORS, self.gui_ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+        self.descriptor_pool = create_descriptor_pool(&self.device, self.swapchain.images.len() * NUM_UNIFORM_DESCRIPTORS * 2).unwrap_or_else(|e| panic!("{}", e));
         self.descriptor_sets = (0..self.swapchain.images.len()).map(|i| create_descriptor_sets(&self.device, self.descriptor_set_layout, self.descriptor_pool, &self.uniform_buffers[i], NUM_UNIFORM_DESCRIPTORS, size_of::<UniformBufferObject>(), self.ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
+        self.gui_descriptor_sets = (0..self.swapchain.images.len()).map(|i| create_descriptor_sets(&self.device, self.descriptor_set_layout, self.descriptor_pool, &self.gui_uniform_buffers[i], NUM_UNIFORM_DESCRIPTORS, size_of::<GuiUniformBufferObject>(), self.gui_ubo_alignment).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
         self.per_frame_command_buffers = self.per_frame_command_pools.iter().map(|p| create_command_buffer(&self.device, *p).unwrap_or_else(|e| panic!("{}", e))).collect::<Vec<_>>();
 
         Ok(())
@@ -290,9 +384,19 @@ impl VulkanContext {
                 self.device.free_memory((*b).memory, None);
             });
 
+        self.gui_uniform_buffers
+            .iter()
+            .for_each(|b| {
+                self.device.destroy_buffer((*b).buffer, None);
+                self.device.free_memory((*b).memory, None);
+            });
+
         self.framebuffers
             .iter()
             .for_each(|f| self.device.destroy_framebuffer(*f, None));
+
+        self.device.destroy_pipeline(self.gui_pipeline.pipeline, None);
+        self.device.destroy_pipeline_layout(self.gui_pipeline.layout, None);
 
         self.device.destroy_pipeline(self.pipeline.pipeline, None);
         self.device.destroy_pipeline_layout(self.pipeline.layout, None);
@@ -312,6 +416,8 @@ impl VulkanContext {
 
         self.destroy_swapchain()?;
 
+        self.device.destroy_sampler(self.texture_sampler, None);
+
         self.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 
         self.meshes.values().for_each(|m| {
@@ -320,6 +426,13 @@ impl VulkanContext {
 
             self.device.destroy_buffer((*m).index_buffer.buffer, None);
             self.device.free_memory((*m).index_buffer.memory, None);
+        });
+
+        self.textures.values().for_each(|t| {
+            self.device.destroy_image_view((*t).image_view, None);
+
+            self.device.destroy_image((*t).image_resources.image, None);
+            self.device.free_memory((*t).image_resources.memory, None);
         });
 
         self.sync_objects
@@ -375,15 +488,45 @@ unsafe fn update_uniforms(
     }
 }
 
+unsafe fn update_gui_uniforms(
+    device: &vk_Device,
+    uniform_memory: vk::DeviceMemory,
+    ubos: &Vec<GuiUniformBufferObject>,
+    ubo_alignment: usize,
+) -> Result<()> {
+    if !ubos.is_empty() {
+        let memory = device.map_memory(
+            uniform_memory,
+            0,
+            (ubo_alignment * ubos.len()) as u64,
+            vk::MemoryMapFlags::empty(),
+        )?;
+
+        for i in 0..ubos.len() {
+            std::ptr::copy_nonoverlapping(ubos.as_ptr().add(i), (memory.cast::<u8>().add(i * ubo_alignment)).cast(), 1);
+        }
+
+        device.unmap_memory(uniform_memory);
+
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
 impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine {
     fn new(init_props: RenderEngineInitProps) -> Result<Self> {
         // TODO: update this so we can overwrite the buffered state(s), rather than block the sender, if the sender gets ahead of the receiver
         let (state_sender, state_receiver) = mpsc::sync_channel::<RenderState>(1);
         let (mesh_sender, mesh_receiver) = mpsc::channel();
+        let (texture_sender, texture_receiver) = mpsc::channel();
         let (keys_sender, keys_receiver) = mpsc::sync_channel::<(VirtualKey, VirtualElementState)>(256);
         let (buttons_sender, buttons_receiver) = mpsc::sync_channel::<(VirtualButton, VirtualElementState)>(256);
         let (mouse_pos_sender, mouse_pos_receiver) = mpsc::sync_channel::<Option<Vec2>>(256);
+        let (downstream_mouse_pos_sender, downstream_mouse_pos_receiver) = mpsc::sync_channel::<Vec2>(256);
+        let (mouse_visible_sender, mouse_visible_receiver) = mpsc::sync_channel::<bool>(256);
         let (window_extent_sender, window_extent_receiver) = mpsc::sync_channel::<vk::Extent2D>(256);
+        let (window_screen_position_sender, window_screen_position_receiver) = mpsc::sync_channel::<Vec2>(256);
 
         let is_closing = Arc::new(AtomicBool::new(false));
 
@@ -393,7 +536,7 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         let join_handle: JoinHandle<()> = thread::spawn(move || {
             // TODO: clean up Windows-specific module dependency
             let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
-            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, keys_sender, buttons_sender, mouse_pos_sender, window_extent_sender, moved_is_closing).unwrap();
+            let mut application = VulkanApplication::new(moved_properties, state_receiver, mesh_receiver, texture_receiver, keys_sender, buttons_sender, mouse_pos_sender, downstream_mouse_pos_receiver, mouse_visible_receiver, window_extent_sender, window_screen_position_sender, moved_is_closing).unwrap();
             event_loop.run_app(&mut application).unwrap();
         });
 
@@ -403,8 +546,10 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         Ok(
             Self {
                 mesh_id_counter: 0,
+                texture_id_counter: 0,
                 state_sender,
                 mesh_sender,
+                texture_sender,
                 keys_down: create_empty_vk_map(),
                 keys_pressed: create_empty_vk_map(),
                 keys_released: create_empty_vk_map(),
@@ -415,8 +560,12 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
                 buttons_receiver,
                 mouse_pos: None,
                 mouse_pos_receiver,
+                mouse_pos_sender: downstream_mouse_pos_sender,
+                mouse_visible_sender,
                 window_extent: vk::Extent2D { width, height },
                 window_extent_receiver,
+                window_screen_position: VEC_2_ZERO,
+                window_screen_position_receiver,
                 is_closing,
                 render_thread_join_handle: Some(join_handle),
             }
@@ -476,6 +625,11 @@ impl RenderEngine<VulkanRenderEngine, VulkanRenderEngine> for VulkanRenderEngine
         // Window extent
         while let Ok(window_extent) = self.window_extent_receiver.try_recv() {
             self.window_extent = window_extent;
+        }
+
+        // Window screen position
+        while let Ok(window_screen_position) = self.window_screen_position_receiver.try_recv() {
+            self.window_screen_position = window_screen_position;
         }
 
         // Render state
@@ -542,6 +696,10 @@ impl Window for VulkanRenderEngine {
         self.window_extent.height
     }
 
+    fn get_screen_position(&self) -> Vec2 {
+        self.window_screen_position
+    }
+
     fn is_key_down(&self, key: VirtualKey) -> bool {
         *self.keys_down.get(&key).unwrap_or_else(|| panic!("Invalid key {:?}", key))
     }
@@ -568,6 +726,14 @@ impl Window for VulkanRenderEngine {
 
     fn get_mouse_screen_position(&self) -> Option<&Vec2> {
         self.mouse_pos.as_ref()
+    }
+
+    fn set_mouse_screen_position(&mut self, screen_pos: &Vec2) -> Result<()> {
+        self.mouse_pos_sender.send(*screen_pos).map_err(|e| anyhow!(e))
+    }
+
+    fn set_mouse_cursor_visible(&mut self, is_visible: bool) -> Result<()> {
+        self.mouse_visible_sender.send(is_visible).map_err(|e| anyhow!(e))
     }
 
     fn get_ndc_to_screen_space_transform(&self) -> Mat3 {
@@ -602,6 +768,16 @@ impl Device for VulkanRenderEngine {
             Ok(mesh_id)
         }
     }
+
+    fn create_texture(&mut self, file_path: String) -> Result<RenderTextureId> {
+        let texture_id = RenderTextureId(self.texture_id_counter);
+
+        self.texture_id_counter += 1;
+
+        self.texture_sender.send((texture_id, file_path))?;
+
+        Ok(texture_id)
+    }
 }
 
 impl VulkanApplication {
@@ -609,10 +785,14 @@ impl VulkanApplication {
         init_props: RenderEngineInitProps,
         state_receiver: Receiver<RenderState>,
         mesh_receiver: Receiver<(RenderMeshId, Arc<Vec<Vertex>>, Arc<Vec<u32>>)>,
+        texture_receiver: Receiver<(RenderTextureId, String)>,
         keys_sender: SyncSender<(VirtualKey, VirtualElementState)>,
         buttons_sender: SyncSender<(VirtualButton, VirtualElementState)>,
         mouse_pos_sender: SyncSender<Option<Vec2>>,
+        mouse_pos_receiver: Receiver<Vec2>,
+        mouse_visible_receiver: Receiver<bool>,
         window_extent_sender: SyncSender<vk::Extent2D>,
+        window_screen_position_sender: SyncSender<Vec2>,
         is_closing: Arc<AtomicBool>,
     ) -> Result<Self> {
         Ok(
@@ -620,16 +800,21 @@ impl VulkanApplication {
                 init_props,
                 state_receiver,
                 mesh_receiver,
+                texture_receiver,
                 is_minimized: false,
                 is_resized: false,
                 is_closing,
                 keys_sender,
                 buttons_sender,
                 mouse_pos_sender,
+                mouse_pos_receiver,
+                mouse_visible_receiver,
                 window_extent_sender,
+                window_screen_position_sender,
                 context: None,
                 swapchain_fences: (0..MAX_FRAMES_IN_FLIGHT).map(|_| vk::Fence::null()).collect(),
                 frame: 0,
+                window_pos_sent: false,
             }
         )
     }
@@ -687,6 +872,17 @@ impl VulkanApplication {
                     context.meshes.insert(mesh.mesh_id, mesh);
                 }
 
+                while let Ok((texture_id, file_path)) = self.texture_receiver.try_recv() {
+                    let (image_resources, image_view) = create_texture_image(&context.vk_instance, &context.device, context.physical_device, context.single_time_command_pool, context.graphics_queue, &file_path)?;
+
+                    let texture = VulkanTexture {
+                        image_resources,
+                        image_view,
+                    };
+
+                    context.textures.insert(texture_id, texture);
+                }
+
                 let ubos = render_state.entity_states.iter().map(|e| {
                     UniformBufferObject {
                         world: e.world,
@@ -694,8 +890,22 @@ impl VulkanApplication {
                         proj: render_state.proj,
                         color: e.color,
                     }
-                }).collect();
+                }).collect::<Vec<_>>();
+
                 update_uniforms(&context.device, context.uniform_buffers[image_index].memory, &ubos, context.ubo_alignment)?;
+
+                let gui_ubos = render_state.gui_states.iter().map(|g| {
+                    GuiUniformBufferObject {
+                        world: mat4(
+                            g.dimensions.x, 0.0, 0.0, g.position.x,
+                            0.0, -g.dimensions.y, 0.0, g.position.y,
+                            0.0, 0.0, 1.0, 0.0,
+                            0.0, 0.0, 0.0, 1.0,
+                        ),
+                    }
+                }).collect::<Vec<_>>();
+
+                update_gui_uniforms(&context.device, context.gui_uniform_buffers[image_index].memory, &gui_ubos, context.gui_ubo_alignment)?;
 
                 context.update_command_buffer(image_index, render_state)?;
 
@@ -778,6 +988,35 @@ impl ApplicationHandler for VulkanApplication {
 
     fn about_to_wait(&mut self, _: &ActiveEventLoop) {
         if let Some(context) = self.context.as_ref() {
+            if !self.window_pos_sent {
+                let window_inner_pos = context.winit_window.inner_position().unwrap_or_else(|_| panic!("Failed to get window position"));
+
+                let window_pos = vec2(window_inner_pos.x as f32, window_inner_pos.y as f32);
+
+                self.window_screen_position_sender.send(window_pos).unwrap_or_else(|_| panic!("Failed to send window position"));
+            }
+
+            // TODO: prob a better spot/way to do this...
+            let mut mouse_pos = None;
+            while let Ok(received_mouse_pos) = self.mouse_pos_receiver.try_recv() {
+                mouse_pos = Some(received_mouse_pos);
+            }
+
+            if let Some(mouse_pos) = mouse_pos {
+                unsafe { SetCursorPos(mouse_pos.x as i32, mouse_pos.y as i32); }
+            }
+
+            let mut cursor_visible = None;
+            while let Ok(received_cursor_visible) = self.mouse_visible_receiver.try_recv() {
+                cursor_visible = Some(received_cursor_visible);
+            }
+
+            if let Some(cursor_visible) = cursor_visible {
+                let show_cursor = if cursor_visible { 1 } else { 0 };
+
+                unsafe { ShowCursor(show_cursor); }
+            }
+
             context.winit_window.request_redraw();
         }
     }
@@ -826,6 +1065,11 @@ impl ApplicationHandler for VulkanApplication {
                 },
                 WindowEvent::CursorLeft { .. } => {
                     self.mouse_pos_sender.send(None).unwrap_or_else(|_| panic!("Failed to send mouse position"));
+                },
+                WindowEvent::Moved(pos) => {
+                    let screen_pos = vec2(pos.x as f32, pos.y as f32);
+
+                    self.window_screen_position_sender.send(screen_pos).unwrap_or_else(|_| panic!("Failed to send window position"));
                 },
                 _ => {},
             };

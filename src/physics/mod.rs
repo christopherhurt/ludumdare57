@@ -398,6 +398,7 @@ pub fn generate_physics_mesh(mesh: Mesh, density: Option<f32>) -> Result<(Mesh, 
     let offseted_vertices = mesh.vertices.iter().map(|v| Vertex {
         pos: v.pos - center_of_mass,
         norm: v.norm,
+        tex_coord: v.tex_coord,
     }).collect();
 
     let new_mesh = Mesh::new(offseted_vertices, mesh.vertex_indices.to_vec())
@@ -469,7 +470,7 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
     let ray_dir = inverse_rot_matrix * *ray_dir;
 
     let mut closest_intersection_point=  None;
-    let mut closest_intersection_dist = f32::INFINITY;
+    let mut closest_intersection_dist = f32::MAX;
 
     if let Ok(ray_dir) = ray_dir.normalized() {
         for i in mesh.vertex_indices.chunks_exact(3) {
@@ -485,7 +486,7 @@ pub fn get_ray_intersection(ray_source: &Vec3, ray_dir: &Vec3, mesh: &Mesh, tran
                     let intersection_dist = (n.dot(&p0) - n.dot(&ray_source)) / n_dot_dir;
                     let intersection_point = ray_source + intersection_dist * ray_dir;
 
-                    if is_inside_triangle(p0, p1, p2, &intersection_point, &n, 0.0)
+                    if intersection_dist > 0.0 && is_inside_triangle(p0, p1, p2, &intersection_point, &n, 0.0)
                             && intersection_dist < closest_intersection_dist {
                         closest_intersection_point = Some((*transform.to_world_mat() * intersection_point.to_vec4(1.0)).xyz());
                         closest_intersection_dist = intersection_dist;
@@ -1242,7 +1243,7 @@ pub(in crate) fn get_point_collision(
     None
 }
 
-fn is_inside_tetrahedron(p0: &Vec3, p1: &Vec3, p2: &Vec3, p3: &Vec3, q: &Vec3) -> bool {
+pub fn is_inside_tetrahedron(p0: &Vec3, p1: &Vec3, p2: &Vec3, p3: &Vec3, q: &Vec3) -> bool {
     // https://stackoverflow.com/questions/25179693/how-to-check-whether-the-point-is-in-the-tetrahedron-or-not
     is_same_side_of_plane(p0, p1, p2, p3, q)
         && is_same_side_of_plane(p3, p1, p0, p2, q)
