@@ -870,8 +870,8 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
 
         const STACK_HEIGHT: u32 = 3;
 
-        for i in 0..level_dim_x {
-            for j in 0..level_dim_z {
+        for i in (-1 as i32)..((level_dim_x + 1) as i32) {
+            for j in (-1 as i32)..((level_dim_z + 1) as i32) {
                 let x_pos = CUBE_SIZE * (i as f32 - (level_dim_x as f32 - 1.0) / 2.0);
                 let z_pos = CUBE_SIZE * (j as f32 - (level_dim_z as f32 - 1.0) / 2.0);
 
@@ -893,7 +893,8 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 commands.attach_provisional_component(&ceiling_entity, cube_mesh_binding.clone());
                 commands.attach_provisional_component(&ceiling_entity, LevelEntity {});
 
-                if is_wall(&maze_data, i, j) {
+                let always_wall = i == -1 || i == level_dim_x as i32 || j == -1 || j == level_dim_z as i32;
+                if always_wall || is_wall(&maze_data, i, j) {
                     create_walls(commands, cube_texture_binding, cube_mesh_binding, x_pos, z_pos, CUBE_SIZE, STACK_HEIGHT);
                 }
             }
@@ -997,8 +998,8 @@ fn get_player_indexes(maze_data: &Vec<Vec<char>>) -> (usize, usize) {
     panic!("No player found");
 }
 
-fn is_wall(maze_data: &Vec<Vec<char>>, i: usize, j: usize) -> bool {
-    maze_data[i][j] == 'w' || maze_data[i][j] == 's'
+fn is_wall(maze_data: &Vec<Vec<char>>, i: i32, j: i32) -> bool {
+    maze_data[i as usize][j as usize] == 'w' || maze_data[i as usize][j as usize] == 's'
 }
 
 fn get_ladder_indexes(maze_data: &Vec<Vec<char>>) -> (usize, usize) {
