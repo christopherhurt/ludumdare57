@@ -188,6 +188,41 @@ fn create_scene(ecs: &mut ECS) {
     ecs.attach_provisional_component(&ammo_0_entity, GuiElement { id: String::from("ammo_counter_0"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
     let ammo_1_entity = ecs.create_entity();
     ecs.attach_provisional_component(&ammo_1_entity, GuiElement { id: String::from("ammo_counter_1"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    let ammo_label_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/bullet.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let ammo_label_entity = ecs.create_entity();
+    let ammo_label_texture_binding = TextureBinding::new_provisional(Some(ammo_label_texture_id), Some(ammo_label_entity));
+    ecs.attach_provisional_component(&ammo_label_entity, GuiElement { id: String::from("ammo_label"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    ecs.attach_provisional_component(&ammo_label_entity, ammo_label_texture_binding);
+
+    // Health
+    let health_label_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/heart.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let health_label_entity = ecs.create_entity();
+    let health_label_texture_binding = TextureBinding::new_provisional(Some(health_label_texture_id), Some(health_label_entity));
+    ecs.attach_provisional_component(&health_label_entity, GuiElement { id: String::from("health_label"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    ecs.attach_provisional_component(&health_label_entity, health_label_texture_binding);
+    let health_0_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&health_0_entity, GuiElement { id: String::from("health_counter_0"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    let health_1_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&health_1_entity, GuiElement { id: String::from("health_counter_1"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    let health_2_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&health_2_entity, GuiElement { id: String::from("health_counter_2"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+
+    // Level
+    let level_label_texture_id = render_engine.get_device_mut()
+        .and_then(|d| d.create_texture(String::from("res/level.png")))
+        .unwrap_or_else(|e| panic!("{}", e));
+    let level_label_entity = ecs.create_entity();
+    let level_label_texture_binding = TextureBinding::new_provisional(Some(level_label_texture_id), Some(level_label_entity));
+    ecs.attach_provisional_component(&level_label_entity, GuiElement { id: String::from("level_label"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    ecs.attach_provisional_component(&level_label_entity, level_label_texture_binding);
+    let level_0_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&level_0_entity, GuiElement { id: String::from("level_counter_0"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
+    let level_1_entity = ecs.create_entity();
+    ecs.attach_provisional_component(&level_1_entity, GuiElement { id: String::from("level_counter_1"), position: VEC_2_ZERO, dimensions: vec2(1.0, 1.0) });
 
     let vulkan_entity = ecs.create_entity();
     ecs.attach_provisional_component(&vulkan_entity, render_engine);
@@ -867,7 +902,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 y_vel: 0.0,
                 is_jumping: false,
                 health_percentage: 1.0,
-                _max_health: MAX_HEALTH,
+                max_health: MAX_HEALTH,
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
@@ -875,13 +910,14 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 ammo_count: MAX_AMMO,
                 max_ammo: MAX_AMMO,
                 is_reloading: false,
+                curr_level: level_loader.next_level_id + 1,
             }
         } else {
             Player {
                 y_vel: 0.0,
                 is_jumping: false,
                 health_percentage: existing_health.unwrap(),
-                _max_health: MAX_HEALTH,
+                max_health: MAX_HEALTH,
                 level_width: level_dim as f32 * CUBE_SIZE,
                 level_height: level_dim  as f32 * CUBE_SIZE,
                 spawn_chance,
@@ -889,6 +925,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 ammo_count: MAX_AMMO,
                 max_ammo: MAX_AMMO,
                 is_reloading: false,
+                curr_level: level_loader.next_level_id + 1,
             }
         };
 
@@ -1675,15 +1712,21 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
         .next()
         .unwrap();
 
+    const CROSSHAIR_SIZE: f32 = 0.08;
+    const GUI_LABEL_SIZE: f32 = 0.1;
+    const Y_PADDING: f32 = 0.03;
+    const DIGIT_WIDTH_TO_HEIGHT: f32 = 0.86667;
+
     if let Ok(window) = render_engine.get_window() {
         let aspect_ratio = window.get_width() as f32 / window.get_height() as f32;
+        let x_padding = Y_PADDING / aspect_ratio;
+
+        let curr_health = (player.health_percentage * player.max_health as f32) as usize;
 
         for e in entites {
             if let Some(gui_element) = components.get_mut_component::<GuiElement>(e) {
                 if gui_element.id == "crosshair" {
-                    const CROSSHAIR_SIZE: f32 = 0.05;
-
-                    gui_element.dimensions = vec2(CROSSHAIR_SIZE, CROSSHAIR_SIZE * aspect_ratio);
+                    gui_element.dimensions = vec2(CROSSHAIR_SIZE / aspect_ratio, CROSSHAIR_SIZE);
                 } else if gui_element.id == "gun" {
                     if components.get_component::<TextureBinding>(e).is_some() {
                         commands.detach_component::<TextureBinding>(e);
@@ -1699,8 +1742,8 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
                         }
 
                         // TODO: set pos and dim
+                        gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
                         gui_element.position = vec2(0.0, 0.5);
-                        gui_element.dimensions = vec2(0.1, 0.1 * aspect_ratio);
                     }
                 } else if gui_element.id == "ammo_counter_0" {
                     let digit = player.ammo_count % 10;
@@ -1712,9 +1755,8 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
                     }
                     commands.attach_component(e, texture_binding);
 
-                    // TODO: set pos and dim
-                    gui_element.position = vec2(0.6, 0.0);
-                    gui_element.dimensions = vec2(0.1, 0.1 * aspect_ratio);
+                    gui_element.dimensions = vec2(GUI_LABEL_SIZE * DIGIT_WIDTH_TO_HEIGHT / aspect_ratio, GUI_LABEL_SIZE);
+                    gui_element.position = vec2(1.0 - gui_element.dimensions.x / 2.0 - 3.0 * x_padding - GUI_LABEL_SIZE / 2.0, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
                 } else if gui_element.id == "ammo_counter_1" {
                     if components.get_component::<TextureBinding>(e).is_some() {
                         commands.detach_component::<TextureBinding>(e);
@@ -1731,9 +1773,110 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
 
                         commands.attach_component(e, texture_binding);
 
-                        // TODO: set pos and dim
-                        gui_element.position = vec2(0.5, 0.0);
-                        gui_element.dimensions = vec2(0.1, 0.1 * aspect_ratio);
+                        gui_element.dimensions = vec2(GUI_LABEL_SIZE * DIGIT_WIDTH_TO_HEIGHT / aspect_ratio, GUI_LABEL_SIZE);
+                        gui_element.position = vec2(1.0 - gui_element.dimensions.x * 3.0 / 2.0 - 3.0 * x_padding - GUI_LABEL_SIZE / 2.0, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
+                    }
+                } else if gui_element.id == "ammo_label" {
+                    gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                    gui_element.position = vec2(1.0 - gui_element.dimensions.x / 2.0 - x_padding, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
+                } else if gui_element.id == "health_label" {
+                    gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                    gui_element.position = vec2(-1.0 + gui_element.dimensions.x / 2.0 + x_padding, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
+                } else if gui_element.id == "level_label" {
+                    gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                    gui_element.position = vec2(-1.0 + gui_element.dimensions.x / 2.0 + x_padding, -1.0 + gui_element.dimensions.y / 2.0 + Y_PADDING);
+                } else if gui_element.id == "health_counter_0" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    let mut digit = curr_health / 100;
+
+                    if digit >= 10 {
+                        panic!("Only 3 digit health is supported");
+                    }
+
+                    if digit <= 0 {
+                        digit = curr_health / 10;
+                    }
+
+                    if digit <= 0 {
+                        digit = curr_health;
+                    }
+
+                    let texture_binding = digits_texture_owner.digits[digit];
+
+                    commands.attach_component(e, texture_binding);
+
+                    gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                    gui_element.position = vec2(-1.0 + gui_element.dimensions.x / 2.0 + 3.0 * x_padding + GUI_LABEL_SIZE / 2.0, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
+                } else if gui_element.id == "health_counter_1" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    let mut digit = curr_health / 10;
+
+                    if digit > 0 {
+                        digit %= 10;
+
+                        let texture_binding = digits_texture_owner.digits[digit];
+
+                        commands.attach_component(e, texture_binding);
+
+                        gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                        gui_element.position = vec2(-1.0 + gui_element.dimensions.x * 3.0 / 2.0 + 3.0 * x_padding + GUI_LABEL_SIZE / 2.0, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
+                    }
+                } else if gui_element.id == "health_counter_2" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    if curr_health >= 100 {
+                        let digit = curr_health % 100;
+
+                        let texture_binding = digits_texture_owner.digits[digit];
+
+                        commands.attach_component(e, texture_binding);
+
+                        gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                        gui_element.position = vec2(-1.0 + gui_element.dimensions.x * 5.0 / 2.0 + 3.0 * x_padding + GUI_LABEL_SIZE / 2.0, 1.0 - gui_element.dimensions.y / 2.0 - Y_PADDING);
+                    }
+                } else if gui_element.id == "level_counter_0" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    let mut digit = player.curr_level / 10;
+
+                    if digit >= 10 {
+                        panic!("Only 2 digit level counter is supported");
+                    }
+
+                    if digit <= 0 {
+                        digit = player.curr_level % 10;
+                    }
+
+                    let texture_binding = digits_texture_owner.digits[digit];
+
+                    commands.attach_component(e, texture_binding);
+
+                    gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                    gui_element.position = vec2(-1.0 + gui_element.dimensions.x / 2.0 + 3.0 * x_padding + GUI_LABEL_SIZE / 2.0, -1.0 + gui_element.dimensions.y / 2.0 + Y_PADDING);
+                } else if gui_element.id == "level_counter_1" {
+                    if components.get_component::<TextureBinding>(e).is_some() {
+                        commands.detach_component::<TextureBinding>(e);
+                    }
+
+                    if player.curr_level >= 10 {
+                        let digit = player.curr_level % 10;
+
+                        let texture_binding = digits_texture_owner.digits[digit];
+
+                        commands.attach_component(e, texture_binding);
+
+                        gui_element.dimensions = vec2(GUI_LABEL_SIZE / aspect_ratio, GUI_LABEL_SIZE);
+                        gui_element.position = vec2(-1.0 + gui_element.dimensions.x * 3.0 / 2.0 + 3.0 * x_padding + GUI_LABEL_SIZE / 2.0, -1.0 + gui_element.dimensions.y / 2.0 + Y_PADDING);
                     }
                 } else {
                     panic!("Bad GUI element ID {:?}", gui_element.id);
@@ -1853,7 +1996,7 @@ struct Player {
     y_vel: f32,
     is_jumping: bool,
     health_percentage: f32,
-    _max_health: u32,
+    max_health: u32,
     level_width: f32,
     level_height: f32,
     spawn_chance: f32,
@@ -1861,6 +2004,7 @@ struct Player {
     ammo_count: usize,
     max_ammo: usize,
     is_reloading: bool,
+    curr_level: usize,
 }
 
 impl Component for Player {}
