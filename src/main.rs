@@ -18,6 +18,7 @@ use crate::ecs::component::{Component, ComponentManager};
 use crate::ecs::entity::Entity;
 use crate::ecs::system::System;
 use crate::ecs::{ECSBuilder, ECSCommands, ECS};
+use crate::maze::create_maze_vector;
 use crate::physics::{apply_ang_vel, get_deepest_rigid_body_collision, get_edge_collision, get_point_collision, BoundingSphere, Particle, ParticleCable, ParticleRod, ParticleCollision, ParticleCollisionDetector, PhysicsMeshProperties, QuadTree, RigidBody, RigidBodyCollision};
 use crate::render_engine::vulkan::VulkanRenderEngine;
 use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState, Window, RenderEngineInitProps, VirtualButton, VirtualKey, WindowInitProps};
@@ -25,11 +26,14 @@ use crate::render_engine::{Device, EntityRenderState, RenderEngine, RenderState,
 pub mod core;
 pub mod ecs;
 pub mod math;
+pub mod maze;
 pub mod physics;
 pub mod render_engine;
 
 const NEAR_PLANE: f32 = 0.01;
 const FAR_PLANE: f32 = 1000.0;
+
+const CUBE_SIZE: f32 = 10.0;
 
 fn main() {
     pretty_env_logger::init();
@@ -451,8 +455,8 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
         let mut rng = rand::rng();
 
         if rng.random_range(0.0..1.0) < player.spawn_chance {
-            const MIN_DISTANCE_FROM_PLAYER: f32 = 40.0;
-            const MAX_DISTANCE_FROM_PLAYER: f32 = 100.0; // TODO: increase 250.0?
+            const MIN_DISTANCE_FROM_PLAYER: f32 = 60.0;
+            const MAX_DISTANCE_FROM_PLAYER: f32 = 300.0; // TODO: increase 250.0?
 
             let mut rel_spawn_x = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
             let mut rel_spawn_z = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
@@ -489,13 +493,12 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
                     .count();
 
                 if current_baddie_count < player.baddie_cap {
-                    const BADDIE_HEIGHT: f32 = 10.0;
-                    const BADDIE_SIZE: f32 = 8.0;
-                    const BADDIE_ANIMATION_SPEED: f32 = 0.25;
+                    const BADDIE_SIZE: f32 = 16.0;
+                    const BADDIE_ANIMATION_SPEED: f32 = 0.3;
 
                     let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
 
-                    let baddie_transform = Transform::new(vec3(spawn_x, BADDIE_HEIGHT, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
+                    let baddie_transform = Transform::new(vec3(spawn_x, CUBE_SIZE / 2.0 + BADDIE_SIZE / 2.0, spawn_z), Quat::from_axis_spin(&VEC_3_Y_AXIS, rot_ang).unwrap(), IDENTITY_SCALE_VEC * BADDIE_SIZE);
                     let baddie_entity = commands.create_entity();
                     commands.attach_provisional_component(&baddie_entity, baddie_transform);
                     commands.attach_provisional_component(&baddie_entity, quad_mesh_binding.clone());
@@ -561,7 +564,7 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
     let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-    const BADDIE_SPEED: f32 = 10.0;
+    const BADDIE_SPEED: f32 = 30.0;
 
     for e in entites {
         if let Some(baddie) = components.get_component::<Baddie>(e) {
@@ -648,7 +651,7 @@ const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentMana
     let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
 
-    const PERCENT_HEALTH_PER_BADDIE: f32 = 0.25;
+    const HEALTH_PER_BADDIE: u32 = 25;
     const DAMAGE_DISTANCE: f32 = 8.0;
 
     for e in entites {
@@ -660,9 +663,9 @@ const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentMana
             if dist_to_player <= DAMAGE_DISTANCE {
                 commands.destroy_entity(e);
 
-                player.health_percentage -= PERCENT_HEALTH_PER_BADDIE;
+                player.curr_health -= HEALTH_PER_BADDIE;
 
-                if player.health_percentage <= f32::EPSILON {
+                if player.curr_health <= 0 {
                     // ur bad
                     level_loader.should_load = true;
                     level_loader.next_level_id = 0;
@@ -834,7 +837,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             .map(|e| components.get_component::<MeshBinding>(e).unwrap())
             .next()
             .unwrap();
-        let existing_health = entites.clone().find_map(|e| components.get_component::<Player>(e)).map(|p| p.health_percentage);
+        let existing_health = entites.clone().find_map(|e| components.get_component::<Player>(e)).map(|p| p.curr_health);
         let gun_animation = entites.clone()
             .filter(|e| components.get_component::<GunTextureOwner>(e).is_some())
             .map(|e| components.get_component::<SpriteAnimation>(e).unwrap())
@@ -847,7 +850,16 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             }
         }
 
-        let cam_pos = VEC_3_ZERO; // TODO load from level/level ID
+        // 'd' - open space, 'w' - wall, 'p' - player, 's' - starting door (unused, place wall), 'e' - exit (ladder)
+        let maze_data = create_maze_vector((level_loader.next_level_id + 4).pow(2));
+        let level_dim_x: usize = maze_data.len();
+        let level_dim_z: usize = maze_data[0].len();
+
+        let (player_x, player_z) = get_player_indexes(&maze_data);
+        let player_x_pos = CUBE_SIZE * (player_x as f32 - (level_dim_x as f32 - 1.0) / 2.0);
+        let player_z_pos = CUBE_SIZE * (player_z as f32 - (level_dim_z as f32 - 1.0) / 2.0);
+
+        let cam_pos = vec3(player_x_pos, 0.0, player_z_pos);
         let cam_forward = -VEC_3_Z_AXIS; // TODO load from level/level ID
 
         let cam = Camera::new(cam_pos, cam_forward, VEC_3_Y_AXIS, 70.0_f32.to_radians());
@@ -856,15 +868,12 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         commands.attach_provisional_component(&viewport_entity, viewport);
         commands.attach_provisional_component(&viewport_entity, LevelEntity {});
 
-        const CUBE_SIZE: f32 = 10.0;
-        const STACK_HEIGHT: u32 = 5;
+        const STACK_HEIGHT: u32 = 3;
 
-        let level_dim: u32 = 21; // TODO: load from file?
-
-        for i in 0..level_dim {
-            for j in 0..level_dim {
-                let x_pos = CUBE_SIZE * (i as f32 - (level_dim as f32 - 1.0) / 2.0);
-                let z_pos = CUBE_SIZE * (j as f32 - (level_dim as f32 - 1.0) / 2.0);
+        for i in 0..level_dim_x {
+            for j in 0..level_dim_z {
+                let x_pos = CUBE_SIZE * (i as f32 - (level_dim_x as f32 - 1.0) / 2.0);
+                let z_pos = CUBE_SIZE * (j as f32 - (level_dim_z as f32 - 1.0) / 2.0);
 
                 let cube_pos = vec3(x_pos, 0.0, z_pos);
 
@@ -884,8 +893,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
                 commands.attach_provisional_component(&ceiling_entity, cube_mesh_binding.clone());
                 commands.attach_provisional_component(&ceiling_entity, LevelEntity {});
 
-                // TODO: check from level file
-                if i == 6 && j > 3 && j < 10 {
+                if is_wall(&maze_data, i, j) {
                     create_walls(commands, cube_texture_binding, cube_mesh_binding, x_pos, z_pos, CUBE_SIZE, STACK_HEIGHT);
                 }
             }
@@ -894,17 +902,16 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         const MAX_HEALTH: u32 = 100;
         const MAX_AMMO: usize = 12;
 
-        let spawn_chance = 0.05; // TODO: ever update this with level?
-        let baddie_cap = 50; // TODO: ever update this with level?
+        let spawn_chance = 0.03 + 0.01 * (level_loader.next_level_id as f32);
+        let baddie_cap = 20 + 10 * (level_loader.next_level_id);
 
         let player = if level_loader.next_level_id == 0 {
             Player {
                 y_vel: 0.0,
                 is_jumping: false,
-                health_percentage: 1.0,
-                max_health: MAX_HEALTH,
-                level_width: level_dim as f32 * CUBE_SIZE,
-                level_height: level_dim  as f32 * CUBE_SIZE,
+                curr_health: MAX_HEALTH,
+                level_width: level_dim_x as f32 * CUBE_SIZE,
+                level_height: level_dim_z  as f32 * CUBE_SIZE,
                 spawn_chance,
                 baddie_cap,
                 ammo_count: MAX_AMMO,
@@ -916,10 +923,9 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
             Player {
                 y_vel: 0.0,
                 is_jumping: false,
-                health_percentage: existing_health.unwrap(),
-                max_health: MAX_HEALTH,
-                level_width: level_dim as f32 * CUBE_SIZE,
-                level_height: level_dim  as f32 * CUBE_SIZE,
+                curr_health: existing_health.unwrap(),
+                level_width: level_dim_x as f32 * CUBE_SIZE,
+                level_height: level_dim_z as f32 * CUBE_SIZE,
                 spawn_chance,
                 baddie_cap,
                 ammo_count: MAX_AMMO,
@@ -960,11 +966,10 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         level_loader.next_level_id += 1;
         level_loader.should_load = false;
 
-        let ladder_x_index = 0; // TODO: load from file
-        let ladder_z_index = 0; // TODO: load from file
+        let (ladder_x_index, ladder_z_index) = get_ladder_indexes(&maze_data);
 
-        let ladder_x_pos = CUBE_SIZE * (ladder_x_index as f32 - (level_dim as f32 - 1.0) / 2.0);
-        let ladder_z_pos = CUBE_SIZE * (ladder_z_index as f32 - (level_dim as f32 - 1.0) / 2.0);
+        let ladder_x_pos = CUBE_SIZE * (ladder_x_index as f32 - (level_dim_x as f32 - 1.0) / 2.0);
+        let ladder_z_pos = CUBE_SIZE * (ladder_z_index as f32 - (level_dim_z as f32 - 1.0) / 2.0);
 
         const LADDER_WIDTH: f32 = 5.0;
         const LADDER_HEIGHT: f32 = LADDER_WIDTH * 4.6;
@@ -979,6 +984,34 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         commands.attach_provisional_component(&ladder_entity, Ladder {});
     }
 };
+
+fn get_player_indexes(maze_data: &Vec<Vec<char>>) -> (usize, usize) {
+    for x in 0..maze_data.len() {
+        for z in 0..maze_data[0].len() {
+            if maze_data[x][z] == 'p' {
+                return (x, z);
+            }
+        }
+    }
+
+    panic!("No player found");
+}
+
+fn is_wall(maze_data: &Vec<Vec<char>>, i: usize, j: usize) -> bool {
+    maze_data[i][j] == 'w' || maze_data[i][j] == 's'
+}
+
+fn get_ladder_indexes(maze_data: &Vec<Vec<char>>) -> (usize, usize) {
+    for x in 0..maze_data.len() {
+        for z in 0..maze_data[0].len() {
+            if maze_data[x][z] == 'e' {
+                return (x, z);
+            }
+        }
+    }
+
+    panic!("No ladder found");
+}
 
 fn create_walls(commands: &mut ECSCommands, texture_binding: &TextureBinding, mesh_binding: &MeshBinding, x: f32, z: f32, cube_size: f32, stack_height: u32) {
     for i in 0..stack_height {
@@ -1149,7 +1182,7 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 cam.pos += dir * move_speed;
             }
 
-            let rot_speed = (45.0 * delta_sec).to_radians();
+            let rot_speed = (15.0 * delta_sec).to_radians();
             if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
                 let max_rot = VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.1;
                 let min_rot = -(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.1;
@@ -1723,7 +1756,7 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
         let aspect_ratio = window.get_width() as f32 / window.get_height() as f32;
         let x_padding = Y_PADDING / aspect_ratio;
 
-        let curr_health = (player.health_percentage * player.max_health as f32) as usize;
+        let curr_health = player.curr_health as usize;
 
         for e in entites {
             if let Some(gui_element) = components.get_mut_component::<GuiElement>(e) {
@@ -1816,10 +1849,12 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
                         commands.detach_component::<TextureBinding>(e);
                     }
 
-                    let mut digit = curr_health / 10;
-
-                    if digit > 0 {
-                        digit %= 10;
+                    if curr_health >= 10 {
+                        let digit = if curr_health >= 100 {
+                            (curr_health / 10) % 10
+                        } else {
+                            curr_health % 10
+                        };
 
                         let texture_binding = digits_texture_owner.digits[digit];
 
@@ -1891,16 +1926,24 @@ const UPDATE_GUI_ELEMENTS: System = |entites: Iter<Entity>, components: &Compone
 const SYNC_RENDER_STATE: System = |entites: Iter<Entity>, components: &ComponentManager, _: &mut ECSCommands| {
     let render_engine = entites.clone().find_map(|e| components.get_mut_component::<VulkanRenderEngine>(e)).unwrap();
     let viewport = entites.clone().find_map(|e| components.get_component::<Viewport2D>(e)).unwrap();
+    let cam = &viewport.cam;
     let quad_mesh_id = entites.clone()
         .filter(|e| components.get_component::<QuadMeshOwner>(e).is_some())
         .map(|e| components.get_component::<MeshBinding>(e).unwrap())
         .next()
         .unwrap().id.unwrap();
 
+    const DIST_THRESHOLD: f32 = 150.0;
+
     let entity_states = entites.clone().filter(|e|
         components.get_component::<Transform>(e).is_some()
         && components.get_component::<MeshBinding>(e).is_some()
         && components.get_component::<TextureBinding>(e).is_some())
+    .filter(|e| {
+        let transform = components.get_mut_component::<Transform>(e).unwrap();
+
+        (*transform.get_pos() - cam.pos).len() <= DIST_THRESHOLD
+    })
     .map(|e| EntityRenderState {
         world: *components.get_mut_component::<Transform>(e).unwrap().to_world_mat(),
         mesh_id: components.get_component::<MeshBinding>(e).unwrap().id.unwrap(),
@@ -1996,8 +2039,7 @@ impl ComponentActions for CursorManager {}
 struct Player {
     y_vel: f32,
     is_jumping: bool,
-    health_percentage: f32,
-    max_health: u32,
+    curr_health: u32,
     level_width: f32,
     level_height: f32,
     spawn_chance: f32,

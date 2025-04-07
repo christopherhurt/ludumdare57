@@ -3,7 +3,7 @@ use rand::prelude::*;
 const CELL_WIDTH: usize = 9;
 const EDGE_WIDTH: usize = 1;
 
-fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
+pub fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
     let grid_width;
 
@@ -12,7 +12,7 @@ fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
         grid_width = 4;
     } else {
         let mut rng = rand::rng();
-        grid_length = rng.random_range(4..(maze_area / 4));
+        grid_length = if maze_area == 16 { 4 } else { rng.random_range(4..(maze_area / 4)) };
         grid_width = maze_area / grid_length;
     }
 
@@ -72,7 +72,7 @@ pub struct Maze {
 }
 
 fn init_grid_door(grid_length: usize, grid_width: usize) -> Maze {
-    let mut grid:Vec<Vec<Cell>> = vec![vec![]];
+    let mut grid:Vec<Vec<Cell>> = vec![];
 
     // Create all cells
     for i in 0..grid_length {
@@ -208,7 +208,7 @@ fn create_output_array_door(maze: Maze) -> Vec<Vec<char>> {
     // create array
     let total_cell_length = CELL_WIDTH + 2 * EDGE_WIDTH;
     let array_length:usize = (CELL_WIDTH + 2 * EDGE_WIDTH) * maze.grid_length;
-    let mut output:Vec<Vec<char>> = vec![vec![]];
+    let mut output:Vec<Vec<char>> = vec![];
 
     // initialize output
     for _i in 0..array_length {
@@ -314,7 +314,7 @@ fn create_output_array_door(maze: Maze) -> Vec<Vec<char>> {
 
 }
 
-fn print_output(output: Vec<Vec<char>>, grid_length: usize, grid_width: usize) {
+fn _print_output(output: Vec<Vec<char>>, grid_length: usize, grid_width: usize) {
     let array_length:usize = (CELL_WIDTH + 2 * EDGE_WIDTH) * grid_length;
     let array_width:usize = (CELL_WIDTH + 2 * EDGE_WIDTH) * grid_width;
     for i in 0..array_length {

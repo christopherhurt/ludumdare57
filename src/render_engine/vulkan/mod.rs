@@ -56,7 +56,7 @@ mod vulkan_utils;
 
 const MAX_FRAMES_IN_FLIGHT: usize = 3;
 // TODO: we'll want a way to resize the uniform buffer and/or overwrite it multiple times per frame, instead of capping the limit on total uniform desciptors like this
-const NUM_UNIFORM_DESCRIPTORS: usize = 2048;
+const NUM_UNIFORM_DESCRIPTORS: usize = 8192;
 
 pub struct VulkanRenderEngine {
     mesh_id_counter: usize,
