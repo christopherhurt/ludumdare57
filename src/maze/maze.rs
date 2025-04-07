@@ -1,324 +1,636 @@
 use rand::prelude::*;
 
-const CELL_WIDTH: usize = 9;
+const CELL_WIDTH: usize = 5;
 const EDGE_WIDTH: usize = 1;
+const MIN_GRID_LENGTH: usize = 6;
 
 fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
     let grid_width;
 
-    if maze_area < 16 {
-        grid_length = 4;
-        grid_width = 4;
+    if maze_area < MIN_GRID_LENGTH * MIN_GRID_LENGTH {
+        grid_length = MIN_GRID_LENGTH;
+        grid_width = MIN_GRID_LENGTH;
     } else {
         let mut rng = rand::rng();
-        grid_length = rng.random_range(4..(maze_area / 4));
+        grid_length = rng.random_range(MIN_GRID_LENGTH..(maze_area / MIN_GRID_LENGTH + 1));
         grid_width = maze_area / grid_length;
     }
 
-    let mut maze = init_grid_door(grid_length, grid_width);
-    maze = create_main_path_door(maze);
-    let output = create_output_array_door(maze);
+    let mut maze = init_grid(grid_width, grid_length);
+    add_edges(&mut maze, grid_width, grid_length);
+    add_player_exit(&mut maze, grid_width, grid_length);
+    let output = create_output_vec(maze);
 
-    //print_output(output, grid_length, grid_width);
+    //print_output(output);
 
     output
 }
 
 #[derive(Copy,Clone)]
-pub struct Edge {
-    pub is_wall: bool,
-    pub is_starting_edge: bool,
-    pub is_ending_edge: bool,
-}
-
-impl Default for Edge {
-    fn default() -> Edge {
-        Edge {
-            is_wall: true,
-            is_starting_edge: false,
-            is_ending_edge: false,
-        }
-    }
-}
-
-#[derive(Copy,Clone)]
 pub struct Cell {
-    pub north_edge: Edge,
-    pub east_edge: Edge,
-    pub south_edge: Edge,
-    pub west_edge: Edge,
+    pub is_wall: bool,
+    pub is_player: bool,
+    pub is_end: bool,
+    pub is_pathed: bool,
+    pub is_connected: bool,
+    pub is_outer_edge: bool,
+    pub tag: usize,
+    pub prev_junction_x: usize,
+    pub prev_junction_y: usize,
 }
 
 impl Default for Cell {
     fn default() -> Cell {
         Cell {
-            north_edge: Default::default(),
-            east_edge: Default::default(),
-            south_edge: Default::default(),
-            west_edge: Default::default(),
+            is_wall: false,
+            is_player: false,
+            is_end: false,
+            is_pathed: false,
+            is_connected: false,
+            is_outer_edge: false,
+            tag: 0,
+            prev_junction_x: 0,
+            prev_junction_y: 0,
         }
     }
 }
 
-pub struct Maze {
-    pub grid_length: usize,
-    pub grid_width: usize,
-    pub grid: Vec<Vec<Cell>>,
-    pub start_x: usize,
-    pub start_y: usize,
-    pub end_x: usize,
-    pub end_y: usize,
-}
-
-fn init_grid_door(grid_length: usize, grid_width: usize) -> Maze {
+fn init_grid(grid_width: usize, grid_length: usize) -> Vec<Vec<Cell>> {
     let mut grid:Vec<Vec<Cell>> = vec![vec![]];
 
-    // Create all cells
-    for i in 0..grid_length {
-        grid.push(vec![]);
-        for j in 0..grid_width {
-            let cell:Cell;
-            if i == 0 {
-                let north_edge = Edge {
-                    is_wall: true,
-                    ..Default::default()
-                };
-                if j == 0 {
-                    let west_edge = Edge {
-                        is_wall: true,
-                        ..Default::default()
-                    };
-                    cell = Cell { north_edge: north_edge, west_edge: west_edge, ..Default::default() };
-                } else {
-                    cell = Cell { north_edge: north_edge, west_edge: grid[i][j - 1].east_edge, ..Default::default() };
-                }
-            } else {
-                if j == 0 {
-                    let west_edge = Edge {
-                        is_wall: true,
-                        ..Default::default()
-                    };
-                    cell = Cell { north_edge: grid[i - 1][j].south_edge, west_edge: west_edge, ..Default::default() };
-                } else {
-                    cell = Cell { north_edge: grid[i - 1][j].south_edge, west_edge: grid[i][j - 1].east_edge, ..Default::default() };
-                }
-            }
+    let vec_width = grid_width * (CELL_WIDTH + EDGE_WIDTH) + 1;
+    let vec_length = grid_length * (CELL_WIDTH + EDGE_WIDTH) + 1;
+
+
+    // Initialize grid
+    for i in 0..vec_width {
+        if i != 0 {
+            grid.push(vec![]);
+        }
+        for _j in 0..vec_length {
+            let cell: Cell = Default::default();
             grid[i].push(cell);
         }
     }
 
-    let maze = Maze {
-        grid_length: grid_length,
-        grid_width: grid_width,
-        grid: grid,
-        start_x: 0,
-        start_y: 0,
-        end_x: 0,
-        end_y: 0,
-    };
+    // Add outer wall
+    for i in 0..vec_width {
+        grid[i][0].is_wall = true;
+        grid[i][0].is_connected = true;
+        grid[i][0].is_outer_edge = true;
+        grid[i][0].tag = 1;
+        grid[i][vec_length - 1].is_wall = true;
+        grid[i][vec_length - 1].is_connected = true;
+        grid[i][vec_length - 1].is_outer_edge = true;
+        grid[i][vec_length - 1].tag = 1;
+    }
 
-    maze
+    for j in 0..vec_length {
+        grid[0][j].is_wall = true;
+        grid[0][j].is_connected = true;
+        grid[0][j].is_outer_edge = true;
+        grid[0][j].tag = 1;
+        grid[vec_width - 1][j].is_wall = true;
+        grid[vec_width - 1][j].is_connected = true;
+        grid[vec_width - 1][j].is_outer_edge = true;
+        grid[vec_width - 1][j].tag = 1;
+    }
+
+    grid
 }
 
-fn create_main_path_door(mut maze: Maze) -> Maze {
+fn add_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize) {
     let mut rng = rand::rng();
-    let starting_x = rng.random_range(0..maze.grid_width);
-    let starting_y = rng.random_range(0..maze.grid_length);
-    let starting_wall = rng.random_range(0..4);
 
-    if starting_wall ==  0 {
-        maze.grid[starting_y][starting_x].north_edge.is_starting_edge = true;
-    }
-    else if starting_wall == 1 {
-        maze.grid[starting_y][starting_x].east_edge.is_starting_edge = true;
-    }
-    else if starting_wall == 2 {
-        maze.grid[starting_y][starting_x].south_edge.is_starting_edge = true;
-    }
-    else {
-        maze.grid[starting_y][starting_x].west_edge.is_starting_edge = true;
-    }
+    let mut next_tag = 2;
+    
+    let edge_width = grid_width - 1;
+    let edge_length = grid_length - 1;
+    let edge_distance = CELL_WIDTH + EDGE_WIDTH;
 
-    let mut ending_x = rng.random_range(0..maze.grid_width);
-    let ending_y = rng.random_range(0..maze.grid_length);
-    let ending_wall = rng.random_range(0..4);
+    // Add vertical edges
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            let mut is_up = rng.random_range(0..2) == 1;
+            //let mut is_up = true;
+            let length = rng.random_range(0..2);
+            //let length = 1;
+            let mut leftover_length = length;
 
-    let x_diff;
-    let y_diff;
+            let edge_x = i * edge_distance;
+            let edge_start_y = j * edge_distance;
+            let mut upd_edge_start_y = edge_start_y;
+            let mut edge_end_y = edge_start_y;
+            let mut hit_wall = false;
+            let mut tag = grid[edge_x][edge_start_y].tag;
 
-    if ending_x > starting_x {
-        x_diff = ending_x - starting_x;
-    } else {
-        x_diff = starting_x - ending_x;
-    }
-
-    if ending_y > starting_y {
-        y_diff = ending_y - starting_y;
-    } else {
-        y_diff = starting_y - ending_y;
-    }
-
-    if x_diff.abs_diff(0) < 2 && y_diff.abs_diff(0) < 2 {
-        if ending_x < starting_x {
-            if ending_x == 0 {
-                ending_x += 3;
+            if is_up {
+                for index in 1..length + 1 {
+                    let curr_tag = grid[edge_x][edge_start_y + index * edge_distance].tag;
+                    if curr_tag > 0 && curr_tag == tag {
+                        edge_end_y = edge_start_y + (index - 1) * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        is_up = !is_up;
+                        break;
+                    }
+                    else if grid[edge_x][edge_start_y + index * edge_distance].is_outer_edge {
+                        edge_end_y = edge_start_y + index * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        tag = curr_tag;
+                        is_up = !is_up;
+                        break;
+                    }
+                }
             } else {
-                ending_x -= 1;
+                for index in 1..length + 1 {
+                    let curr_tag = grid[edge_x][edge_start_y - index * edge_distance].tag;
+                    if curr_tag > 0 && curr_tag == tag {
+                        edge_end_y = edge_start_y - (index - 1) * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        is_up = !is_up;
+                        break;
+                    }
+                    else if grid[edge_x][edge_start_y - index * edge_distance].is_outer_edge {
+                        edge_end_y = edge_start_y - index * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        tag = curr_tag;
+                        is_up = !is_up;
+                        break;
+                    }
+                }
             }
-        } 
-        else if x_diff == 0 {
-            if ending_x < 2  {
-                ending_x += 2;
+
+            if hit_wall {
+                if is_up {
+                    for index in 1..leftover_length + 1 {
+                        let curr_tag = grid[edge_x][edge_start_y + index * edge_distance].tag;
+                        if curr_tag > 0 && curr_tag == tag {
+                            upd_edge_start_y = edge_start_y + (index - 1) * edge_distance;
+                            break;
+                        }
+                        else if grid[edge_x][edge_start_y + index * edge_distance].is_outer_edge {
+                            upd_edge_start_y = edge_start_y + index * edge_distance;
+                            tag = curr_tag;
+                            break;
+                        }
+                        else {
+                            upd_edge_start_y = edge_start_y + index * edge_distance;
+                        }
+                    }
+                } else {
+                    for index in 1..leftover_length + 1 {
+                        let curr_tag = grid[edge_x][edge_start_y - index * edge_distance].tag;
+                        if curr_tag > 0 && curr_tag == tag {
+                            upd_edge_start_y = edge_start_y - (index - 1) * edge_distance;
+                            break;
+                        }
+                        else if grid[edge_x][edge_start_y - index * edge_distance].is_outer_edge {
+                            upd_edge_start_y = edge_start_y - index * edge_distance;
+                            tag = curr_tag;
+                            break;
+                        }
+                        else {
+                            upd_edge_start_y = edge_start_y - index * edge_distance;
+                        }
+                    }
+                }
+            } 
+            else {
+                if is_up {
+                    edge_end_y += length * edge_distance;
+                } else {
+                    edge_end_y -= length * edge_distance;
+                }
+            }
+
+            if upd_edge_start_y != edge_end_y {
+                if upd_edge_start_y < edge_end_y {
+                    for index in upd_edge_start_y..edge_end_y + 1 {
+                        grid[edge_x][index].is_wall = true;
+                        grid[edge_x][index].is_connected = hit_wall;
+                        grid[edge_x][index].tag = tag;
+                    }
+                } else {
+                    for index in edge_end_y..upd_edge_start_y + 1 {
+                        grid[edge_x][index].is_wall = true;
+                        grid[edge_x][index].is_connected = hit_wall;
+                        grid[edge_x][index].tag = tag;
+                    }
+                }
+            }
+
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
+
+    // Add vertical edges
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            let mut is_up = rng.random_range(0..2) == 1;
+            //let mut is_up = true;
+            let length = rng.random_range(0..2);
+            //let length = 1;
+            let mut leftover_length = length;
+
+            let edge_start_x = i * edge_distance;
+            let mut upd_edge_start_x = edge_start_x;
+            let mut edge_end_x = edge_start_x;
+            let edge_y = j * edge_distance;
+            let mut hit_wall = false;
+            let mut tag = grid[edge_start_x][edge_y].tag;
+
+            if is_up {
+                for index in 1..length + 1 {
+                    let curr_tag = grid[edge_start_x + index * edge_distance][edge_y].tag;
+                    if curr_tag > 0 && curr_tag == tag {
+                        edge_end_x = edge_start_x + (index - 1) * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        is_up = !is_up;
+                        break;
+                    }
+                    else if grid[edge_start_x + index * edge_distance][edge_y].is_outer_edge {
+                        edge_end_x = edge_start_x + index * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        tag = curr_tag;
+                        is_up = !is_up;
+                        break;
+                    }
+                }
             } else {
-                ending_x -= 2;
+                for index in 1..length + 1 {
+                    let curr_tag = grid[edge_start_x - index * edge_distance][edge_y].tag;
+                    if curr_tag > 0 && curr_tag == tag {
+                        edge_end_x = edge_start_x - (index - 1) * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        is_up = !is_up;
+                        break;
+                    }
+                    else if grid[edge_start_x - index * edge_distance][edge_y].is_outer_edge {
+                        edge_end_x = edge_start_x - index * edge_distance;
+                        leftover_length = length - index;
+                        hit_wall = true;
+                        tag = curr_tag;
+                        is_up = !is_up;
+                        break;
+                    }
+                }
+            }
+
+            if hit_wall {
+                if is_up {
+                    for index in 1..leftover_length + 1 {
+                        let curr_tag = grid[edge_start_x + index * edge_distance][edge_y].tag;
+                        if curr_tag > 0 && curr_tag == tag {
+                            upd_edge_start_x = edge_start_x + (index - 1) * edge_distance;
+                            break;
+                        }
+                        else if grid[edge_start_x + index * edge_distance][edge_y].is_outer_edge {
+                            upd_edge_start_x = edge_start_x + index * edge_distance;
+                            tag = curr_tag;
+                            break;
+                        }
+                        else {
+                            upd_edge_start_x = edge_start_x + index * edge_distance;
+                        }
+                    }
+                } else {
+                    for index in 1..leftover_length + 1 {
+                        let curr_tag = grid[edge_start_x - index * edge_distance][edge_y].tag;
+                        if curr_tag > 0 && curr_tag == tag {
+                            upd_edge_start_x = edge_start_x - (index - 1) * edge_distance;
+                            break;
+                        }
+                        else if grid[edge_start_x - index * edge_distance][edge_y].is_outer_edge {
+                            upd_edge_start_x = edge_start_x - index * edge_distance;
+                            tag = curr_tag;
+                            break;
+                        }
+                        else {
+                            upd_edge_start_x = edge_start_x - index * edge_distance;
+                        }
+                    }
+                }
+            } 
+            else {
+                if is_up {
+                    edge_end_x += length * edge_distance;
+                } else {
+                    edge_end_x -= length * edge_distance;
+                }
+            }
+
+            if upd_edge_start_x != edge_end_x {
+                if upd_edge_start_x < edge_end_x {
+                    for index in upd_edge_start_x..edge_end_x + 1 {
+                        grid[index][edge_y].is_wall = true;
+                        grid[index][edge_y].is_connected = hit_wall;
+                        grid[index][edge_y].tag = tag;
+                    }
+                } else {
+                    for index in edge_end_x..upd_edge_start_x + 1 {
+                        grid[index][edge_y].is_wall = true;
+                        grid[index][edge_y].is_connected = hit_wall;
+                        grid[index][edge_y].tag = tag;
+                    }
+                }
+            }
+
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
+}
+
+fn tag_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize, mut next_tag: usize) -> usize {
+    // tag starting at 0,0 with next_tag
+    let vec_width:usize = grid.len();
+    let vec_length:usize = grid[0].len();
+    let mut curr_x = 0;
+    let mut curr_y = 0;
+    let mut direction = 0; // 0: north, 1: east, 2: south, 3 west
+    let mut counter = 0;
+    let max_tags = 100000;
+    let mut can_move = true;
+
+    while can_move && counter < max_tags {
+        counter += 1;
+
+        let wall_left = curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall;
+        let wall_above = curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall;
+        let wall_right = curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall;
+        let wall_down = curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall;
+
+        can_move = (curr_x != 0 || curr_y != 0) || (wall_left && grid[curr_x - 1][curr_y].tag != next_tag) || 
+            (wall_above && grid[curr_x][curr_y + 1].tag != next_tag) || (wall_right && grid[curr_x + 1][curr_y].tag != next_tag) || 
+            (wall_down && grid[curr_x][curr_y - 1].tag != next_tag);
+
+        grid[curr_x][curr_y].is_connected = true;
+        grid[curr_x][curr_y].tag = next_tag;
+        if direction == 0 {
+            if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
+                curr_x -= 1;
+                direction = 3;
+            }
+            else if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
+                curr_y += 1;
+                direction = 0;
+            }
+            else if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
+                curr_x += 1;
+                direction = 1;
+            }
+            else {
+                curr_y -= 1;
+                direction = 2;
+            }
+        }
+        else if direction == 1 {
+            if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
+                curr_y += 1;
+                direction = 0;
+            }
+            else if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
+                curr_x += 1;
+                direction = 1;
+            }
+            else if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
+                curr_y -= 1;
+                direction = 2;
+            }
+            else {
+                curr_x -= 1;
+                direction = 3;
+            }
+        }
+        else if direction == 2 {
+            if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
+                curr_x += 1;
+                direction = 1;
+            }
+            else if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
+                curr_y -= 1;
+                direction = 2;
+            }
+            else if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
+                curr_x -= 1;
+                direction = 3;
+            }
+            else {
+                curr_y += 1;
+                direction = 0;
             }
         }
         else {
-            if ending_x == maze.grid_width - 1 {
-                ending_x -= 3;
-            } else {
-                ending_x += 1;
+            if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
+                curr_y -= 1;
+                direction = 2;
+            }
+            else if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
+                curr_x -= 1;
+                direction = 3;
+            }
+            else if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
+                curr_y += 1;
+                direction = 0;
+            }
+            else {
+                curr_x += 1;
+                direction = 1;
             }
         }
     }
 
-    if ending_wall ==  0 {
-        maze.grid[ending_y][ending_x].north_edge.is_ending_edge = true;
-    }
-    else if ending_wall == 1 {
-        maze.grid[ending_y][ending_x].east_edge.is_ending_edge = true;
-    }
-    else if ending_wall == 2 {
-        maze.grid[ending_y][ending_x].south_edge.is_ending_edge = true;
-    }
-    else {
-        maze.grid[ending_y][ending_x].west_edge.is_ending_edge = true;
-    }
+    next_tag += 1;
 
-    maze.start_x = starting_x;
-    maze.start_y = starting_y;
-    maze.end_x = ending_x;
-    maze.end_y = ending_y;
+    // for loop through all edge indices and tag with next tag
+    let edge_width = grid_width - 1;
+    let edge_length = grid_length - 1;
+    let edge_distance = CELL_WIDTH + EDGE_WIDTH;
 
-    maze
-}
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            let edge_start_x = i * edge_distance;
+            let edge_start_y = j * edge_distance;
+            curr_x = i * edge_distance;
+            curr_y = j * edge_distance;
+            can_move = true;
 
-fn create_output_array_door(maze: Maze) -> Vec<Vec<char>> {
-    // create array
-    let total_cell_length = CELL_WIDTH + 2 * EDGE_WIDTH;
-    let array_length:usize = (CELL_WIDTH + 2 * EDGE_WIDTH) * maze.grid_length;
-    let mut output:Vec<Vec<char>> = vec![vec![]];
+            if !grid[edge_start_x][edge_start_y].is_wall || grid[edge_start_x][edge_start_y].tag == next_tag - 1 {
+                continue;
+            }
 
-    // initialize output
-    for _i in 0..array_length {
-        output.push(vec![]);
-    }
+            counter = 0;
 
-    for i in 0..maze.grid_length {
-        for j in 0..maze.grid_width {
-            for grid_i in 0..total_cell_length {
-                for grid_j in 0..total_cell_length {
-                    if grid_i == 0 && maze.grid[i][j].north_edge.is_wall {
-                        if grid_j == total_cell_length / 2 + 1 || 
-                            grid_j == total_cell_length / 2 || 
-                            grid_j == total_cell_length / 2 - 1 {
-                            output[i * total_cell_length + grid_i].push('d');
-                        } else {
-                            output[i * total_cell_length + grid_i].push('w');
-                        }
+            while can_move && counter < max_tags {
+                let wall_left = curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall;
+                let wall_above = curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall;
+                let wall_right = curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall;
+                let wall_down = curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall;
+
+                can_move = (curr_x != 0 || curr_y != 0) || (wall_left && grid[curr_x - 1][curr_y].tag != next_tag) || 
+                    (wall_above && grid[curr_x][curr_y + 1].tag != next_tag) || (wall_right && grid[curr_x + 1][curr_y].tag != next_tag) || 
+                    (wall_down && grid[curr_x][curr_y - 1].tag != next_tag);
+                    
+                counter += 1;
+        
+                grid[curr_x][curr_y].is_connected = true;
+                grid[curr_x][curr_y].tag = next_tag;
+                if direction == 0 {
+                    if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
+                        curr_x -= 1;
+                        direction = 3;
                     }
-                    else if grid_j == 0 && maze.grid[i][j].west_edge.is_wall {
-                        if grid_i == total_cell_length / 2 + 1 || 
-                            grid_i == total_cell_length / 2 || 
-                            grid_i == total_cell_length / 2 - 1 {
-                            output[i * total_cell_length + grid_i].push('d');
-                        } else {
-                            output[i * total_cell_length + grid_i].push('w');
-                        }
+                    else if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
+                        curr_y += 1;
+                        direction = 0;
                     }
-                    else if grid_i == total_cell_length - 1 && maze.grid[i][j].south_edge.is_wall {
-                        if grid_j == total_cell_length / 2 + 1 || 
-                            grid_j == total_cell_length / 2 || 
-                            grid_j == total_cell_length / 2 - 1 {
-                            output[i * total_cell_length + grid_i].push('d');
-                        } else {
-                            output[i * total_cell_length + grid_i].push('w');
-                        }
+                    else if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
+                        curr_x += 1;
+                        direction = 1;
                     }
-                    else if grid_j == total_cell_length - 1 && maze.grid[i][j].east_edge.is_wall {
-                        if grid_i == total_cell_length / 2 + 1 || 
-                            grid_i == total_cell_length / 2 || 
-                            grid_i == total_cell_length / 2 - 1 {
-                            output[i * total_cell_length + grid_i].push('d');
-                        } else {
-                            output[i * total_cell_length + grid_i].push('w');
-                        }
-                    } 
                     else {
-                        output[i * total_cell_length + grid_i].push('o');
-                    }    
+                        curr_y -= 1;
+                        direction = 2;
+                    }
+                }
+                else if direction == 1 {
+                    if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
+                        curr_y += 1;
+                        direction = 0;
+                    }
+                    else if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
+                        curr_x += 1;
+                        direction = 1;
+                    }
+                    else if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
+                        curr_y -= 1;
+                        direction = 2;
+                    }
+                    else {
+                        curr_x -= 1;
+                        direction = 3;
+                    }
+                }
+                else if direction == 2 {
+                    if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
+                        curr_x += 1;
+                        direction = 1;
+                    }
+                    else if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
+                        curr_y -= 1;
+                        direction = 2;
+                    }
+                    else if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
+                        curr_x -= 1;
+                        direction = 3;
+                    }
+                    else {
+                        curr_y += 1;
+                        direction = 0;
+                    }
+                }
+                else {
+                    if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
+                        curr_y -= 1;
+                        direction = 2;
+                    }
+                    else if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
+                        curr_x -= 1;
+                        direction = 3;
+                    }
+                    else if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
+                        curr_y += 1;
+                        direction = 0;
+                    }
+                    else {
+                        curr_x += 1;
+                        direction = 1;
+                    }
                 }
             }
+
+            next_tag += 1;
         }
     }
 
+    next_tag
+}
+
+fn add_player_exit(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize) {
     let mut rng = rand::rng();
-    let dist_from_wall = CELL_WIDTH / 4 + EDGE_WIDTH;
+    let starting_x = (CELL_WIDTH + EDGE_WIDTH) / 2;
+    let starting_y = (CELL_WIDTH + EDGE_WIDTH) / 2;
+    grid[starting_x][starting_y].is_player = true;
 
-    let start_position;
-    if rng.random_range(0..2) == 1 {
-        start_position = total_cell_length - dist_from_wall;
-    } else {
-        start_position = dist_from_wall;
-    }
+    let ending = rng.random_range(0..4);
 
-    let end_position;
-    if rng.random_range(0..2) == 1 {
-        end_position = total_cell_length - dist_from_wall;
-    } else {
-        end_position = dist_from_wall;
+    if ending == 0 {
+        let ending_x = (CELL_WIDTH + EDGE_WIDTH) / 2;
+        let ending_y = (grid_length - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
+        grid[ending_x][ending_y].is_end = true;
     }
-
-    if maze.grid[maze.start_y][maze.start_x].north_edge.is_starting_edge {
-        output[maze.start_y * total_cell_length][maze.start_x * total_cell_length + start_position] = 's';
-        output[maze.start_y * total_cell_length + 1][maze.start_x * total_cell_length + start_position] = 'p';
+    else if ending == 1 {
+        let ending_x = (grid_width - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
+        let ending_y = (CELL_WIDTH + EDGE_WIDTH) / 2;
+        grid[ending_x][ending_y].is_end = true;
     }
-    else if maze.grid[maze.start_y][maze.start_x].east_edge.is_starting_edge {
-        output[maze.start_y * total_cell_length + start_position][(maze.start_x + 1) * total_cell_length - 1] = 's';
-        output[maze.start_y * total_cell_length + start_position][(maze.start_x + 1) * total_cell_length - 2] = 'p';
-    }
-    else if maze.grid[maze.start_y][maze.start_x].south_edge.is_starting_edge {
-        output[(maze.start_y + 1) * total_cell_length - 1][maze.start_x * total_cell_length + start_position] = 's';
-        output[(maze.start_y + 1) * total_cell_length - 2][maze.start_x * total_cell_length + start_position] = 'p';
+    else if ending == 2 {
+        let ending_x = (grid_width - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
+        let ending_y = (grid_length - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
+        grid[ending_x][ending_y].is_end = true;
     }
     else {
-        output[maze.start_y * total_cell_length + start_position][maze.start_x * total_cell_length] = 's';
-        output[maze.start_y * total_cell_length + start_position][maze.start_x * total_cell_length + 1] = 'p';
+        let ending_x = ((grid_width - 1) / 2) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
+        let ending_y = ((grid_length - 1) / 2) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
+        grid[ending_x][ending_y].is_end = true;
     }
+}
 
-    if maze.grid[maze.end_y][maze.end_x].north_edge.is_ending_edge {
-        output[maze.end_y * total_cell_length][maze.end_x * total_cell_length + end_position] = 'e';
-    }
-    else if maze.grid[maze.end_y][maze.end_x].east_edge.is_ending_edge {
-        output[maze.end_y * total_cell_length + end_position][(maze.end_x + 1) * total_cell_length - 1] = 'e';
-    }
-    else if maze.grid[maze.end_y][maze.end_x].south_edge.is_ending_edge {
-        output[(maze.end_y + 1) * total_cell_length - 1][maze.end_x * total_cell_length + end_position] = 'e';
-    }
-    else {
-        output[maze.end_y * total_cell_length + end_position][maze.end_x * total_cell_length] = 'e';
+fn create_output_vec(grid: Vec<Vec<Cell>>) -> Vec<Vec<char>> {
+    let mut output:Vec<Vec<char>> = vec![vec![]];
+
+    let vec_width:usize = grid.len();
+    let vec_length:usize = grid[0].len();
+    for i in 0..vec_width {
+        if i != 0 {
+            output.push(vec![]);
+        }
+        for j in 0..vec_length {
+            let value = grid[i][j];
+
+            if value.is_player {
+                output[i].push('p');
+            }
+            else if value.is_end {
+                output[i].push('e');
+            }
+            else if value.is_wall {
+                output[i].push('w');
+            }
+            else {
+                output[i].push('o');
+            }
+
+            //output[i].push(value.tag);
+        }
     }
 
     output
 
 }
 
-fn print_output(output: Vec<Vec<char>>, grid_length: usize, grid_width: usize) {
-    let array_length:usize = (CELL_WIDTH + 2 * EDGE_WIDTH) * grid_length;
-    let array_width:usize = (CELL_WIDTH + 2 * EDGE_WIDTH) * grid_width;
-    for i in 0..array_length {
-        for j in 0..array_width {
+fn print_output(output: Vec<Vec<char>>) {
+    let array_width:usize = output.len();
+    let array_length:usize = output[0].len();
+    for i in 0..array_width {
+        for j in 0..array_length {
             let value = output[i][j];
             print!("{value}");
         }
