@@ -15,9 +15,12 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec3 fragNormal;
 layout(location = 2) out vec2 fragTexCoord;
+layout(location = 3) out float fragDepth;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.world * vec4(inPosition, 1.0);
+    vec4 inter = ubo.view * ubo.world * vec4(inPosition, 1.0);
+    fragDepth = inter.z;
+    gl_Position = ubo.proj * inter;
     fragColor = ubo.color;
     fragNormal = normalize(mat3(transpose(inverse(ubo.world))) * inNormal);
     fragTexCoord = inTexCoord;

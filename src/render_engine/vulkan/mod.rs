@@ -1115,6 +1115,8 @@ const fn get_vk_for_winit_physical_key(key_code: PhysicalKey) -> VirtualKey {
         PhysicalKey::Code(KeyCode::KeyY) => VirtualKey::Y,
         PhysicalKey::Code(KeyCode::KeyZ) => VirtualKey::Z,
         PhysicalKey::Code(KeyCode::Escape) => VirtualKey::Escape,
+        PhysicalKey::Code(KeyCode::ShiftLeft) => VirtualKey::Shift,
+        PhysicalKey::Code(KeyCode::ShiftRight) => VirtualKey::Shift,
         _ => VirtualKey::Unknown,
     }
 }
@@ -1128,6 +1130,7 @@ fn get_vk_for_winit_logical_key(named_key: Key) -> VirtualKey {
         Key::Named(NamedKey::ArrowDown) => VirtualKey::Down,
         Key::Named(NamedKey::ArrowRight) => VirtualKey::Right,
         Key::Named(NamedKey::Escape) => VirtualKey::Escape,
+        Key::Named(NamedKey::Shift) => VirtualKey::Shift,
         _ => VirtualKey::Unknown,
     }
 }

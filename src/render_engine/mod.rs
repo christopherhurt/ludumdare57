@@ -115,6 +115,7 @@ pub enum VirtualKey {
     Down,
     Right,
     Escape,
+    Shift,
 }
 
 #[derive(Debug, Clone, Copy, EnumCount, EnumIter, Eq, Hash, PartialEq)]

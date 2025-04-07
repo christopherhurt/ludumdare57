@@ -92,13 +92,13 @@ fn init_render_engine() -> Result<VulkanRenderEngine> {
     let window_props = WindowInitProps {
         width: 1600,
         height: 1200,
-        title: String::from("My Cool Game"), // TODO: make this the game name
+        title: String::from("Ludum Dare 57"), // TODO: make this the game name
         is_resizable: true,
     };
 
     let render_engine_props = RenderEngineInitProps {
         debug_enabled: true,
-        clear_color: Color::rgb(0.25, 0.0, 0.0),
+        clear_color: Color::rgb(0.0, 0.0, 0.0),
         window_props,
     };
 
@@ -456,7 +456,7 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
 
         if rng.random_range(0.0..1.0) < player.spawn_chance {
             const MIN_DISTANCE_FROM_PLAYER: f32 = 60.0;
-            const MAX_DISTANCE_FROM_PLAYER: f32 = 300.0; // TODO: increase 250.0?
+            const MAX_DISTANCE_FROM_PLAYER: f32 = 300.0;
 
             let mut rel_spawn_x = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
             let mut rel_spawn_z = rng.random_range(MIN_DISTANCE_FROM_PLAYER..MAX_DISTANCE_FROM_PLAYER);
@@ -494,7 +494,7 @@ const SPAWN_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
 
                 if current_baddie_count < player.baddie_cap {
                     const BADDIE_SIZE: f32 = 16.0;
-                    const BADDIE_ANIMATION_SPEED: f32 = 0.3;
+                    const BADDIE_ANIMATION_SPEED: f32 = 0.15;
 
                     let rot_ang = rng.random_range(0.0..(std::f32::consts::PI * 2.0));
 
@@ -564,7 +564,7 @@ const MOVE_BADDIE: System = |entites: Iter<Entity>, components: &ComponentManage
     let time_delta = entites.clone().find_map(|e| components.get_component::<TimeDelta>(e)).unwrap();
     let delta_sec = time_delta.since_last_frame.as_secs_f32();
 
-    const BADDIE_SPEED: f32 = 30.0;
+    const BADDIE_SPEED: f32 = 45.0;
 
     for e in entites {
         if let Some(baddie) = components.get_component::<Baddie>(e) {
@@ -651,7 +651,7 @@ const DAMAGE_PLAYER: System = |entites: Iter<Entity>, components: &ComponentMana
     let player = entites.clone().find_map(|e| components.get_mut_component::<Player>(e)).unwrap();
     let level_loader = entites.clone().find_map(|e| components.get_mut_component::<LevelLoader>(e)).unwrap();
 
-    const HEALTH_PER_BADDIE: u32 = 25;
+    const HEALTH_PER_BADDIE: u32 = 20;
     const DAMAGE_DISTANCE: f32 = 8.0;
 
     for e in entites {
@@ -746,7 +746,7 @@ const SHOOT_BADDIES: System = |entites: Iter<Entity>, components: &ComponentMana
 
                     let mut rng = rand::rng();
 
-                    let fly_angle = 20.0_f32.to_radians();
+                    let fly_angle = 20.0_f64.to_radians();
                     let actual_angle = rng.random_range(-fly_angle..fly_angle);
 
                     const XZ_SPEED: f32 = 75.0;
@@ -851,7 +851,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         }
 
         // 'd' - open space, 'w' - wall, 'p' - player, 's' - starting door (unused, place wall), 'e' - exit (ladder)
-        let maze_data = create_maze_vector((level_loader.next_level_id + 4).pow(2));
+        let maze_data = create_maze_vector((4 + level_loader.next_level_id).pow(2));
         let level_dim_x: usize = maze_data.len();
         let level_dim_z: usize = maze_data[0].len();
 
@@ -860,7 +860,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         let player_z_pos = CUBE_SIZE * (player_z as f32 - (level_dim_z as f32 - 1.0) / 2.0);
 
         let cam_pos = vec3(player_x_pos, 0.0, player_z_pos);
-        let cam_forward = -VEC_3_Z_AXIS; // TODO load from level/level ID
+        let cam_forward = -VEC_3_Z_AXIS;
 
         let cam = Camera::new(cam_pos, cam_forward, VEC_3_Y_AXIS, 70.0_f32.to_radians());
         let viewport = Viewport2D::new(cam, VEC_2_ZERO, vec2(1.0, 1.0));
@@ -903,7 +903,7 @@ const LOAD_LEVEL: System = |entites: Iter<Entity>, components: &ComponentManager
         const MAX_HEALTH: u32 = 100;
         const MAX_AMMO: usize = 12;
 
-        let spawn_chance = 0.03 + 0.01 * (level_loader.next_level_id as f32);
+        let spawn_chance = 0.025 + 0.008 * (level_loader.next_level_id as f32);
         let baddie_cap = 20 + 10 * (level_loader.next_level_id);
 
         let player = if level_loader.next_level_id == 0 {
@@ -1153,7 +1153,8 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
 
     const PLAYER_GRAVITY: f32 = -40.0;
     const MIN_PLAYER_HEIGHT: f32 = 15.0;
-    const JUMP_VEL: f32 = 20.0;
+    const JUMP_VEL: f32 = 30.0;
+    const SPRINT_MUL: f32 = 1.4;
 
     player.y_vel += PLAYER_GRAVITY * delta_sec;
 
@@ -1178,23 +1179,27 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 move_dir -= move_right;
             }
 
-            let move_speed = 25.0 * delta_sec;
+            let mut move_speed = 25.0 * delta_sec;
+            if window.is_key_down(VirtualKey::Shift) {
+                move_speed *= SPRINT_MUL;
+            }
+
             if let Ok(dir) = move_dir.normalized() {
                 cam.pos += dir * move_speed;
             }
 
-            let rot_speed = (15.0 * delta_sec).to_radians();
+            let rot_speed = (30.0 * delta_sec as f64).to_radians();
             if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
-                let max_rot = VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.1;
-                let min_rot = -(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.1;
+                let max_rot = (VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.1) as f64;
+                let min_rot = (-(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.1) as f64;
 
-                let rot_amt = (rot_speed * -cursor_manager.cursor_delta.y).min(max_rot).max(min_rot);
+                let rot_amt = (rot_speed * -cursor_manager.cursor_delta.y as f64).min(max_rot).max(min_rot);
 
                 cam.dir = cam.dir.rotated(&cam_right_norm, rot_amt).unwrap().normalized().unwrap();
                 cam.up = cam_right_norm.cross(&cam.dir).normalized().unwrap();
             }
             if cursor_manager.cursor_delta.x.abs() > f32::EPSILON {
-                let rot_amt = rot_speed * -cursor_manager.cursor_delta.x;
+                let rot_amt = rot_speed * -cursor_manager.cursor_delta.x as f64;
 
                 cam.dir = cam.dir.rotated(&VEC_3_Y_AXIS, rot_amt).unwrap().normalized().unwrap();
 
