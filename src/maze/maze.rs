@@ -2,18 +2,18 @@ use rand::prelude::*;
 
 const CELL_WIDTH: usize = 5;
 const EDGE_WIDTH: usize = 1;
-const MIN_GRID_LENGTH: usize = 6;
+const MIN_SIDE_LENGTH: usize = 6;
 
 fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
     let grid_width;
 
-    if maze_area < MIN_GRID_LENGTH * MIN_GRID_LENGTH {
-        grid_length = MIN_GRID_LENGTH;
-        grid_width = MIN_GRID_LENGTH;
+    if maze_area < MIN_SIDE_LENGTH * MIN_SIDE_LENGTH {
+        grid_length = MIN_SIDE_LENGTH;
+        grid_width = MIN_SIDE_LENGTH;
     } else {
         let mut rng = rand::rng();
-        grid_length = rng.random_range(MIN_GRID_LENGTH..(maze_area / MIN_GRID_LENGTH + 1));
+        grid_length = rng.random_range(MIN_SIDE_LENGTH..(maze_area / MIN_SIDE_LENGTH + 1));
         grid_width = maze_area / grid_length;
     }
 
@@ -21,8 +21,6 @@ fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     add_edges(&mut maze, grid_width, grid_length);
     add_player_exit(&mut maze, grid_width, grid_length);
     let output = create_output_vec(maze);
-
-    //print_output(output);
 
     output
 }
@@ -350,18 +348,47 @@ fn add_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize) {
 
 fn tag_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize, mut next_tag: usize) -> usize {
     // tag starting at 0,0 with next_tag
-    let vec_width:usize = grid.len();
-    let vec_length:usize = grid[0].len();
     let mut curr_x = 0;
     let mut curr_y = 0;
+
+    traverse_edge(grid, curr_x, curr_y, next_tag);
+
+    next_tag += 1;
+
+    // for loop through all edge indices and tag with next tag
+    let edge_width = grid_width - 1;
+    let edge_length = grid_length - 1;
+    let edge_distance = CELL_WIDTH + EDGE_WIDTH;
+
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            let edge_start_x = i * edge_distance;
+            let edge_start_y = j * edge_distance;
+            curr_x = i * edge_distance;
+            curr_y = j * edge_distance;
+
+            if !grid[edge_start_x][edge_start_y].is_wall || grid[edge_start_x][edge_start_y].tag == next_tag - 1 {
+                continue;
+            }
+
+            traverse_edge(grid, curr_x, curr_y, next_tag);
+
+            next_tag += 1;
+        }
+    }
+
+    next_tag
+}
+
+fn traverse_edge(grid: &mut Vec<Vec<Cell>>, mut curr_x: usize, mut curr_y: usize, next_tag: usize) {
+    let vec_width:usize = grid.len();
+    let vec_length:usize = grid[0].len();
     let mut direction = 0; // 0: north, 1: east, 2: south, 3 west
     let mut counter = 0;
     let max_tags = 100000;
     let mut can_move = true;
 
     while can_move && counter < max_tags {
-        counter += 1;
-
         let wall_left = curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall;
         let wall_above = curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall;
         let wall_right = curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall;
@@ -370,6 +397,8 @@ fn tag_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize, m
         can_move = (curr_x != 0 || curr_y != 0) || (wall_left && grid[curr_x - 1][curr_y].tag != next_tag) || 
             (wall_above && grid[curr_x][curr_y + 1].tag != next_tag) || (wall_right && grid[curr_x + 1][curr_y].tag != next_tag) || 
             (wall_down && grid[curr_x][curr_y - 1].tag != next_tag);
+            
+        counter += 1;
 
         grid[curr_x][curr_y].is_connected = true;
         grid[curr_x][curr_y].tag = next_tag;
@@ -447,120 +476,6 @@ fn tag_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize, m
         }
     }
 
-    next_tag += 1;
-
-    // for loop through all edge indices and tag with next tag
-    let edge_width = grid_width - 1;
-    let edge_length = grid_length - 1;
-    let edge_distance = CELL_WIDTH + EDGE_WIDTH;
-
-    for i in 1..(edge_width + 1) {
-        for j in 1..(edge_length + 1) {
-            let edge_start_x = i * edge_distance;
-            let edge_start_y = j * edge_distance;
-            curr_x = i * edge_distance;
-            curr_y = j * edge_distance;
-            can_move = true;
-
-            if !grid[edge_start_x][edge_start_y].is_wall || grid[edge_start_x][edge_start_y].tag == next_tag - 1 {
-                continue;
-            }
-
-            counter = 0;
-
-            while can_move && counter < max_tags {
-                let wall_left = curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall;
-                let wall_above = curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall;
-                let wall_right = curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall;
-                let wall_down = curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall;
-
-                can_move = (curr_x != 0 || curr_y != 0) || (wall_left && grid[curr_x - 1][curr_y].tag != next_tag) || 
-                    (wall_above && grid[curr_x][curr_y + 1].tag != next_tag) || (wall_right && grid[curr_x + 1][curr_y].tag != next_tag) || 
-                    (wall_down && grid[curr_x][curr_y - 1].tag != next_tag);
-                    
-                counter += 1;
-        
-                grid[curr_x][curr_y].is_connected = true;
-                grid[curr_x][curr_y].tag = next_tag;
-                if direction == 0 {
-                    if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
-                        curr_x -= 1;
-                        direction = 3;
-                    }
-                    else if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
-                        curr_y += 1;
-                        direction = 0;
-                    }
-                    else if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
-                        curr_x += 1;
-                        direction = 1;
-                    }
-                    else {
-                        curr_y -= 1;
-                        direction = 2;
-                    }
-                }
-                else if direction == 1 {
-                    if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
-                        curr_y += 1;
-                        direction = 0;
-                    }
-                    else if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
-                        curr_x += 1;
-                        direction = 1;
-                    }
-                    else if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
-                        curr_y -= 1;
-                        direction = 2;
-                    }
-                    else {
-                        curr_x -= 1;
-                        direction = 3;
-                    }
-                }
-                else if direction == 2 {
-                    if curr_x + 1 < vec_width && grid[curr_x + 1][curr_y].is_wall {
-                        curr_x += 1;
-                        direction = 1;
-                    }
-                    else if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
-                        curr_y -= 1;
-                        direction = 2;
-                    }
-                    else if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
-                        curr_x -= 1;
-                        direction = 3;
-                    }
-                    else {
-                        curr_y += 1;
-                        direction = 0;
-                    }
-                }
-                else {
-                    if curr_y > 0 && curr_y - 1 < vec_length && grid[curr_x][curr_y - 1].is_wall {
-                        curr_y -= 1;
-                        direction = 2;
-                    }
-                    else if curr_x > 0 && curr_x - 1 < vec_width && grid[curr_x - 1][curr_y].is_wall {
-                        curr_x -= 1;
-                        direction = 3;
-                    }
-                    else if curr_y + 1 < vec_length && grid[curr_x][curr_y + 1].is_wall {
-                        curr_y += 1;
-                        direction = 0;
-                    }
-                    else {
-                        curr_x += 1;
-                        direction = 1;
-                    }
-                }
-            }
-
-            next_tag += 1;
-        }
-    }
-
-    next_tag
 }
 
 fn add_player_exit(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize) {
