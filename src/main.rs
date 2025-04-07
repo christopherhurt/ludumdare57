@@ -1188,7 +1188,7 @@ const MOVE_CAMERA: System = |entites: Iter<Entity>, components: &ComponentManage
                 cam.pos += dir * move_speed;
             }
 
-            let rot_speed = (30.0 * delta_sec as f64).to_radians();
+            let rot_speed = (0.03 as f64).to_radians();
             if cursor_manager.cursor_delta.y.abs() > f32::EPSILON {
                 let max_rot = (VEC_3_Y_AXIS.angle_rads_from(&cam.dir).unwrap() - 0.1) as f64;
                 let min_rot = (-(-VEC_3_Y_AXIS).angle_rads_from(&cam.dir).unwrap() + 0.1) as f64;
