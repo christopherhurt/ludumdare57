@@ -166,7 +166,7 @@ impl VulkanContext {
 
         unsafe {
             let (vk_instance, debug_messenger) = create_vk_instance(&winit_window, &entry, init_properties.debug_enabled)
-                .unwrap_or_else(|_| panic!("Failed to create Vulkan instance!"));
+                .unwrap_or_else(|e| panic!("Failed to create Vulkan instance: {:?}", e));
 
             let surface = vk_window::create_surface(&vk_instance, &winit_window, &winit_window).unwrap_or_else(|_| panic!("Failed to create surface"));
 
