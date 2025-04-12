@@ -4,13 +4,13 @@ use rand::seq::SliceRandom;
 
 const CELL_WIDTH: usize = 5;
 const EDGE_WIDTH: usize = 1;
-const MIN_SIDE_LENGTH: usize = 7;
+const MIN_SIDE_LENGTH: usize = 4;
 
 pub fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
     let grid_width;
 
-    if maze_area < MIN_SIDE_LENGTH * MIN_SIDE_LENGTH {
+    if maze_area <= MIN_SIDE_LENGTH.pow(2) {
         grid_length = MIN_SIDE_LENGTH;
         grid_width = MIN_SIDE_LENGTH;
     } else {
@@ -135,6 +135,22 @@ fn add_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize) {
     }
 
     // Add horizontal edges
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            add_edge(grid, i, j, edge_distance, true);
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
+
+    // Add vertical edges again
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            add_edge(grid, i, j, edge_distance, false);
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
+
+    // Add horizontal edges again
     for i in 1..(edge_width + 1) {
         for j in 1..(edge_length + 1) {
             add_edge(grid, i, j, edge_distance, true);
