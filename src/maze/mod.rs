@@ -4,7 +4,7 @@ use rand::seq::SliceRandom;
 
 const CELL_WIDTH: usize = 5;
 const EDGE_WIDTH: usize = 1;
-const MIN_SIDE_LENGTH: usize = 6;
+const MIN_SIDE_LENGTH: usize = 7;
 
 fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
@@ -233,7 +233,7 @@ fn add_edge(grid: &mut Vec<Vec<Cell>>, start_x: usize, start_y: usize, edge_dist
                     grid[index][edge_start_y].tag = tag;
                 }
             } else {
-                for index in edge_end_y..edge_start_y + 1 {
+                for index in edge_end_x..edge_start_x + 1 {
                     grid[index][edge_start_y].is_wall = true;
                     grid[index][edge_start_y].is_connected = hit_wall;
                     grid[index][edge_start_y].tag = tag;
