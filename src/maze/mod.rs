@@ -1,14 +1,16 @@
 use rand::prelude::*;
+use rand::rng;
+use rand::seq::SliceRandom;
 
 const CELL_WIDTH: usize = 5;
 const EDGE_WIDTH: usize = 1;
-const MIN_SIDE_LENGTH: usize = 6;
+const MIN_SIDE_LENGTH: usize = 4;
 
 pub fn create_maze_vector(maze_area: usize) -> Vec<Vec<char>> {
     let grid_length;
     let grid_width;
 
-    if maze_area < MIN_SIDE_LENGTH * MIN_SIDE_LENGTH {
+    if maze_area <= MIN_SIDE_LENGTH.pow(2) {
         grid_length = MIN_SIDE_LENGTH;
         grid_width = MIN_SIDE_LENGTH;
     } else {
@@ -99,249 +101,160 @@ fn init_grid(grid_width: usize, grid_length: usize) -> Vec<Vec<Cell>> {
 }
 
 fn add_edges(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: usize) {
-    let mut rng = rand::rng();
-
     let mut next_tag = 2;
     
     let edge_width = grid_width - 1;
     let edge_length = grid_length - 1;
     let edge_distance = CELL_WIDTH + EDGE_WIDTH;
 
-    // Add vertical edges
+    let mut edge_coordinates: Vec<(usize, usize)> = vec![(1, 1)];
     for i in 1..(edge_width + 1) {
         for j in 1..(edge_length + 1) {
-            let mut is_up = rng.random_range(0..2) == 1;
-            //let mut is_up = true;
-            let length = rng.random_range(0..2);
-            //let length = 1;
-            let mut leftover_length = length;
-
-            let edge_x = i * edge_distance;
-            let edge_start_y = j * edge_distance;
-            let mut upd_edge_start_y = edge_start_y;
-            let mut edge_end_y = edge_start_y;
-            let mut hit_wall = false;
-            let mut tag = grid[edge_x][edge_start_y].tag;
-
-            if is_up {
-                for index in 1..length + 1 {
-                    let curr_tag = grid[edge_x][edge_start_y + index * edge_distance].tag;
-                    if curr_tag > 0 && curr_tag == tag {
-                        edge_end_y = edge_start_y + (index - 1) * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        is_up = !is_up;
-                        break;
-                    }
-                    else if grid[edge_x][edge_start_y + index * edge_distance].is_outer_edge {
-                        edge_end_y = edge_start_y + index * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        tag = curr_tag;
-                        is_up = !is_up;
-                        break;
-                    }
-                }
-            } else {
-                for index in 1..length + 1 {
-                    let curr_tag = grid[edge_x][edge_start_y - index * edge_distance].tag;
-                    if curr_tag > 0 && curr_tag == tag {
-                        edge_end_y = edge_start_y - (index - 1) * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        is_up = !is_up;
-                        break;
-                    }
-                    else if grid[edge_x][edge_start_y - index * edge_distance].is_outer_edge {
-                        edge_end_y = edge_start_y - index * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        tag = curr_tag;
-                        is_up = !is_up;
-                        break;
-                    }
-                }
+            if i == 1 && j == 1 {
+                continue;
             }
-
-            if hit_wall {
-                if is_up {
-                    for index in 1..leftover_length + 1 {
-                        let curr_tag = grid[edge_x][edge_start_y + index * edge_distance].tag;
-                        if curr_tag > 0 && curr_tag == tag {
-                            upd_edge_start_y = edge_start_y + (index - 1) * edge_distance;
-                            break;
-                        }
-                        else if grid[edge_x][edge_start_y + index * edge_distance].is_outer_edge {
-                            upd_edge_start_y = edge_start_y + index * edge_distance;
-                            tag = curr_tag;
-                            break;
-                        }
-                        else {
-                            upd_edge_start_y = edge_start_y + index * edge_distance;
-                        }
-                    }
-                } else {
-                    for index in 1..leftover_length + 1 {
-                        let curr_tag = grid[edge_x][edge_start_y - index * edge_distance].tag;
-                        if curr_tag > 0 && curr_tag == tag {
-                            upd_edge_start_y = edge_start_y - (index - 1) * edge_distance;
-                            break;
-                        }
-                        else if grid[edge_x][edge_start_y - index * edge_distance].is_outer_edge {
-                            upd_edge_start_y = edge_start_y - index * edge_distance;
-                            tag = curr_tag;
-                            break;
-                        }
-                        else {
-                            upd_edge_start_y = edge_start_y - index * edge_distance;
-                        }
-                    }
-                }
-            } 
-            else {
-                if is_up {
-                    edge_end_y += length * edge_distance;
-                } else {
-                    edge_end_y -= length * edge_distance;
-                }
-            }
-
-            if upd_edge_start_y != edge_end_y {
-                if upd_edge_start_y < edge_end_y {
-                    for index in upd_edge_start_y..edge_end_y + 1 {
-                        grid[edge_x][index].is_wall = true;
-                        grid[edge_x][index].is_connected = hit_wall;
-                        grid[edge_x][index].tag = tag;
-                    }
-                } else {
-                    for index in edge_end_y..upd_edge_start_y + 1 {
-                        grid[edge_x][index].is_wall = true;
-                        grid[edge_x][index].is_connected = hit_wall;
-                        grid[edge_x][index].tag = tag;
-                    }
-                }
-            }
-
-            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+            edge_coordinates.push((i, j));
         }
+    }
+    edge_coordinates.shuffle(&mut rng());
+
+    // Add random edges
+    let mut counter = 0;
+    for coordinate in 0..edge_coordinates.len() {
+        add_edge(grid, edge_coordinates[coordinate].0, edge_coordinates[coordinate].1, edge_distance, counter % 2 == 0);
+        next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        counter += 1;
     }
 
     // Add vertical edges
     for i in 1..(edge_width + 1) {
         for j in 1..(edge_length + 1) {
-            let mut is_up = rng.random_range(0..2) == 1;
-            //let mut is_up = true;
-            let length = rng.random_range(0..2);
-            //let length = 1;
-            let mut leftover_length = length;
+            add_edge(grid, i, j, edge_distance, false);
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
 
-            let edge_start_x = i * edge_distance;
-            let mut upd_edge_start_x = edge_start_x;
-            let mut edge_end_x = edge_start_x;
-            let edge_y = j * edge_distance;
-            let mut hit_wall = false;
-            let mut tag = grid[edge_start_x][edge_y].tag;
+    // Add horizontal edges
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            add_edge(grid, i, j, edge_distance, true);
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
 
+    // Add vertical edges again
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            add_edge(grid, i, j, edge_distance, false);
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
+
+    // Add horizontal edges again
+    for i in 1..(edge_width + 1) {
+        for j in 1..(edge_length + 1) {
+            add_edge(grid, i, j, edge_distance, true);
+            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
+        }
+    }
+}
+
+fn add_edge(grid: &mut Vec<Vec<Cell>>, start_x: usize, start_y: usize, edge_distance: usize, is_vertical: bool) {
+    let mut rng = rand::rng();
+    let mut is_up = rng.random_range(0..2) == 1;
+
+    let edge_start_x = start_x * edge_distance;
+    let mut edge_end_x = edge_start_x;
+    let edge_start_y = start_y * edge_distance;
+    let mut edge_end_y = edge_start_y;
+    let mut hit_wall = false;
+    let mut tag = grid[edge_start_x][edge_start_y].tag;
+
+    let mut curr_tag;
+    if is_up { 
+        if is_vertical {
+            curr_tag = grid[edge_start_x][edge_start_y + edge_distance].tag;
+        } else {
+            curr_tag = grid[edge_start_x + edge_distance][edge_start_y].tag;
+        }
+    } else { 
+        if is_vertical {
+            curr_tag = grid[edge_start_x][edge_start_y - edge_distance].tag;
+        } else {
+            curr_tag = grid[edge_start_x - edge_distance][edge_start_y].tag;
+        }
+    }
+
+    if curr_tag > 0 && curr_tag == tag {
+        hit_wall = true;
+        is_up = !is_up;
+    } else {
+        if is_vertical {
+            edge_end_y = if is_up { edge_start_y + edge_distance } else { edge_start_y - edge_distance };
+        } else {
+            edge_end_x = if is_up { edge_start_x + edge_distance } else { edge_start_x - edge_distance };
+        }
+        tag = curr_tag;
+    }
+
+    if hit_wall {
+        if is_up { 
+            if is_vertical {
+                curr_tag = grid[edge_start_x][edge_start_y + edge_distance].tag;
+            } else {
+                curr_tag = grid[edge_start_x + edge_distance][edge_start_y].tag;
+            }
+        } else { 
+            if is_vertical {
+                curr_tag = grid[edge_start_x][edge_start_y - edge_distance].tag;
+            } else {
+                curr_tag = grid[edge_start_x - edge_distance][edge_start_y].tag;
+            }
+        }
+    
+        if curr_tag > 0 && curr_tag == tag {
+            hit_wall = true;
+        } else {
+            if is_vertical {
+                edge_end_y = if is_up { edge_start_y + edge_distance } else { edge_start_y - edge_distance };
+            } else {
+                edge_end_x = if is_up { edge_start_x + edge_distance } else { edge_start_x - edge_distance };
+            }
+            tag = curr_tag;
+        }
+    }
+
+    if is_vertical {
+        if edge_start_y != edge_end_y {
             if is_up {
-                for index in 1..length + 1 {
-                    let curr_tag = grid[edge_start_x + index * edge_distance][edge_y].tag;
-                    if curr_tag > 0 && curr_tag == tag {
-                        edge_end_x = edge_start_x + (index - 1) * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        is_up = !is_up;
-                        break;
-                    }
-                    else if grid[edge_start_x + index * edge_distance][edge_y].is_outer_edge {
-                        edge_end_x = edge_start_x + index * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        tag = curr_tag;
-                        is_up = !is_up;
-                        break;
-                    }
+                for index in edge_start_y..edge_end_y + 1 {
+                    grid[edge_start_x][index].is_wall = true;
+                    grid[edge_start_x][index].is_connected = hit_wall;
+                    grid[edge_start_x][index].tag = tag;
                 }
             } else {
-                for index in 1..length + 1 {
-                    let curr_tag = grid[edge_start_x - index * edge_distance][edge_y].tag;
-                    if curr_tag > 0 && curr_tag == tag {
-                        edge_end_x = edge_start_x - (index - 1) * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        is_up = !is_up;
-                        break;
-                    }
-                    else if grid[edge_start_x - index * edge_distance][edge_y].is_outer_edge {
-                        edge_end_x = edge_start_x - index * edge_distance;
-                        leftover_length = length - index;
-                        hit_wall = true;
-                        tag = curr_tag;
-                        is_up = !is_up;
-                        break;
-                    }
+                for index in edge_end_y..edge_start_y + 1 {
+                    grid[edge_start_x][index].is_wall = true;
+                    grid[edge_start_x][index].is_connected = hit_wall;
+                    grid[edge_start_x][index].tag = tag;
                 }
             }
-
-            if hit_wall {
-                if is_up {
-                    for index in 1..leftover_length + 1 {
-                        let curr_tag = grid[edge_start_x + index * edge_distance][edge_y].tag;
-                        if curr_tag > 0 && curr_tag == tag {
-                            upd_edge_start_x = edge_start_x + (index - 1) * edge_distance;
-                            break;
-                        }
-                        else if grid[edge_start_x + index * edge_distance][edge_y].is_outer_edge {
-                            upd_edge_start_x = edge_start_x + index * edge_distance;
-                            tag = curr_tag;
-                            break;
-                        }
-                        else {
-                            upd_edge_start_x = edge_start_x + index * edge_distance;
-                        }
-                    }
-                } else {
-                    for index in 1..leftover_length + 1 {
-                        let curr_tag = grid[edge_start_x - index * edge_distance][edge_y].tag;
-                        if curr_tag > 0 && curr_tag == tag {
-                            upd_edge_start_x = edge_start_x - (index - 1) * edge_distance;
-                            break;
-                        }
-                        else if grid[edge_start_x - index * edge_distance][edge_y].is_outer_edge {
-                            upd_edge_start_x = edge_start_x - index * edge_distance;
-                            tag = curr_tag;
-                            break;
-                        }
-                        else {
-                            upd_edge_start_x = edge_start_x - index * edge_distance;
-                        }
-                    }
+        }
+    } else {
+        if edge_start_x != edge_end_x {
+            if is_up {
+                for index in edge_start_x..edge_end_x + 1 {
+                    grid[index][edge_start_y].is_wall = true;
+                    grid[index][edge_start_y].is_connected = hit_wall;
+                    grid[index][edge_start_y].tag = tag;
                 }
-            } 
-            else {
-                if is_up {
-                    edge_end_x += length * edge_distance;
-                } else {
-                    edge_end_x -= length * edge_distance;
+            } else {
+                for index in edge_end_x..edge_start_x + 1 {
+                    grid[index][edge_start_y].is_wall = true;
+                    grid[index][edge_start_y].is_connected = hit_wall;
+                    grid[index][edge_start_y].tag = tag;
                 }
             }
-
-            if upd_edge_start_x != edge_end_x {
-                if upd_edge_start_x < edge_end_x {
-                    for index in upd_edge_start_x..edge_end_x + 1 {
-                        grid[index][edge_y].is_wall = true;
-                        grid[index][edge_y].is_connected = hit_wall;
-                        grid[index][edge_y].tag = tag;
-                    }
-                } else {
-                    for index in edge_end_x..upd_edge_start_x + 1 {
-                        grid[index][edge_y].is_wall = true;
-                        grid[index][edge_y].is_connected = hit_wall;
-                        grid[index][edge_y].tag = tag;
-                    }
-                }
-            }
-
-            next_tag = tag_edges(grid, grid_width, grid_length, next_tag);
         }
     }
 }
@@ -485,18 +398,39 @@ fn add_player_exit(grid: &mut Vec<Vec<Cell>>, grid_width: usize, grid_length: us
     grid[starting_x][starting_y].is_player = true;
 
     let ending = rng.random_range(0..4);
+    let mut has_wall = false;
 
     if ending == 0 {
         let ending_x = (CELL_WIDTH + EDGE_WIDTH) / 2;
         let ending_y = (grid_length - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
-        grid[ending_x][ending_y].is_end = true;
+        
+        for j in starting_y..ending_y {
+            if grid[ending_x][j].is_wall {
+                has_wall = true;
+                break;
+            }
+        }
+        if has_wall {
+            grid[ending_x][ending_y].is_end = true;
+            return;
+        }
     }
-    else if ending == 1 {
+    if ending == 1 {
         let ending_x = (grid_width - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
         let ending_y = (CELL_WIDTH + EDGE_WIDTH) / 2;
-        grid[ending_x][ending_y].is_end = true;
+
+        for i in starting_x..ending_x {
+            if grid[i][ending_y].is_wall {
+                has_wall = true;
+                break;
+            }
+        }
+        if has_wall {
+            grid[ending_x][ending_y].is_end = true;
+            return;
+        }
     }
-    else if ending == 2 {
+    if ending == 2 {
         let ending_x = (grid_width - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
         let ending_y = (grid_length - 1) * (CELL_WIDTH + EDGE_WIDTH) + (CELL_WIDTH + EDGE_WIDTH) / 2;
         grid[ending_x][ending_y].is_end = true;
